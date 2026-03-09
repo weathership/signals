@@ -1,0 +1,12 @@
+[book]
+authors = ["Ryan Hill"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Signals 360"
+
+[output.html]
+
+[preprocessor.d2]
+[preprocessor.katex]
+[preprocessor.mermaid]
