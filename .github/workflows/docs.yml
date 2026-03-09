@@ -52,11 +52,12 @@ jobs:
           # chmod +x mdbook-katex
           # sudo mv mdbook-katex /usr/local/bin/
 
-          # mdbook-mermaid
-          MDBOOK_MERMAID_VERSION="v0.14.0"
-          curl -sSL "https://github.com/badboy/mdbook-mermaid/releases/download/${MDBOOK_MERMAID_VERSION}/mdbook-mermaid-v0.14.0-x86_64-unknown-linux-gnu.tar.gz" | tar xz
-          chmod +x mdbook-mermaid
-          sudo mv mdbook-mermaid /usr/local/bin/
+          # mdbook-mermaid (disabled: parsing issues with mdbook 0.5.x)
+          # Re-enable when book.toml [preprocessor.mermaid] is uncommented
+          # MDBOOK_MERMAID_VERSION="v0.14.0"
+          # curl -sSL "https://github.com/badboy/mdbook-mermaid/releases/download/${MDBOOK_MERMAID_VERSION}/mdbook-mermaid-v0.14.0-x86_64-unknown-linux-gnu.tar.gz" | tar xz
+          # chmod +x mdbook-mermaid
+          # sudo mv mdbook-mermaid /usr/local/bin/
 
       - name: Build documentation
         run: |

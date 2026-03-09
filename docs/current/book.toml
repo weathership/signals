@@ -14,8 +14,10 @@ output-dir = "d2"
 # Re-enable when nixpkgs updates the package
 # [preprocessor.katex]
 
-[preprocessor.mermaid]
-command = "mdbook-mermaid"
+# Disabled: mdbook-mermaid has parsing issues with mdbook 0.5.x in CI
+# Re-enable when adding mermaid diagrams and a compatible version is available
+# [preprocessor.mermaid]
+# command = "mdbook-mermaid"
 
 [output.html]
 default-theme = "light"
