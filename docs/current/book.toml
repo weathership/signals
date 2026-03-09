@@ -1,12 +1,26 @@
 [book]
 authors = ["Ryan Hill"]
 language = "en"
-multilingual = false
 src = "src"
 title = "Signals 360"
 
-[output.html]
-
 [preprocessor.d2]
-[preprocessor.katex]
+path = "d2"
+layout = "elk"
+inline = false
+output-dir = "d2"
+
+# Disabled: mdbook-katex 0.9.4 (nixpkgs) incompatible with mdbook 0.5.2
+# Re-enable when nixpkgs updates the package
+# [preprocessor.katex]
+
 [preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html]
+default-theme = "light"
+additional-css = ["theme/custom.css"]
+additional-js = ["theme/diagrams.js"]
+
+[output.html.print]
+enable = true
