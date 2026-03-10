@@ -30,11 +30,29 @@ kinit signals    # password: signals
 klist
 ```
 
-## Common Tasks
+## Run BDD Scenarios
 
 ```bash
-devenv tasks run signals:kdc-init    # Initialize KDC
-devenv tasks run signals:kdc-reset   # Reset KDC database
-devenv tasks run docs:build          # Build documentation
-devenv tasks run docs:serve          # Serve docs with live reload
+# Dry run — verify feature parsing
+uv run behave --dry-run
+
+# Run Tier 0 scenarios (no services required)
+uv run behave --tags="not @db-required and not @kdc-required and not @engine-required and not @viz-required"
+
+# Run all (skips tiers with missing infrastructure)
+uv run behave
 ```
+
+## Build Documentation
+
+```bash
+devenv tasks run docs:build          # Build mdbook
+devenv tasks run docs:serve          # Serve with live reload
+```
+
+## Next Steps
+
+- [Scenarios Overview](./scenarios/overview.md) — the 6 core scenarios driving development
+- [Development Environment](./operations/devenv.md) — full task reference (k8s, aws, docs)
+- [Deployment Modes](./architecture/deployment.md) — laptop, workstation, hybrid, full AWS
+- [Infrastructure](./infrastructure/overview.md) — OpenTofu, Ansible, Zarf, Tilt, OPA
