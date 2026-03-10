@@ -1,0 +1,39 @@
+---
+# Signals Engine (gRPC server) deployment
+
+- name: Create signals-engine namespace
+  kubernetes.core.k8s:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ signals_engine_namespace }}"
+
+- name: Deploy Signals Engine
+  kubernetes.core.k8s:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    state: present
+    definition: "{{ lookup('template', 'engine-deployment.yaml.j2') | from_yaml_all | list }}"
+
+- name: Wait for Signals Engine to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    kind: Deployment
+    namespace: "{{ signals_engine_namespace }}"
+    name: signals-engine
+  register: engine_status
+  until: >
+    engine_status.resources | length > 0 and
+    engine_status.resources[0].status.readyReplicas | default(0) >= 1
+  retries: 30
+  delay: 10
+
+- name: Display Signals Engine info
+  debug:
+    msg: |
+      Signals Engine deployed successfully!
+
+      gRPC endpoint: signals-engine.{{ signals_engine_namespace }}.svc.cluster.local:{{ signals_engine_port }}
+      Replicas: {{ engine_status.resources[0].status.readyReplicas | default(0) }}/{{ signals_engine_replicas }}

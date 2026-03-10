@@ -1,0 +1,24 @@
+---
+# Group variables for all hosts
+
+# Project identification (must match Tofu var.project)
+project: "signals-360"
+
+# AWS region - fallback default. Actual region set by:
+# 1. aws:inventory task writes it to the inventory [all:vars] section
+# 2. aws:deploy* tasks pass it via -e "aws_region=..." from tofu state
+aws_region: "us-east-1"
+
+# RKE2 version
+rke2_version: "v1.34.3+rke2r1"
+
+# Dask configuration
+# 4 workers across 4x r6i.xlarge nodes (1 worker per node @ 8Gi each)
+dask_worker_replicas: 4
+dask_worker_memory_limit: "12Gi"
+dask_worker_memory_request: "8Gi"
+dask_image: "ghcr.io/dask/dask:latest"
+
+# Signals engine (gRPC)
+signals_engine_image: "signals-360/engine:latest"
+signals_engine_port: 50051

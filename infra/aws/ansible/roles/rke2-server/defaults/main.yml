@@ -1,0 +1,16 @@
+---
+# RKE2 server (control plane) defaults
+
+rke2_channel: stable
+rke2_cni: canal
+rke2_is_first_server: false
+
+# Disable default ingress controller (we use Cloudflare Tunnel)
+rke2_disable:
+  - rke2-ingress-nginx
+
+# TLS SANs for API server access
+rke2_tls_san:
+  - "{{ ansible_default_ipv4.address }}"
+  - "{{ inventory_hostname }}"
+  - "127.0.0.1"

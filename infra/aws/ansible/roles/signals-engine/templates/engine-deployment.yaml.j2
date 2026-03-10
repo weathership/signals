@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ signals_engine_namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signals-engine
+  namespace: {{ signals_engine_namespace }}
+  labels:
+    app: signals-engine
+spec:
+  replicas: {{ signals_engine_replicas }}
+  selector:
+    matchLabels:
+      app: signals-engine
+  template:
+    metadata:
+      labels:
+        app: signals-engine
+    spec:
+      containers:
+        - name: engine
+          image: {{ signals_engine_image }}
+          ports:
+            - containerPort: {{ signals_engine_port }}
+              name: grpc
+          resources:
+            limits:
+              memory: "{{ signals_engine_memory_limit }}"
+              cpu: "{{ signals_engine_cpu_limit }}"
+            requests:
+              memory: "{{ signals_engine_memory_request }}"
+              cpu: "{{ signals_engine_cpu_request }}"
+          readinessProbe:
+            grpc:
+              port: {{ signals_engine_port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            grpc:
+              port: {{ signals_engine_port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signals-engine
+  namespace: {{ signals_engine_namespace }}
+spec:
+  selector:
+    app: signals-engine
+  ports:
+    - name: grpc
+      port: {{ signals_engine_port }}
+      targetPort: {{ signals_engine_port }}
+  type: ClusterIP

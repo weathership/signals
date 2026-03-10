@@ -1,0 +1,81 @@
+---
+# Initialize Zarf on the cluster (internal registry)
+
+- name: Create hostPath directories for PVs
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0777'
+  loop:
+    - "{{ zarf_pv_host_path }}/registry"
+    - "{{ zarf_pv_host_path }}/gitea"
+
+- name: Create PersistentVolume for Zarf registry
+  kubernetes.core.k8s:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: zarf-registry-pv
+      spec:
+        capacity:
+          storage: "{{ zarf_pv_registry_size }}"
+        accessModes: [ReadWriteOnce]
+        persistentVolumeReclaimPolicy: Retain
+        hostPath:
+          path: "{{ zarf_pv_host_path }}/registry"
+        nodeAffinity:
+          required:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - "{{ ansible_hostname }}"
+
+- name: Create PersistentVolume for Zarf gitea
+  kubernetes.core.k8s:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: zarf-gitea-pv
+      spec:
+        capacity:
+          storage: "{{ zarf_pv_gitea_size }}"
+        accessModes: [ReadWriteOnce]
+        persistentVolumeReclaimPolicy: Retain
+        hostPath:
+          path: "{{ zarf_pv_host_path }}/gitea"
+        nodeAffinity:
+          required:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - "{{ ansible_hostname }}"
+
+- name: Check if Zarf is already initialized
+  command: "{{ zarf_bin }} tools registry catalog 127.0.0.1:31999"
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  register: zarf_registry_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Initialize Zarf
+  command: >
+    {{ zarf_bin }} init
+    --components=git-server
+    --confirm
+    --no-progress
+  args:
+    chdir: "{{ zarf_remote_dir }}"
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  when: zarf_registry_check.rc != 0

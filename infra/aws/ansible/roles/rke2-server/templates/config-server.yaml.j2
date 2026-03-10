@@ -1,0 +1,14 @@
+# RKE2 additional server configuration
+server: https://{{ hostvars[groups['control_plane'][0]]['ansible_default_ipv4']['address'] }}:9345
+token: {{ rke2_cluster_token }}
+cni: {{ rke2_cni }}
+{% if rke2_disable %}
+disable:
+{% for item in rke2_disable %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+tls-san:
+{% for san in rke2_tls_san %}
+  - {{ san }}
+{% endfor %}

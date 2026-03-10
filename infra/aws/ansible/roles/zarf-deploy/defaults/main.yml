@@ -1,0 +1,27 @@
+---
+# Zarf air-gap deployment defaults
+
+zarf_version: "v0.66.0"
+
+# Local paths (on the machine running ansible)
+zarf_local_dir: "{{ playbook_dir }}/../../zarf"
+
+# Remote paths (on the control plane node)
+zarf_remote_dir: /opt/zarf
+zarf_bin: "{{ zarf_remote_dir }}/zarf"
+
+# Package artifacts
+zarf_init_package: "zarf-init-amd64-{{ zarf_version }}.tar.zst"
+zarf_app_package: "signals-360-amd64.tar.zst"
+
+# PV configuration
+zarf_pv_registry_size: "20Gi"
+zarf_pv_gitea_size: "5Gi"
+zarf_pv_host_path: /mnt/data/zarf
+
+# Deploy variables
+zarf_deploy_vars:
+  DASK_WORKER_REPLICAS: "{{ dask_worker_replicas | default(4) }}"
+  DASK_SPILL_DIR: "{{ dask_spill_dir | default('/tmp/dask-spill') }}"
+  S3_BUCKET: "{{ s3_bucket_name | default('') }}"
+  S3_REGION: "{{ aws_region | default('us-east-1') }}"

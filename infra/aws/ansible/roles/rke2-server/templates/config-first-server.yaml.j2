@@ -1,0 +1,13 @@
+# RKE2 first server configuration
+cni: {{ rke2_cni }}
+{% if rke2_disable %}
+disable:
+{% for item in rke2_disable %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+tls-san:
+{% for san in rke2_tls_san %}
+  - {{ san }}
+{% endfor %}
+write-kubeconfig-mode: "0644"

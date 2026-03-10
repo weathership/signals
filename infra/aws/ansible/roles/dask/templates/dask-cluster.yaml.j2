@@ -1,0 +1,61 @@
+apiVersion: kubernetes.dask.org/v1
+kind: DaskCluster
+metadata:
+  name: {{ dask_cluster_name }}
+  namespace: {{ dask_namespace }}
+spec:
+  worker:
+    replicas: {{ dask_worker_replicas }}
+    spec:
+      containers:
+        - name: worker
+          image: {{ dask_image }}
+          args:
+            - dask-worker
+            - --name
+            - $(DASK_WORKER_NAME)
+            - --nthreads
+            - "{{ dask_worker_threads }}"
+            - --memory-limit
+            - "{{ dask_worker_memory_limit }}"
+          resources:
+            limits:
+              memory: "{{ dask_worker_memory_limit }}"
+            requests:
+              memory: "{{ dask_worker_memory_request }}"
+{% if dask_spill_dir %}
+          volumeMounts:
+            - name: dask-spill
+              mountPath: {{ dask_spill_dir }}
+      volumes:
+        - name: dask-spill
+          hostPath:
+            path: {{ dask_spill_dir }}
+            type: DirectoryOrCreate
+{% endif %}
+  scheduler:
+    spec:
+      containers:
+        - name: scheduler
+          image: {{ dask_image }}
+          args:
+            - dask-scheduler
+          resources:
+            limits:
+              memory: "4Gi"
+            requests:
+              memory: "2Gi"
+    service:
+      type: ClusterIP
+      selector:
+        dask.org/cluster-name: {{ dask_cluster_name }}
+        dask.org/component: scheduler
+      ports:
+        - name: tcp-comm
+          protocol: TCP
+          port: 8786
+          targetPort: 8786
+        - name: http-dashboard
+          protocol: TCP
+          port: 8787
+          targetPort: 8787

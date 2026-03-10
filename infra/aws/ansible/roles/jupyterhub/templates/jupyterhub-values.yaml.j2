@@ -1,0 +1,25 @@
+# JupyterHub Helm values for Signals 360
+singleuser:
+  image:
+    name: {{ jupyterhub_singleuser_image | regex_replace(':.*$', '') }}
+    tag: {{ jupyterhub_singleuser_image | regex_replace('^.*:', '') }}
+  memory:
+    limit: {{ jupyterhub_singleuser_memory_limit }}
+  cpu:
+    limit: {{ jupyterhub_singleuser_cpu_limit }}
+  storage:
+    capacity: {{ jupyterhub_storage_capacity }}
+
+hub:
+  config:
+    Authenticator:
+      admin_users:
+        - admin
+    DummyAuthenticator:
+      password: signals
+    JupyterHub:
+      authenticator_class: dummy
+
+proxy:
+  service:
+    type: ClusterIP

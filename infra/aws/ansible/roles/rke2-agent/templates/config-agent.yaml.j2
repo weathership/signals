@@ -1,0 +1,9 @@
+# RKE2 agent configuration
+server: https://{{ hostvars[groups['control_plane'][0]]['ansible_default_ipv4']['address'] }}:9345
+token: {{ rke2_token }}
+{% if rke2_node_labels %}
+node-label:
+{% for label in rke2_node_labels %}
+  - {{ label }}
+{% endfor %}
+{% endif %}

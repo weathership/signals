@@ -1,0 +1,58 @@
+---
+# Stage Zarf binary and packages to control plane
+
+- name: Check if Zarf binary exists locally
+  stat:
+    path: "{{ zarf_local_dir }}/zarf"
+  delegate_to: localhost
+  become: false
+  register: zarf_local_binary
+
+- name: Download Zarf binary if not present
+  get_url:
+    url: "https://github.com/zarf-dev/zarf/releases/download/{{ zarf_version }}/zarf_{{ zarf_version }}_Linux_amd64"
+    dest: "{{ zarf_local_dir }}/zarf"
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  when: not zarf_local_binary.stat.exists
+
+- name: Create remote Zarf directory
+  file:
+    path: "{{ zarf_remote_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy Zarf binary to control plane
+  copy:
+    src: "{{ zarf_local_dir }}/zarf"
+    dest: "{{ zarf_bin }}"
+    mode: '0755'
+
+- name: Copy Zarf init package
+  copy:
+    src: "{{ zarf_local_dir }}/{{ zarf_init_package }}"
+    dest: "{{ zarf_remote_dir }}/{{ zarf_init_package }}"
+    mode: '0644'
+  when: zarf_init_package != ""
+
+- name: Copy Zarf app package
+  copy:
+    src: "{{ zarf_local_dir }}/{{ zarf_app_package }}"
+    dest: "{{ zarf_remote_dir }}/{{ zarf_app_package }}"
+    mode: '0644'
+
+- name: Verify staged artifacts
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ zarf_bin }}"
+    - "{{ zarf_remote_dir }}/{{ zarf_app_package }}"
+  register: staged_files
+
+- name: Assert all artifacts staged
+  assert:
+    that:
+      - item.stat.exists
+    fail_msg: "Missing artifact: {{ item.item }}"
+  loop: "{{ staged_files.results }}"

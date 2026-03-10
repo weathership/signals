@@ -1,0 +1,61 @@
+---
+# Post-deployment verification
+
+- name: Check Dask scheduler
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    kind: Pod
+    namespace: dask
+    label_selectors:
+      - "dask.org/component=scheduler"
+  register: scheduler_pods
+
+- name: Check Dask workers
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    kind: Pod
+    namespace: dask
+    label_selectors:
+      - "dask.org/component=worker"
+  register: worker_pods
+
+- name: Check Signals Engine
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    kind: Pod
+    namespace: signals-engine
+    label_selectors:
+      - "app=signals-engine"
+  register: engine_pods
+  ignore_errors: true
+
+- name: Get Zarf registry catalog
+  command: "{{ zarf_bin }} tools registry catalog 127.0.0.1:31999"
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  register: registry_catalog
+  ignore_errors: true
+  changed_when: false
+
+- name: Display verification summary
+  debug:
+    msg: |
+      ============================================
+                ZARF DEPLOYMENT VERIFIED
+      ============================================
+
+      Dask Scheduler: {{ scheduler_pods.resources | length }} pod(s)
+      Dask Workers:   {{ worker_pods.resources | length }} pod(s)
+      Signals Engine: {{ engine_pods.resources | default([]) | length }} pod(s)
+
+      Registry Catalog:
+      {{ registry_catalog.stdout | default('unavailable') }}
+
+      ============================================
+
+- name: Assert critical components running
+  assert:
+    that:
+      - scheduler_pods.resources | length > 0
+      - worker_pods.resources | length > 0
+    fail_msg: "Critical Dask components not running after Zarf deploy"

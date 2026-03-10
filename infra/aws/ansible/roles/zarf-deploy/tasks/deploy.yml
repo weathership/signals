@@ -1,0 +1,16 @@
+---
+# Deploy signals-360 Zarf package
+
+- name: Deploy Zarf package
+  command: >
+    {{ zarf_bin }} package deploy
+    {{ zarf_remote_dir }}/{{ zarf_app_package }}
+    --confirm
+    --no-progress
+    {% for key, value in zarf_deploy_vars.items() %}
+    --set {{ key }}={{ value }}
+    {% endfor %}
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  register: zarf_deploy_result
+  changed_when: "'deployed' in zarf_deploy_result.stdout"

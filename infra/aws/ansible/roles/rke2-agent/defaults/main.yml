@@ -1,0 +1,10 @@
+---
+# RKE2 agent (worker) defaults
+
+rke2_channel: stable
+rke2_token: ""
+
+# Worker node labels for scheduling
+rke2_node_labels:
+  - "dask.org/node-type=worker"
+  - "signals.io/role=compute"

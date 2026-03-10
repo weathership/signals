@@ -1,0 +1,13 @@
+---
+# Signals Engine (gRPC) defaults
+
+signals_engine_namespace: signals-engine
+signals_engine_image: "signals-360/engine:latest"
+signals_engine_replicas: 1
+signals_engine_port: 50051
+
+# Resource limits
+signals_engine_memory_limit: "2Gi"
+signals_engine_memory_request: "1Gi"
+signals_engine_cpu_limit: "2"
+signals_engine_cpu_request: "500m"

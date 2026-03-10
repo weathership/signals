@@ -1,0 +1,57 @@
+---
+# JupyterHub deployment with Dask integration
+
+- name: Create JupyterHub namespace
+  kubernetes.core.k8s:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ jupyterhub_namespace }}"
+
+- name: Add JupyterHub Helm repository
+  kubernetes.core.helm_repository:
+    name: jupyterhub
+    repo_url: https://hub.jupyter.org/helm-chart/
+
+- name: Render JupyterHub values
+  template:
+    src: jupyterhub-values.yaml.j2
+    dest: /tmp/jupyterhub-values.yaml
+    mode: '0644'
+
+- name: Install JupyterHub
+  kubernetes.core.helm:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    name: jupyterhub
+    chart_ref: jupyterhub/jupyterhub
+    chart_version: "{{ jupyterhub_chart_version }}"
+    release_namespace: "{{ jupyterhub_namespace }}"
+    create_namespace: true
+    values_files:
+      - /tmp/jupyterhub-values.yaml
+    wait: true
+    wait_timeout: "10m"
+
+- name: Wait for JupyterHub hub pod
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/rancher/rke2/rke2.yaml
+    kind: Pod
+    namespace: "{{ jupyterhub_namespace }}"
+    label_selectors:
+      - "component=hub"
+  register: hub_pod
+  until: >
+    hub_pod.resources | length > 0 and
+    hub_pod.resources[0].status.phase == "Running"
+  retries: 30
+  delay: 10
+
+- name: Display JupyterHub info
+  debug:
+    msg: |
+      JupyterHub deployed successfully!
+
+      Hub: proxy-public.{{ jupyterhub_namespace }}.svc.cluster.local:80

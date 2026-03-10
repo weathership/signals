@@ -1,0 +1,24 @@
+---
+# Dask operator and cluster defaults
+
+dask_operator_version: "2024.1.0"
+dask_namespace: dask
+dask_cluster_name: signals
+
+# Worker configuration
+dask_worker_replicas: 4
+dask_worker_memory_limit: "12Gi"
+dask_worker_memory_request: "8Gi"
+dask_worker_threads: 2
+dask_image: "ghcr.io/dask/dask:latest"
+
+# Requirements injection
+dask_install_requirements: true
+dask_requirements_configmap: dask-requirements
+
+# Spill-to-disk for large datasets
+dask_spill_dir: /mnt/data/dask-spill
+
+# Optional YuniKorn scheduler
+dask_enable_yunikorn: false
+dask_yunikorn_version: "1.5.0"

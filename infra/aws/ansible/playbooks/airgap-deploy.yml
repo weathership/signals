@@ -1,0 +1,29 @@
+---
+# Air-gap deployment via Zarf
+# Usage: ansible-playbook playbooks/airgap-deploy.yml
+
+- name: Prepare all nodes
+  hosts: rke2
+  become: true
+  roles:
+    - common
+
+- name: Install RKE2 server (first control plane)
+  hosts: control_plane[0]
+  become: true
+  vars:
+    rke2_is_first_server: true
+  roles:
+    - rke2-server
+
+- name: Install RKE2 agent (workers)
+  hosts: workers
+  become: true
+  roles:
+    - rke2-agent
+
+- name: Deploy via Zarf
+  hosts: control_plane[0]
+  become: true
+  roles:
+    - zarf-deploy

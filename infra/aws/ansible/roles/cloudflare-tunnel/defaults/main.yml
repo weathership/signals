@@ -1,0 +1,22 @@
+---
+# Cloudflare Tunnel defaults
+
+cloudflare_tunnel_namespace: cloudflare-system
+cloudflared_version: "2026.2.0"
+cloudflared_replicas: 2
+
+# Tunnel credentials (set via -e or environment)
+cloudflare_tunnel_token: "{{ lookup('env', 'CLOUDFLARE_TUNNEL_TOKEN') }}"
+cloudflare_tunnel_id: "{{ lookup('env', 'CLOUDFLARE_TUNNEL_ID') }}"
+
+# Domain routing
+cf_base_domain: "signals.example.com"
+cf_dask_domain: "dask.{{ cf_base_domain }}"
+cf_jupyterhub_domain: "jupyter.{{ cf_base_domain }}"
+cf_engine_domain: "engine.{{ cf_base_domain }}"
+cf_viz_domain: "viz.{{ cf_base_domain }}"
+
+# Service targets
+cf_dask_service: "http://signals-scheduler.dask.svc.cluster.local:8787"
+cf_jupyterhub_service: "http://proxy-public.jupyterhub.svc.cluster.local:80"
+cf_engine_service: "http://signals-engine.signals-engine.svc.cluster.local:50051"

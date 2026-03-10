@@ -1,0 +1,45 @@
+---
+# RKE2 agent (worker) installation
+
+- name: Fetch node token from control plane
+  slurp:
+    src: /var/lib/rancher/rke2/server/node-token
+  register: fetched_token
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  when: rke2_token == ""
+
+- name: Set token fact from control plane
+  set_fact:
+    rke2_token: "{{ fetched_token.content | b64decode | trim }}"
+  when: rke2_token == "" and fetched_token is defined and fetched_token.content is defined
+
+- name: Download RKE2 installer
+  get_url:
+    url: https://get.rke2.io
+    dest: /tmp/rke2-install.sh
+    mode: '0755'
+
+- name: Install RKE2 agent
+  environment:
+    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+    INSTALL_RKE2_TYPE: agent
+  command: /tmp/rke2-install.sh
+  args:
+    creates: /usr/local/bin/rke2
+
+- name: Create RKE2 agent config
+  template:
+    src: config-agent.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    mode: '0600'
+
+- name: Enable and start RKE2 agent
+  systemd:
+    name: rke2-agent
+    enabled: yes
+    state: started
+
+- name: Wait for agent to join cluster
+  pause:
+    seconds: 30

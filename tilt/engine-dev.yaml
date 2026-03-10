@@ -1,0 +1,33 @@
+---
+# Dev overlay for signals-engine (used by Tilt)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signals-engine
+  namespace: signals-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signals-engine
+  template:
+    metadata:
+      labels:
+        app: signals-engine
+    spec:
+      containers:
+        - name: engine
+          image: 127.0.0.1:31999/signals-engine
+          ports:
+            - containerPort: 50051
+              name: grpc
+          env:
+            - name: RUST_LOG
+              value: "debug"
+          resources:
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+            requests:
+              memory: "512Mi"
+              cpu: "250m"

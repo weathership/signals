@@ -1,0 +1,13 @@
+---
+# JupyterHub defaults
+
+jupyterhub_namespace: jupyterhub
+jupyterhub_chart_version: "4.0.0"
+
+# User notebook image (shared with Dask workers)
+jupyterhub_singleuser_image: "ghcr.io/dask/dask:latest"
+jupyterhub_singleuser_memory_limit: "4Gi"
+jupyterhub_singleuser_cpu_limit: "2"
+
+# Storage
+jupyterhub_storage_capacity: "10Gi"

@@ -219,3 +219,30 @@ devenv.local.yaml
 
 # mdbook build output
 docs/current/book/
+
+# OpenTofu / Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
+*.auto.tfvars
+infra/aws/tofu/.ssh/
+
+# Ansible
+.ansible_cache/
+*.retry
+infra/aws/ansible/inventory/hosts
+
+# Zarf
+zarf/*.tar.zst
+zarf/packages/
+zarf/sboms/
+zarf/zarf
+
+# Rust
+target/
+Cargo.lock
+
+# k3d
+.k3d/
