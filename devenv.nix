@@ -95,7 +95,9 @@
       extensions.age
       extensions.pg_cron
     ];
+    port = 5455;
     settings = {
+      listen_addresses = lib.mkForce "127.0.0.1";
       shared_preload_libraries = "age,pg_cron";
       "cron.database_name" = "signals";
     };
@@ -105,6 +107,7 @@
       LOAD 'age';
       SET search_path = ag_catalog, "$user", public;
       CREATE EXTENSION IF NOT EXISTS pg_cron;
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
     '';
   };
 
@@ -120,6 +123,50 @@
       KRB5_CONFIG="$KDC_DIR/krb5.conf" \
       KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
       krb5kdc -n
+  '';
+
+  # ── Atlas Process ────────────────────────────────────────────────────────
+  processes.atlas.exec = ''
+    ATLAS_DIR="$PWD/components/atlas"
+    ATLAS_WEBAPP="$ATLAS_DIR/webapp/target/atlas-webapp-3.0.0-SNAPSHOT"
+    ATLAS_CONF="$PWD/config/atlas"
+    ATLAS_HOME="$PWD/.devenv/atlas"
+
+    mkdir -p "$ATLAS_HOME/data" "$ATLAS_HOME/logs" "$ATLAS_HOME/conf"
+
+    # Copy credentials/authz to atlas home conf for runtime resolution
+    cp -n "$ATLAS_CONF/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
+    cp -n "$ATLAS_CONF/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
+
+    if [ ! -d "$ATLAS_WEBAPP/WEB-INF" ]; then
+      echo "Atlas webapp not built. Run: devenv tasks run atlas:build"
+      exit 1
+    fi
+
+    echo "Starting Atlas on http://localhost:21000..."
+    exec java \
+      -Datlas.home="$ATLAS_HOME" \
+      -Datlas.conf="$ATLAS_CONF" \
+      -Datlas.log.dir="$ATLAS_HOME/logs" \
+      -Datlas.log.file=application \
+      -Datlas.data="$ATLAS_HOME/data" \
+      -Dlogback.configurationFile="$ATLAS_DIR/distro/src/conf/atlas-logback.xml" \
+      -Datlas.graphdb.backend=org.apache.atlas.repository.graphdb.age.AtlasAgeGraphDatabase \
+      -Djava.net.preferIPv4Stack=true \
+      --add-opens java.base/java.lang=ALL-UNNAMED \
+      --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
+      --add-opens java.base/java.io=ALL-UNNAMED \
+      --add-opens java.base/java.net=ALL-UNNAMED \
+      --add-opens java.base/java.util=ALL-UNNAMED \
+      --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
+      --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+      --add-opens java.base/sun.security.action=ALL-UNNAMED \
+      --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED \
+      -server -Xmx1024m \
+      -cp "$ATLAS_CONF:$ATLAS_WEBAPP/WEB-INF/classes:$ATLAS_WEBAPP/WEB-INF/lib/*" \
+      org.apache.atlas.Atlas \
+      -app "$ATLAS_WEBAPP" \
+      -port 21000
   '';
 
   # ── Tasks ──────────────────────────────────────────────────────────────────
@@ -151,6 +198,18 @@
       '';
       description = "Serve mdbook documentation with live reload";
     };
+
+    "atlas:build" = {
+      exec = ''
+        cd components/atlas
+        # Create empty apidocs dir so WAR plugin succeeds when enunciate is skipped
+        mkdir -p webapp/target/api/v2/apidocs/ui
+        mvn package -pl webapp -am -Dmaven.test.skip=true -DskipUTs=true \
+          -DGRAPH-PROVIDER=age -Dcheckstyle.skip=true -DskipEnunciate=true \
+          --no-transfer-progress
+      '';
+      description = "Build Atlas webapp with AGE backend";
+    };
   };
 
   # ── Shell ──────────────────────────────────────────────────────────────────
@@ -168,12 +227,14 @@
     echo "Services (start with 'devenv up'):"
     echo "  PostgreSQL 16  — extensions: age, pg_cron"
     echo "  Kerberos KDC   — realm: KRBTEST.COM, port: 8848"
+    echo "  Atlas          — http://localhost:21000 (AGE backend)"
     echo ""
     echo "Tasks:"
-    echo "  devenv tasks run signals:kdc-init    — Initialize KDC"
-    echo "  devenv tasks run signals:kdc-reset   — Reset KDC database"
-    echo "  devenv tasks run docs:build          — Build documentation"
-    echo "  devenv tasks run docs:serve          — Serve docs with live reload"
+    echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
+    echo "  devenv tasks run signals:kdc-init     — Initialize KDC"
+    echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
+    echo "  devenv tasks run docs:build           — Build documentation"
+    echo "  devenv tasks run docs:serve           — Serve docs with live reload"
   '';
 
   # ── Tests ──────────────────────────────────────────────────────────────────
