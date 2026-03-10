@@ -12,9 +12,27 @@
     - [WASM Terminal](./architecture/wasm-terminal.md)
     - [Visualization Pipeline](./architecture/visualization.md)
 - [Data Flow](./architecture/data-flow.md)
-- [Deployment](./architecture/deployment.md)
-    - [AWS](./architecture/aws.md)
-    - [Air-Gap](./architecture/airgap.md)
+- [Deployment Modes](./architecture/deployment.md)
+
+# Scenarios
+
+- [Scenarios Overview](./scenarios/overview.md)
+    - [S01: Agent-Mediated Visualization](./scenarios/s01-visualization.md)
+    - [S02: Algorithm Extension](./scenarios/s02-extension.md)
+    - [S03: Agent Self-Improvement](./scenarios/s03-evolution.md)
+    - [S04: OTel Root Cause Analysis](./scenarios/s04-otel-rca.md)
+    - [S05: Cybersecurity Investigation](./scenarios/s05-cybersec.md)
+    - [S06: Streaming Ontology](./scenarios/s06-streaming.md)
+- [Test Infrastructure](./scenarios/testing.md)
+
+# Infrastructure
+
+- [Infrastructure Overview](./infrastructure/overview.md)
+    - [OpenTofu (AWS)](./infrastructure/tofu.md)
+    - [Ansible Roles](./infrastructure/ansible.md)
+    - [Air-Gap (Zarf)](./infrastructure/zarf.md)
+    - [Dev Iteration (Tilt)](./infrastructure/tilt.md)
+    - [Policy (OPA)](./infrastructure/policy.md)
 
 # Components
 
