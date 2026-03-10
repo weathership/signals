@@ -14,24 +14,27 @@ The infrastructure stack is layered: OpenTofu provisions cloud resources, Ansibl
 
 ## Deployment Flow
 
-```
-OpenTofu apply
-    │
-    ▼
-Generate Ansible inventory from Tofu state
-    │
-    ▼
-Ansible site.yml
-    ├── common (node prep)
-    ├── rke2-server (control plane)
-    ├── rke2-agent (workers)
-    ├── dask (operator + cluster)
-    ├── signals-engine (gRPC)
-    ├── jupyterhub (notebooks)
-    └── cloudflare-tunnel (ingress)
-    │
-    ▼
-Validate deployment
+```d2
+direction: down
+
+tofu: OpenTofu apply
+inventory: Generate Ansible inventory from Tofu state
+
+ansible: Ansible site.yml {
+  common: common (node prep)
+  rke2s: rke2-server (control plane)
+  rke2a: rke2-agent (workers)
+  dask: dask (operator + cluster)
+  engine: signals-engine (gRPC)
+  jupyter: jupyterhub (notebooks)
+  cf: cloudflare-tunnel (ingress)
+}
+
+validate: Validate deployment
+
+tofu -> inventory
+inventory -> ansible
+ansible -> validate
 ```
 
 For air-gap environments, the Ansible flow uses the `zarf-deploy` role instead of individual service roles.

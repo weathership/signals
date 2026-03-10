@@ -26,18 +26,20 @@ The build toolchain (configured in devenv.nix):
 
 ## Web Interface Layout
 
-```
-┌─────────────────────────────────────────┐
-│                                         │
-│     HoloViews Visualization             │
-│     (agent-mediated, top half)          │
-│                                         │
-├─────────────────────────────────────────┤
-│                                         │
-│     Ghostty WASM Terminal               │
-│     (user interaction, bottom half)     │
-│                                         │
-└─────────────────────────────────────────┘
+```d2
+direction: down
+
+browser: Web Interface {
+  viz: HoloViews Visualization {
+    tooltip: "agent-mediated, top half"
+    style.fill: "#e8f4f8"
+  }
+  term: Ghostty WASM Terminal {
+    tooltip: "user interaction, bottom half"
+    style.fill: "#f0f0f0"
+  }
+  viz -> term: {style.stroke-dash: 3}
+}
 ```
 
 Instructions flow from the terminal through gRPC to the engine. The engine directs Dask/Datashader to recompute views, which are streamed to the visualization panel above the terminal.

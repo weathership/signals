@@ -4,33 +4,34 @@ Signals 360 is built around a gRPC engine that mediates between user interaction
 
 ## Architecture Layers
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Web Client                                         │
-│  ┌───────────────────────────────────────────────┐  │
-│  │  HoloViews Visualization (top half)           │  │
-│  │  - Datashader-rasterized views                │  │
-│  │  - Agent-mediated data exploration            │  │
-│  ├───────────────────────────────────────────────┤  │
-│  │  Ghostty WASM Terminal (bottom half)          │  │
-│  │  - User instructions → gRPC → engine          │  │
-│  └───────────────────────────────────────────────┘  │
-└──────────────────────┬──────────────────────────────┘
-                       │ gRPC
-┌──────────────────────▼──────────────────────────────┐
-│  Engine Layer (Rust)                                │
-│  - Agent engine (inspired by mistral-vibe)          │
-│  - Extension registry                               │
-│  - Self-improvement cycles                           │
-└──────────┬─────────────────────┬────────────────────┘
-           │                     │
-┌──────────▼──────────┐  ┌──────▼─────────────────────┐
-│  Compute Layer      │  │  Data Infrastructure        │
-│  - Dask distributed │  │  - PostgreSQL (AGE, pg_cron)│
-│  - Datashader       │  │  - Kudu, Impala, Iceberg    │
-│  - HoloViews        │  │  - Atlas, Ranger            │
-│  - Algorithm exts   │  │  - Airflow, NiFi            │
-└─────────────────────┘  └────────────────────────────┘
+```d2
+direction: down
+
+web: Web Client {
+  viz: HoloViews Visualization {
+    tooltip: "Datashader-rasterized views\nAgent-mediated data exploration"
+  }
+  term: Ghostty WASM Terminal {
+    tooltip: "User instructions → gRPC → engine"
+  }
+  viz -> term: {style.stroke-dash: 3}
+}
+
+engine: Engine Layer {
+  tooltip: "Agent engine (inspired by mistral-vibe)\nExtension registry\nSelf-improvement cycles"
+}
+
+compute: Compute Layer {
+  tooltip: "Dask distributed\nDatashader\nHoloViews\nAlgorithm extensions"
+}
+
+data: Data Infrastructure {
+  tooltip: "PostgreSQL (AGE, pg_cron)\nKudu, Impala, Iceberg\nAtlas, Ranger\nAirflow, NiFi"
+}
+
+web -> engine: gRPC
+engine -> compute
+engine -> data
 ```
 
 ## Key Design Principles

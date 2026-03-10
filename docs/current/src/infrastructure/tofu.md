@@ -14,30 +14,32 @@ AWS infrastructure is provisioned with OpenTofu (open-source Terraform fork) in 
 
 ## Network Architecture
 
-```
-Internet
-    │
-    ▼
-┌─── Internet Gateway ───┐
-│   Public Subnet         │
-│   ┌─────────────────┐   │
-│   │ Bastion (t3.sm) │   │
-│   └────────┬────────┘   │
-│            │ SSH proxy   │
-├────────────┼────────────┤
-│   Private Subnet         │
-│   ┌──────────────────┐   │
-│   │ Control Plane    │   │
-│   │ (m6i.xlarge)     │   │
-│   ├──────────────────┤   │
-│   │ Workers ×4       │   │
-│   │ (r6i.xlarge)     │   │
-│   │ + data volumes   │   │
-│   └──────────────────┘   │
-└──────────────────────────┘
-        │
-        ▼ (VPC Endpoint)
-      [ S3 ]
+```d2
+direction: down
+
+internet: Internet {shape: cloud}
+
+vpc: VPC {
+  public: Public Subnet {
+    igw: Internet Gateway {shape: diamond}
+    bastion: Bastion (t3.small)
+    igw -> bastion
+  }
+
+  private: Private Subnet {
+    cp: Control Plane (m6i.xlarge)
+    workers: Workers ×4 (r6i.xlarge) {
+      tooltip: "+ data volumes"
+    }
+  }
+
+  public.bastion -> private.cp: SSH proxy
+}
+
+s3: S3 {shape: cylinder}
+
+internet -> vpc.public.igw
+vpc.private -> s3: VPC Endpoint {style.stroke-dash: 3}
 ```
 
 ## Air-Gap Mode

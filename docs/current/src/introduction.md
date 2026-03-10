@@ -4,7 +4,7 @@ Signals 360 integrates Apache data infrastructure components with an agent-media
 
 ## Key Capabilities
 
-- **gRPC Engine** — server-side agent engine (Rust) directing analytical workloads
+- **gRPC Engine** — server-side agent engine directing analytical workloads
 - **WASM Terminal** — browser-embedded Ghostty terminal for interactive commands
 - **Visualization Pipeline** — HoloViews/Datashader/Dask stack for agent-mediated data exploration
 - **Apache Components** — Atlas, Ranger, Kudu, Impala, Iceberg, Airflow, NiFi

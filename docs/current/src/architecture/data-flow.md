@@ -4,28 +4,33 @@ Data flow through the system connects user interaction, the gRPC engine, compute
 
 ## Instruction Path
 
-```
-User (browser)
-  │
-  ▼
-Ghostty WASM Terminal
-  │ gRPC bidirectional stream
-  ▼
-Signals Engine (Rust)
-  │
-  ├──► Dask Scheduler ──► Dask Workers (distributed compute)
-  │         │
-  │         ▼
-  │    Datashader (rasterize at viewport resolution)
-  │         │
-  │         ▼
-  │    HoloViews (compose visualization)
-  │
-  ├──► PostgreSQL (AGE graph queries, pg_cron jobs)
-  │
-  ├──► Kudu / Impala / Iceberg (analytical storage + SQL)
-  │
-  └──► Extension Registry (custom algorithm modules)
+```d2
+direction: down
+
+user: User (browser)
+terminal: Ghostty WASM Terminal
+engine: Signals Engine
+
+user -> terminal
+terminal -> engine: gRPC bidirectional stream
+
+scheduler: Dask Scheduler
+workers: Dask Workers {tooltip: "distributed compute"}
+datashader: Datashader {tooltip: "rasterize at viewport resolution"}
+holoviews: HoloViews {tooltip: "compose visualization"}
+
+pg: PostgreSQL {tooltip: "AGE graph queries, pg_cron jobs"}
+analytics: Kudu / Impala / Iceberg {tooltip: "analytical storage + SQL"}
+extensions: Extension Registry {tooltip: "custom algorithm modules"}
+
+engine -> scheduler
+scheduler -> workers
+workers -> datashader
+datashader -> holoviews
+
+engine -> pg
+engine -> analytics
+engine -> extensions
 ```
 
 ## Data Sources
@@ -45,7 +50,7 @@ High-velocity data (click streams, telemetry) arrives via NiFi and is routed to 
 
 ### Object Storage
 
-S3 buckets store raw data, intermediate results, and model artifacts. In air-gap deployments, an S3-compatible endpoint (MinIO or Zarf internal) replaces AWS S3.
+S3 buckets store raw data, intermediate results, and model artifacts. In air-gap deployments, an S3-compatible endpoint (RustFS or similar) replaces AWS S3.
 
 ## Response Path
 
