@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<configuration>
+  <!-- RDBMS connection -->
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:postgresql://localhost:5455/hive_metastore</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>org.postgresql.Driver</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>rch</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value></value>
+  </property>
+
+  <!-- Thrift server -->
+  <property>
+    <name>metastore.thrift.port</name>
+    <value>9083</value>
+  </property>
+  <property>
+    <name>metastore.thrift.uris</name>
+    <value>thrift://localhost:9083</value>
+  </property>
+
+  <!-- Warehouse location (local filesystem, no HDFS) -->
+  <property>
+    <name>metastore.warehouse.dir</name>
+    <value>file:///tmp/signals-warehouse</value>
+  </property>
+
+  <!-- Schema tool auto-init -->
+  <property>
+    <name>datanucleus.schema.autoCreateAll</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>metastore.schema.verification</name>
+    <value>false</value>
+  </property>
+
+  <!-- Disable unnecessary features -->
+  <property>
+    <name>metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>metastore.execute.setugi</name>
+    <value>false</value>
+  </property>
+</configuration>

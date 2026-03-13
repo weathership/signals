@@ -18,6 +18,9 @@ INFRA_TAGS = {
     "kdc-required": "Kerberos KDC",
     "engine-required": "gRPC engine",
     "viz-required": "Visualization stack",
+    "kudu-required": "Kudu cluster",
+    "impala-required": "Impala query engine",
+    "polaris-required": "Polaris Iceberg catalog",
 }
 
 

@@ -1,0 +1,92 @@
+name: Catalog Stack CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'components/impala/fe/src/main/java/org/apache/impala/catalog/**'
+      - 'components/impala/fe/src/main/java/org/apache/impala/service/**'
+      - 'config/impala/**'
+      - 'config/hms/**'
+      - 'config/polaris/**'
+      - 'tests/workload/**'
+      - 'features/platform/data_lifecycle*'
+      - '.github/workflows/catalog-ci.yml'
+  pull_request:
+    paths:
+      - 'components/impala/fe/src/main/java/org/apache/impala/catalog/**'
+      - 'components/impala/fe/src/main/java/org/apache/impala/service/**'
+      - 'config/impala/**'
+      - 'tests/workload/**'
+      - 'features/platform/data_lifecycle*'
+
+jobs:
+  # ── Tier 0: Unit tests (no external dependencies) ──────────────────
+  unit-tests:
+    name: Unit Tests (Java FE)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Run ConfigLoader tests
+        working-directory: components/impala
+        run: |
+          mvn test -pl fe \
+            -Dtest=ConfigLoaderTest \
+            -DfailIfNoTests=false \
+            -Dmaven.test.failure.ignore=false \
+            --no-transfer-progress
+
+  # ── Tier 1: Integration tests (requires services via devenv) ───────
+  #
+  # This job requires a self-hosted runner with devenv installed.
+  # It runs the full data lifecycle workload against real services.
+  #
+  integration-tests:
+    name: Data Lifecycle Integration
+    runs-on: self-hosted
+    needs: unit-tests
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start services
+        run: |
+          # devenv manages PostgreSQL, Kudu, HMS, Polaris, Impala
+          devenv up --detach
+          # Wait for services to be ready
+          timeout 120 bash -c '
+            until pg_isready -h localhost -p 5455 2>/dev/null; do sleep 2; done
+          '
+
+      - name: Initialize catalog schema
+        run: devenv tasks run signals:catalog-init
+
+      - name: Run lifecycle workload
+        run: |
+          uv run python -m tests.workload.lifecycle \
+            --phase all \
+            --rows 1000 \
+            --partitions 10 \
+            --upsert-ratio 0.20
+
+      - name: Run BDD scenarios
+        run: |
+          uv run behave \
+            --tags="@data-lifecycle and @ci" \
+            --no-capture \
+            features/platform/data_lifecycle.feature
+
+      - name: Teardown
+        if: always()
+        run: |
+          uv run python -m tests.workload.lifecycle --phase teardown || true
