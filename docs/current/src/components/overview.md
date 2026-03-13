@@ -2,15 +2,15 @@
 
 Apache components are tracked as git submodules in `components/`, all on the `rch/signals` branch from `rch` GitHub forks.
 
-| Component | Purpose | Scenarios |
-|-----------|---------|-----------|
-| [Atlas](./atlas.md) | Metadata governance and data catalog | S06 (ontology) |
-| [Ranger](./ranger.md) | Authorization and access control | S05 (cybersec) |
-| [Kudu](./kudu.md) | Columnar storage engine | S01, S04 (time-series) |
-| [Impala](./impala.md) | Distributed SQL query engine | S04, S05 (analytical queries) |
-| [Iceberg](./iceberg.md) | Table format for large analytic datasets | S04, S06 (batch analytics) |
-| [Airflow](./airflow.md) | Workflow orchestration | S02, S03 (extension lifecycle) |
-| [NiFi](./nifi.md) | Data flow routing and transformation | S06 (stream ingest) |
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| [Impala](./impala.md) | Distributed SQL query engine (HMS-free) | **Running** — DDL, DML, JOINs, aggregations |
+| [Kudu](./kudu.md) | Columnar storage engine (hot tier) | **Running** — master + tserver |
+| [Atlas](./atlas.md) | Metadata catalog + AI-driven classification | **Running** — AGE backend, tagging planned |
+| [Iceberg](./iceberg.md) | Table format via Polaris REST catalog (warm tier) | Near-term — REST API implemented |
+| [Ranger](./ranger.md) | Tag-based access control via Atlas classifications | Near-term — after Atlas tagging |
+| [Airflow](./airflow.md) | Workflow orchestration | Planned |
+| [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 
 ## Submodule Management
 

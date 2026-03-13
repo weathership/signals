@@ -12,6 +12,8 @@
     - [WASM Terminal](./architecture/wasm-terminal.md)
     - [Visualization Pipeline](./architecture/visualization.md)
 - [Data Flow](./architecture/data-flow.md)
+- [Query Engine & Catalog Stack](./architecture/query-engine.md)
+- [Metadata Tagging](./architecture/meta-tagging.md)
 - [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios

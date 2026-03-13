@@ -44,9 +44,10 @@ High-velocity data (click streams, telemetry) arrives via NiFi and is routed to 
 | Layer | Engine | Access Pattern |
 |-------|--------|---------------|
 | Graph | PostgreSQL + AGE | Relationship queries, ontology traversal |
-| Columnar | Kudu | Low-latency random access, time-series |
-| SQL | Impala | Distributed analytical queries |
-| Table Format | Iceberg | Large-scale batch analytics, schema evolution |
+| Columnar | Kudu | Low-latency random access, time-series (hot tier) |
+| SQL | Impala | Distributed analytical queries ([HMS-free](./query-engine.md)) |
+| Table Format | Iceberg | Large-scale batch analytics, schema evolution (warm tier) |
+| Metadata | Atlas | Data catalog, [AI-driven classification](./meta-tagging.md) |
 
 ### Object Storage
 

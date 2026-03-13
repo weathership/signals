@@ -43,3 +43,7 @@ engine -> data
 **Multi-persona views.** A single data product supports multiple persona conventions (Data Scientist, Domain Researcher, Quantitative Analyst, Operational Analyst, Business Analyst) through agent-directed layout and metric selection.
 
 **Extension lifecycle.** Algorithm developers package custom Dask-based analysis modules as platform extensions that the agent can invoke in distributed compute contexts.
+
+**HMS-free query stack.** The data infrastructure layer runs Impala + Kudu without the Hive Metastore, HDFS, or HBase. Table metadata is managed through a PostgreSQL catalog registry and loaded directly from Kudu master. See [Query Engine & Catalog Stack](./query-engine.md).
+
+**Automated metadata governance.** Tables and columns created in Impala are registered in Atlas and automatically classified by an AI/ML service against a controlled sensitivity vocabulary. Classifications drive Ranger tag-based access policies. See [Metadata Tagging](./meta-tagging.md).
