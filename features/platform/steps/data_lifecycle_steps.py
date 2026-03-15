@@ -63,16 +63,6 @@ def step_insert_rows(context, n, table, p):
     context.landing_result = wl.run_landing(n_rows=n, n_partitions=p, upsert_ratio=0)
 
 
-@when("I upsert {n:d} rows targeting partitions {start:d}-{end:d}")
-def step_upsert_rows(context, n, start, end):
-    wl = _get_workload(context)
-    wl.cfg.hot_partitions = list(range(start, end + 1))
-    wl.run_landing(
-        n_rows=wl.cfg.rows_per_partition * wl.cfg.n_partitions,
-        upsert_ratio=n / (wl.cfg.rows_per_partition * wl.cfg.n_partitions),
-    )
-
-
 @then('"{table}" contains {n:d} rows')
 def step_table_contains_rows(context, table, n):
     wl = _get_workload(context)

@@ -1,5 +1,22 @@
 { pkgs, lib, config, inputs, ... }:
 
+let
+  # Shared LD_LIBRARY_PATH setup for all Impala processes.
+  # Nix glibc must come FIRST so libc.so.6 resolves to glibc 2.42.
+  impalaLdLibraryPath = ''
+    NIX_GLIBC="${pkgs.glibc}/lib"
+    GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
+    NIX_KRB5="${pkgs.krb5.lib}/lib"
+    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu"
+  '';
+
+  # JVM flags for HMS-free catalog mode
+  hmsFreeJavaOpts = builtins.concatStringsSep " " [
+    "-Dsignals.hms_free_mode=true"
+    "-Dsignals.catalog.jdbc_url=jdbc:postgresql://localhost:5455/signals_catalog"
+    "-Dsignals.kudu.master_addresses=127.0.0.1:7051"
+  ];
+in
 {
   dotenv.enable = true;
 
@@ -103,181 +120,186 @@
       "cron.database_name" = "signals";
     };
     initialDatabases = [
-      { name = "signals"; }
-      { name = "hive_metastore"; }
+      {
+        name = "signals";
+        initialSQL = ''
+          CREATE EXTENSION IF NOT EXISTS age;
+          LOAD 'age';
+          SET search_path = ag_catalog, "$user", public;
+          CREATE EXTENSION IF NOT EXISTS pg_cron;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+        '';
+      }
       { name = "polaris"; }
       { name = "signals_catalog"; }
     ];
-    initialScript = ''
-      CREATE EXTENSION IF NOT EXISTS age;
-      LOAD 'age';
-      SET search_path = ag_catalog, "$user", public;
-      CREATE EXTENSION IF NOT EXISTS pg_cron;
-      CREATE EXTENSION IF NOT EXISTS pg_trgm;
-    '';
   };
 
   # ── KDC Process ────────────────────────────────────────────────────────────
-  processes.kdc.exec = ''
-    # Initialize KDC if needed
-    bash scripts/kdc-init.sh
+  processes.kdc = {
+    exec = ''
+      # Initialize KDC if needed
+      bash scripts/kdc-init.sh
 
-    KDC_DIR="$PWD/.devenv/kdc"
+      KDC_DIR="$PWD/.devenv/kdc"
 
-    echo "Starting KDC on 127.0.0.1:''${KRB5_KDC_PORT:-8848}..."
-    exec env \
-      KRB5_CONFIG="$KDC_DIR/krb5.conf" \
-      KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
-      krb5kdc -n
-  '';
+      echo "Starting KDC on 127.0.0.1:''${KRB5_KDC_PORT:-8848}..."
+      exec env \
+        KRB5_CONFIG="$KDC_DIR/krb5.conf" \
+        KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
+        krb5kdc -n
+    '';
+    process-compose = {
+      readiness_probe = {
+        exec.command = "ss -uln | grep -q 8848";
+        initial_delay_seconds = 1;
+        period_seconds = 5;
+        timeout_seconds = 2;
+        success_threshold = 1;
+        failure_threshold = 10;
+      };
+    };
+  };
 
   # ── Atlas Process ────────────────────────────────────────────────────────
-  processes.atlas.exec = ''
-    ATLAS_DIR="$PWD/components/atlas"
-    ATLAS_WEBAPP="$ATLAS_DIR/webapp/target/atlas-webapp-3.0.0-SNAPSHOT"
-    ATLAS_CONF="$PWD/config/atlas"
-    ATLAS_HOME="$PWD/.devenv/atlas"
+  processes.atlas = {
+    exec = ''
+      ATLAS_DIR="$PWD/components/atlas"
+      ATLAS_WEBAPP="$ATLAS_DIR/webapp/target/atlas-webapp-3.0.0-SNAPSHOT"
+      ATLAS_CONF="$PWD/config/atlas"
+      ATLAS_HOME="$PWD/.devenv/atlas"
 
-    mkdir -p "$ATLAS_HOME/data" "$ATLAS_HOME/logs" "$ATLAS_HOME/conf"
+      mkdir -p "$ATLAS_HOME/data" "$ATLAS_HOME/logs" "$ATLAS_HOME/conf"
 
-    # Copy credentials/authz to atlas home conf for runtime resolution
-    cp -n "$ATLAS_CONF/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
-    cp -n "$ATLAS_CONF/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
+      # Copy credentials/authz to atlas home conf for runtime resolution
+      cp -n "$ATLAS_CONF/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
+      cp -n "$ATLAS_CONF/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
 
-    if [ ! -d "$ATLAS_WEBAPP/WEB-INF" ]; then
-      echo "Atlas webapp not built. Run: devenv tasks run atlas:build"
-      exit 1
-    fi
+      if [ ! -d "$ATLAS_WEBAPP/WEB-INF" ]; then
+        echo "Atlas webapp not built. Run: devenv tasks run atlas:build"
+        exit 1
+      fi
 
-    echo "Starting Atlas on http://localhost:21000..."
-    exec java \
-      -Datlas.home="$ATLAS_HOME" \
-      -Datlas.conf="$ATLAS_CONF" \
-      -Datlas.log.dir="$ATLAS_HOME/logs" \
-      -Datlas.log.file=application \
-      -Datlas.data="$ATLAS_HOME/data" \
-      -Dlogback.configurationFile="$ATLAS_DIR/distro/src/conf/atlas-logback.xml" \
-      -Datlas.graphdb.backend=org.apache.atlas.repository.graphdb.age.AtlasAgeGraphDatabase \
-      -Djava.net.preferIPv4Stack=true \
-      --add-opens java.base/java.lang=ALL-UNNAMED \
-      --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
-      --add-opens java.base/java.io=ALL-UNNAMED \
-      --add-opens java.base/java.net=ALL-UNNAMED \
-      --add-opens java.base/java.util=ALL-UNNAMED \
-      --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
-      --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
-      --add-opens java.base/sun.security.action=ALL-UNNAMED \
-      --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED \
-      -server -Xmx1024m \
-      -cp "$ATLAS_CONF:$ATLAS_WEBAPP/WEB-INF/classes:$ATLAS_WEBAPP/WEB-INF/lib/*" \
-      org.apache.atlas.Atlas \
-      -app "$ATLAS_WEBAPP" \
-      -port 21000
-  '';
-
-  # ── HMS Process (Hive Standalone Metastore) ──────────────────────────────
-  processes.hms.exec = ''
-    HMS_HOME="$PWD/.devenv/hms"
-    HMS_CONF="$PWD/config/hms"
-
-    if [ ! -d "$HMS_HOME/lib" ]; then
-      echo "HMS not installed. Run: devenv tasks run hms:install"
-      exit 1
-    fi
-
-    mkdir -p /tmp/signals-warehouse
-
-    echo "Starting Hive Metastore on thrift://localhost:9083..."
-    exec java \
-      --add-opens java.base/java.lang=ALL-UNNAMED \
-      --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
-      --add-opens java.base/java.net=ALL-UNNAMED \
-      --add-opens java.base/java.util=ALL-UNNAMED \
-      -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://localhost:5455/hive_metastore \
-      -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver \
-      -server -Xmx512m \
-      -cp "$HMS_CONF:$HMS_HOME/lib/*" \
-      org.apache.hadoop.hive.metastore.HiveMetaStore \
-      -p 9083
-  '';
-
-  # ── Polaris Process (Iceberg REST Catalog) ───────────────────────────────
-  processes.polaris.exec = ''
-    POLARIS_HOME="$PWD/.devenv/polaris"
-    POLARIS_CONF="$PWD/config/polaris"
-
-    if [ ! -f "$POLARIS_HOME/polaris-quarkus-server.jar" ] && [ ! -d "$POLARIS_HOME/lib" ]; then
-      echo "Polaris not installed. Run: devenv tasks run polaris:install"
-      exit 1
-    fi
-
-    echo "Starting Polaris (Iceberg REST Catalog) on http://localhost:8181..."
-    if [ -f "$POLARIS_HOME/polaris-quarkus-server.jar" ]; then
+      echo "Starting Atlas on http://localhost:21000..."
       exec java \
-        -DPOLARIS_PERSISTENCE_TYPE=relational-jdbc \
-        -DQUARKUS_DATASOURCE_DB_KIND=postgresql \
-        -DQUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://localhost:5455/polaris \
-        -DQUARKUS_HTTP_PORT=8181 \
-        -jar "$POLARIS_HOME/polaris-quarkus-server.jar"
-    else
-      exec java \
-        -DPOLARIS_PERSISTENCE_TYPE=relational-jdbc \
-        -DQUARKUS_DATASOURCE_DB_KIND=postgresql \
-        -DQUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://localhost:5455/polaris \
-        -DQUARKUS_HTTP_PORT=8181 \
-        -cp "$POLARIS_CONF:$POLARIS_HOME/lib/*" \
-        org.apache.polaris.service.PolarisApplication
-    fi
-  '';
+        -Datlas.home="$ATLAS_HOME" \
+        -Datlas.conf="$ATLAS_CONF" \
+        -Datlas.log.dir="$ATLAS_HOME/logs" \
+        -Datlas.log.file=application \
+        -Datlas.data="$ATLAS_HOME/data" \
+        -Dlogback.configurationFile="$ATLAS_DIR/distro/src/conf/atlas-logback.xml" \
+        -Datlas.graphdb.backend=org.apache.atlas.repository.graphdb.age.AtlasAgeGraphDatabase \
+        -Djava.net.preferIPv4Stack=true \
+        --add-opens java.base/java.lang=ALL-UNNAMED \
+        --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
+        --add-opens java.base/java.io=ALL-UNNAMED \
+        --add-opens java.base/java.net=ALL-UNNAMED \
+        --add-opens java.base/java.util=ALL-UNNAMED \
+        --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
+        --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+        --add-opens java.base/sun.security.action=ALL-UNNAMED \
+        --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED \
+        -server -Xmx1024m \
+        -cp "$ATLAS_CONF:$ATLAS_WEBAPP/WEB-INF/classes:$ATLAS_WEBAPP/WEB-INF/lib/*" \
+        org.apache.atlas.Atlas \
+        -app "$ATLAS_WEBAPP" \
+        -port 21000
+    '';
+    process-compose = {
+      depends_on = {
+        postgres = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        exec.command = "curl -sf http://127.0.0.1:21000/api/atlas/admin/status";
+        initial_delay_seconds = 10;
+        period_seconds = 10;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 15;
+      };
+    };
+  };
 
   # ── Kudu Master Process ──────────────────────────────────────────────────
-  processes.kudu-master.exec = ''
-    KUDU_HOME="$PWD/.devenv/kudu"
-    KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
+  processes.kudu-master = {
+    exec = ''
+      KUDU_HOME="$PWD/.devenv/kudu"
+      KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
 
-    if [ ! -f "$KUDU_BUILD/bin/kudu-master" ]; then
-      echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
-      exit 1
-    fi
+      if [ ! -f "$KUDU_BUILD/bin/kudu-master" ]; then
+        echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
+        exit 1
+      fi
 
-    mkdir -p "$KUDU_HOME/master/data" "$KUDU_HOME/master/wal" "$KUDU_HOME/master/logs"
+      mkdir -p "$KUDU_HOME/master/data" "$KUDU_HOME/master/wal" "$KUDU_HOME/master/logs"
 
-    echo "Starting Kudu Master on localhost:7051..."
-    exec "$KUDU_BUILD/bin/kudu-master" \
-      --fs_data_dirs="$KUDU_HOME/master/data" \
-      --fs_wal_dir="$KUDU_HOME/master/wal" \
-      --log_dir="$KUDU_HOME/master/logs" \
-      --webserver_port=8051 \
-      --rpc_bind_addresses=127.0.0.1:7051 \
-      --unlock_unsafe_flags \
-      --default_num_replicas=1
-  '';
+      echo "Starting Kudu Master on localhost:7051..."
+      exec "$KUDU_BUILD/bin/kudu-master" \
+        --fs_data_dirs="$KUDU_HOME/master/data" \
+        --fs_wal_dir="$KUDU_HOME/master/wal" \
+        --log_dir="$KUDU_HOME/master/logs" \
+        --webserver_port=8051 \
+        --rpc_bind_addresses=127.0.0.1:7051 \
+        --unlock_unsafe_flags \
+        --default_num_replicas=1
+    '';
+    process-compose = {
+      readiness_probe = {
+        http_get = {
+          host = "127.0.0.1";
+          port = 8051;
+          path = "/";
+        };
+        initial_delay_seconds = 2;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 10;
+      };
+    };
+  };
 
   # ── Kudu Tablet Server Process ───────────────────────────────────────────
-  processes.kudu-tserver.exec = ''
-    KUDU_HOME="$PWD/.devenv/kudu"
-    KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
+  processes.kudu-tserver = {
+    exec = ''
+      KUDU_HOME="$PWD/.devenv/kudu"
+      KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
 
-    if [ ! -f "$KUDU_BUILD/bin/kudu-tserver" ]; then
-      echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
-      exit 1
-    fi
+      if [ ! -f "$KUDU_BUILD/bin/kudu-tserver" ]; then
+        echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
+        exit 1
+      fi
 
-    mkdir -p "$KUDU_HOME/tserver/data" "$KUDU_HOME/tserver/wal" "$KUDU_HOME/tserver/logs"
+      mkdir -p "$KUDU_HOME/tserver/data" "$KUDU_HOME/tserver/wal" "$KUDU_HOME/tserver/logs"
 
-    # Wait for master to be ready
-    sleep 3
-
-    echo "Starting Kudu Tablet Server..."
-    exec "$KUDU_BUILD/bin/kudu-tserver" \
-      --fs_data_dirs="$KUDU_HOME/tserver/data" \
-      --fs_wal_dir="$KUDU_HOME/tserver/wal" \
-      --log_dir="$KUDU_HOME/tserver/logs" \
-      --tserver_master_addrs=127.0.0.1:7051 \
-      --webserver_port=8050 \
-      --rpc_bind_addresses=127.0.0.1:7050 \
-      --unlock_unsafe_flags
-  '';
+      echo "Starting Kudu Tablet Server..."
+      exec "$KUDU_BUILD/bin/kudu-tserver" \
+        --fs_data_dirs="$KUDU_HOME/tserver/data" \
+        --fs_wal_dir="$KUDU_HOME/tserver/wal" \
+        --log_dir="$KUDU_HOME/tserver/logs" \
+        --tserver_master_addrs=127.0.0.1:7051 \
+        --webserver_port=8050 \
+        --rpc_bind_addresses=127.0.0.1:7050 \
+        --unlock_unsafe_flags
+    '';
+    process-compose = {
+      depends_on = {
+        kudu-master = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        http_get = {
+          host = "127.0.0.1";
+          port = 8050;
+          path = "/";
+        };
+        initial_delay_seconds = 2;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 10;
+      };
+    };
+  };
 
   # ── Impala Runtime Environment ────────────────────────────────────────
   # Impala binaries were built with toolchain GCC 10.4.0 but link against
@@ -288,96 +310,155 @@
   # must come FIRST so libc.so.6 resolves to glibc 2.42.
 
   # ── Impala Statestore Process ───────────────────────────────────────────
-  processes.impala-statestore.exec = ''
-    IMPALA_HOME="$PWD/components/impala"
-    source "$IMPALA_HOME/bin/impala-config.sh"
-    . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+  processes.impala-statestore = {
+    exec = ''
+      IMPALA_HOME="$PWD/components/impala"
+      if [ ! -f "$IMPALA_HOME/be/build/latest/service/statestored" ]; then
+        echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
+      fi
+      source "$IMPALA_HOME/bin/impala-config.sh"
+      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+      ${impalaLdLibraryPath}
 
-    # Nix/system hybrid LD_LIBRARY_PATH (order matters — Nix glibc FIRST)
-    NIX_GLIBC="${pkgs.glibc}/lib"
-    GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
-    NIX_KRB5="${pkgs.krb5.lib}/lib"
-    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu"
+      mkdir -p "$PWD/.devenv/impala/statestore/logs"
 
-    mkdir -p "$PWD/.devenv/impala/statestore/logs"
+      echo "Starting Impala Statestore on port 24000..."
+      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+        "$IMPALA_HOME/be/build/latest/service/statestored" \
+        --state_store_port=24000 \
+        --webserver_port=25010 \
+        --log_dir="$PWD/.devenv/impala/statestore/logs" \
+        --hostname=localhost
+    '';
+    process-compose = {
+      readiness_probe = {
+        http_get = {
+          host = "127.0.0.1";
+          port = 25010;
+          path = "/";
+        };
+        initial_delay_seconds = 3;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 10;
+      };
+    };
+  };
 
-    echo "Starting Impala Statestore on port 24000..."
-    exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
-      "$IMPALA_HOME/be/build/latest/service/statestored" \
-      --state_store_port=24000 \
-      --webserver_port=25010 \
-      --log_dir="$PWD/.devenv/impala/statestore/logs" \
-      --hostname=localhost
-  '';
+  # ── Impala Catalog Server Process (HMS-free) ────────────────────────────
+  processes.impala-catalogd = {
+    exec = ''
+      IMPALA_HOME="$PWD/components/impala"
+      if [ ! -f "$IMPALA_HOME/be/build/latest/service/catalogd" ]; then
+        echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
+      fi
+      source "$IMPALA_HOME/bin/impala-config.sh"
+      . "$IMPALA_HOME/bin/set-classpath.sh"
+      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+      ${impalaLdLibraryPath}
 
-  # ── Impala Catalog Server Process ─────────────────────────────────────
-  processes.impala-catalogd.exec = ''
-    IMPALA_HOME="$PWD/components/impala"
-    source "$IMPALA_HOME/bin/impala-config.sh"
-    . "$IMPALA_HOME/bin/set-classpath.sh"
-    . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+      # Add project config (hive-site.xml, core-site.xml) to classpath
+      export CLASSPATH="$PWD/config/impala:$CLASSPATH"
 
-    # Nix/system hybrid LD_LIBRARY_PATH (order matters — Nix glibc FIRST)
-    NIX_GLIBC="${pkgs.glibc}/lib"
-    GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
-    NIX_KRB5="${pkgs.krb5.lib}/lib"
-    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu"
+      # Initialize catalog schema (idempotent)
+      psql -p 5455 -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql"
 
-    mkdir -p "$PWD/.devenv/impala/catalogd/logs"
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts}"
 
-    # Wait for statestore
-    sleep 3
+      mkdir -p "$PWD/.devenv/impala/catalogd/logs"
 
-    echo "Starting Impala Catalog Server on port 26000..."
-    exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
-      "$IMPALA_HOME/be/build/latest/service/catalogd" \
-      --catalog_service_port=26000 \
-      --state_store_subscriber_port=23020 \
-      --state_store_host=localhost \
-      --state_store_port=24000 \
-      --webserver_port=25020 \
-      --log_dir="$PWD/.devenv/impala/catalogd/logs" \
-      --hostname=localhost \
-      --kudu_master_hosts=127.0.0.1:7051 \
-      --hive_metastore_uris=thrift://localhost:9083
-  '';
+      echo "Starting Impala Catalog Server on port 26000 (HMS-free)..."
+      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+        "$IMPALA_HOME/be/build/latest/service/catalogd" \
+        --catalog_service_port=26000 \
+        --state_store_subscriber_port=23020 \
+        --state_store_host=localhost \
+        --state_store_port=24000 \
+        --webserver_port=25020 \
+        --log_dir="$PWD/.devenv/impala/catalogd/logs" \
+        --hostname=localhost \
+        --kudu_master_hosts=127.0.0.1:7051 \
+        --abort_on_config_error=false \
+        --hms_event_polling_interval_s=0
+    '';
+    process-compose = {
+      depends_on = {
+        impala-statestore = { condition = "process_healthy"; };
+        kudu-tserver = { condition = "process_healthy"; };
+        postgres = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        http_get = {
+          host = "127.0.0.1";
+          port = 25020;
+          path = "/";
+        };
+        initial_delay_seconds = 5;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 15;
+      };
+    };
+  };
 
-  # ── Impala Daemon Process ─────────────────────────────────────────────
-  processes.impala-impalad.exec = ''
-    IMPALA_HOME="$PWD/components/impala"
-    source "$IMPALA_HOME/bin/impala-config.sh"
-    . "$IMPALA_HOME/bin/set-classpath.sh"
-    . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+  # ── Impala Daemon Process (HMS-free) ────────────────────────────────────
+  processes.impala-impalad = {
+    exec = ''
+      IMPALA_HOME="$PWD/components/impala"
+      if [ ! -f "$IMPALA_HOME/be/build/latest/service/impalad" ]; then
+        echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
+      fi
+      source "$IMPALA_HOME/bin/impala-config.sh"
+      . "$IMPALA_HOME/bin/set-classpath.sh"
+      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+      ${impalaLdLibraryPath}
 
-    # Nix/system hybrid LD_LIBRARY_PATH (order matters — Nix glibc FIRST)
-    NIX_GLIBC="${pkgs.glibc}/lib"
-    GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
-    NIX_KRB5="${pkgs.krb5.lib}/lib"
-    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu"
+      # Add project config (hive-site.xml, core-site.xml) to classpath
+      export CLASSPATH="$PWD/config/impala:$CLASSPATH"
 
-    mkdir -p "$PWD/.devenv/impala/impalad/logs"
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts}"
 
-    # Wait for catalogd
-    sleep 5
+      mkdir -p "$PWD/.devenv/impala/impalad/logs"
 
-    echo "Starting Impala Daemon on hs2://localhost:21050..."
-    exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
-      "$IMPALA_HOME/be/build/latest/service/impalad" \
-      --hs2_port=21050 \
-      --beeswax_port=21001 \
-      --state_store_subscriber_port=23000 \
-      --state_store_host=localhost \
-      --state_store_port=24000 \
-      --catalog_service_host=localhost \
-      --catalog_service_port=26000 \
-      --webserver_port=25000 \
-      --krpc_port=27000 \
-      --log_dir="$PWD/.devenv/impala/impalad/logs" \
-      --hostname=localhost \
-      --kudu_master_hosts=127.0.0.1:7051 \
-      --use_local_catalog=true \
-      --default_fs=file:///tmp/signals-warehouse
-  '';
+      echo "Starting Impala Daemon on hs2://localhost:21050..."
+      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+        "$IMPALA_HOME/be/build/latest/service/impalad" \
+        --hs2_port=21050 \
+        --beeswax_port=21001 \
+        --state_store_subscriber_port=23000 \
+        --state_store_host=localhost \
+        --state_store_port=24000 \
+        --catalog_service_host=localhost \
+        --catalog_service_port=26000 \
+        --webserver_port=25000 \
+        --krpc_port=27000 \
+        --log_dir="$PWD/.devenv/impala/impalad/logs" \
+        --hostname=localhost \
+        --kudu_master_hosts=127.0.0.1:7051 \
+        --use_local_catalog=true \
+        --abort_on_config_error=false \
+        --hms_event_polling_interval_s=0
+    '';
+    process-compose = {
+      depends_on = {
+        impala-catalogd = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        http_get = {
+          host = "127.0.0.1";
+          port = 25000;
+          path = "/";
+        };
+        initial_delay_seconds = 5;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 15;
+      };
+    };
+  };
 
   # ── Tasks ──────────────────────────────────────────────────────────────────
   tasks = {
@@ -600,39 +681,57 @@
 
     echo "signals-360 development environment"
     echo ""
-    echo "Services (start with 'devenv up'):"
-    echo "  PostgreSQL 16    — extensions: age, pg_cron (port 5455)"
-    echo "  Kerberos KDC     — realm: KRBTEST.COM, port: 8848"
-    echo "  Atlas            — http://localhost:21000 (AGE backend)"
-    echo "  HMS              — thrift://localhost:9083 (PostgreSQL backend)"
-    echo "  Polaris          — http://localhost:8181 (Iceberg REST catalog)"
-    echo "  Kudu Master      — localhost:7051 (web UI: 8051)"
-    echo "  Kudu TServer     — localhost:7050 (web UI: 8050)"
+    echo "Core services (start with 'devenv up'):"
+    echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron"
+    echo "  Kerberos KDC      — realm: KRBTEST.COM, port: 8848"
+    echo "  Atlas             — http://localhost:21000 (AGE backend)"
+    echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
+    echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
     echo "  Impala Statestore — localhost:24000 (web UI: 25010)"
-    echo "  Impala Catalogd  — localhost:26000 (web UI: 25020)"
-    echo "  Impala Daemon    — hs2://localhost:21050, beeswax://localhost:21001 (web UI: 25000)"
+    echo "  Impala Catalogd   — localhost:26000 (web UI: 25020, HMS-free)"
+    echo "  Impala Daemon     — hs2://localhost:21050 (web UI: 25000)"
     echo ""
-    echo "Tasks:"
-    echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
-    echo "  devenv tasks run hms:install          — Download Hive Standalone Metastore"
-    echo "  devenv tasks run hms:init-schema      — Initialize HMS schema in PostgreSQL"
-    echo "  devenv tasks run polaris:install       — Build and install Polaris"
-    echo "  devenv tasks run kudu:install-java    — Install Kudu Java client to Maven"
+    echo "Connect: jdbc:hive2://localhost:21050/default;auth=noSasl"
+    echo ""
+    echo "Build tasks:"
     echo "  devenv tasks run kudu:build-cpp       — Build Kudu C++ binaries"
+    echo "  devenv tasks run kudu:install-java    — Install Kudu Java client to Maven"
     echo "  devenv tasks run impala:bootstrap     — Download Impala toolchain (~5-10 GB)"
     echo "  devenv tasks run impala:build         — Full Impala build (C++ + Java)"
     echo "  devenv tasks run impala:build-fe      — Incremental Java frontend build"
     echo "  devenv tasks run impala:test-fe       — Run signals FE unit tests"
-    echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"
+    echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
+    echo ""
+    echo "Utility tasks:"
     echo "  devenv tasks run signals:kdc-init     — Initialize KDC"
     echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
+    echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"
+    echo "  devenv tasks run hms:install          — Download Hive Standalone Metastore"
+    echo "  devenv tasks run hms:init-schema      — Initialize HMS schema in PostgreSQL"
+    echo "  devenv tasks run polaris:install       — Build and install Polaris"
     echo "  devenv tasks run docs:build           — Build documentation"
     echo "  devenv tasks run docs:serve           — Serve docs with live reload"
   '';
 
   # ── Tests ──────────────────────────────────────────────────────────────────
   enterTest = ''
-    echo "Running tests"
-    git --version | grep --color=auto "${pkgs.git.version}"
+    echo "=== Waiting for stack health ==="
+    python3 scripts/wait_for_stack.py --stale-timeout 300
+
+    echo ""
+    echo "=== Tier-0: Component Health ==="
+    uv run behave features/ --tags=@tier-0 --no-capture
+
+    echo ""
+    echo "=== Tier-1: Integration Tests ==="
+    uv run behave features/ --tags=@tier-1 --no-capture
+
+    echo ""
+    echo "=== Running Impala FE unit tests ==="
+    cd components/impala
+    source bin/impala-config.sh
+    mvn test -pl fe \
+      -Dtest="ConfigLoaderTest,KuduMetaProviderTest,SignalsDdlExecutorTest" \
+      -DfailIfNoTests=false --no-transfer-progress
   '';
 }

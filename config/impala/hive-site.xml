@@ -2,11 +2,14 @@
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
   <property>
-    <name>hive.metastore.uris</name>
-    <value>thrift://localhost:9083</value>
-  </property>
-  <property>
     <name>hive.metastore.warehouse.dir</name>
     <value>file:///tmp/signals-warehouse</value>
+  </property>
+  <!-- Dummy URI so HiveMetaStoreClient instantiates without falling into the
+       embedded-metastore code path (which requires hive-exec JARs).
+       HMS is NOT running; HMS-free mode bypasses this client for all DDL. -->
+  <property>
+    <name>hive.metastore.uris</name>
+    <value>thrift://localhost:9083</value>
   </property>
 </configuration>

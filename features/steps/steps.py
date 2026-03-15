@@ -5,7 +5,8 @@ This module imports from domain-specific step files so
 behave can find them.
 """
 
-from features.platform.steps.service_steps import *  # noqa: F401,F403
+from features.platform.steps.health_steps import *  # noqa: F401,F403
+from features.platform.steps.integration_steps import *  # noqa: F401,F403
 from features.platform.steps.data_lifecycle_steps import *  # noqa: F401,F403
 from features.agent.steps.agent_steps import *  # noqa: F401,F403
 from features.analytics.steps.analytics_steps import *  # noqa: F401,F403
