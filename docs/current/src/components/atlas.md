@@ -31,22 +31,38 @@ This eliminates the HBase + Solr dependencies from the standard Atlas deployment
 
 ## Impala Integration
 
-When Impala tables are created via HMS-free DDL, they need to be registered in Atlas as entities:
+When Impala tables are created via HMS-free DDL, they are registered in Atlas as Hive-compatible entity types. A Python catalog bridge reads table metadata from Impala via `DESCRIBE` and creates entities through the Atlas REST API.
 
-| Atlas Entity Type | Source |
-|-------------------|--------|
-| `impala_db` | CREATE DATABASE |
-| `impala_table` | CREATE TABLE |
-| `impala_column` | Column definitions from Kudu schema |
+### Entity Types
+
+| Atlas Entity Type | qualifiedName Pattern | Source |
+|-------------------|----------------------|--------|
+| `hive_db` | `{db}@signals` | CREATE DATABASE |
+| `hive_table` | `{db}.{table}@signals` | CREATE TABLE |
+| `hive_column` | `{db}.{table}.{col}@signals` | Column definitions from Kudu schema |
+
+The `hive_table_columns` COMPOSITION relationship wires columns to their parent table. Atlas resolves this automatically when entities are created via `POST /v2/entity/bulk` with temporary GUIDs.
+
+### Catalog Bridge
+
+The bridge function (`register_impala_table_in_atlas` in `features/platform/steps/helpers.py`) performs entity registration without Kafka or the Atlas hook infrastructure:
+
+1. `DESCRIBE {table}` on Impala → column names, types, comments
+2. Build `hive_db` (referred), `hive_table` (main), `hive_column` (referred) entities with negative temp GUIDs
+3. `POST /v2/entity/bulk` — single atomic call, idempotent via qualifiedName matching
+4. Extract real GUIDs from `guidAssignments` (create) or `mutatedEntities` (update)
+
+This approach validates the Atlas entity contract for Impala-style entities and is used by the tier-1 BDD integration tests. See [Test Infrastructure](../scenarios/testing.md) for details.
 
 ### Metadata Tagging Pipeline
 
 ```
 Impala (CREATE TABLE)
-    → Atlas (entity registered)
-        → Tagging Service (classifies against SIGDG ontology)
-            → Atlas (SIGDG classifications applied)
-                → Ranger (tag-based policies enforced)
+    → Catalog Bridge (DESCRIBE → Atlas REST API)
+        → Atlas (hive_table + hive_column entities)
+            → Tagging Service (classifies against SIGDG ontology)
+                → Atlas (SIGDG classifications applied)
+                    → Ranger (tag-based policies enforced)
 ```
 
 The tagging service reads new entities from Atlas and classifies table and column names against the SIGDG ontology (BFO-grounded data governance vocabulary). Classifications are written back as Atlas tags.
@@ -60,6 +76,15 @@ The tagging service reads new entities from Atlas and classifies table and colum
 | `ssn` | `SIGDG:0011` GovernmentIdentifier | Restricted |
 | `total_amount` | `SIGDG:0021` FinancialInformation | Confidential |
 | `order_status` | `SIGDG:0050` TransactionInformation | Internal |
+
+### BDD Validation
+
+The tier-1 integration tests validate the full classification lifecycle:
+
+1. **Catalog bridge** — Impala table registered in Atlas with correct column metadata
+2. **Classification CRUD** — Create PII classification type, apply to tables and columns
+3. **Column-level tagging** — Apply classification to individual columns (e.g., `email` → PII)
+4. **Entity lifecycle** — Create, register, verify, delete entities through Impala DDL + Atlas API
 
 ## Build
 
