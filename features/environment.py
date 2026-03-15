@@ -149,5 +149,43 @@ def before_scenario(context, scenario):
 
 
 def after_scenario(context, scenario):
-    """Per-scenario cleanup."""
-    pass
+    """Per-scenario cleanup — best-effort removal of test entities."""
+    from features.platform.steps.helpers import (
+        delete_atlas_entities_by_guids,
+        delete_atlas_entity,
+        impala_execute,
+        table_qualified_name,
+    )
+
+    # Clean up Atlas entities from bridge registration
+    if hasattr(context, "atlas_registration"):
+        try:
+            reg = context.atlas_registration
+            # Delete columns first (composition), then table, then db
+            col_guids = list(reg.get("column_guids", {}).values())
+            if col_guids:
+                delete_atlas_entities_by_guids(col_guids)
+            if reg.get("table_guid"):
+                delete_atlas_entities_by_guids([reg["table_guid"]])
+        except Exception:
+            pass
+
+    # Clean up PII-tagged tables from classification search tests
+    if hasattr(context, "pii_tagged_tables"):
+        for table in context.pii_tagged_tables:
+            try:
+                qn = table_qualified_name(table)
+                delete_atlas_entity("hive_table", qn)
+            except Exception:
+                pass
+            try:
+                impala_execute(f"DROP TABLE IF EXISTS {table}")
+            except Exception:
+                pass
+
+    # Clean up last-created Impala table
+    if hasattr(context, "last_created_table"):
+        try:
+            impala_execute(f"DROP TABLE IF EXISTS {context.last_created_table}")
+        except Exception:
+            pass

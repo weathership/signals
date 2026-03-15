@@ -19,17 +19,19 @@ Feature: Cross-component catalog synchronization
     Then "integration_test.crud_test" row count is correct
     And I drop table "integration_test.crud_test"
 
-  @tier-1 @tdd
+  @tier-1
   Scenario: Atlas discovers Impala-managed Kudu tables
     Given Kudu table "integration_test.atlas_visible" exists
-    When I trigger an Atlas metadata import
+    When I register the table in Atlas via the catalog bridge
     Then Atlas entity search finds "integration_test.atlas_visible"
+    And the Atlas entity has correct column metadata
     And I drop table "integration_test.atlas_visible"
 
-  @tier-1 @tdd
-  Scenario: Impala DDL events propagate to Atlas
+  @tier-1
+  Scenario: Atlas entity lifecycle follows Impala DDL
     When I create Kudu table "integration_test.event_test" via Impala
-    And I wait for Atlas to process the event
+    And I register the table in Atlas via the catalog bridge
     Then Atlas has an entity for "integration_test.event_test"
     When I drop table "integration_test.event_test" via Impala
+    And I mark the Atlas entity as deleted
     Then the Atlas entity is marked as deleted

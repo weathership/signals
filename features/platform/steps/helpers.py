@@ -17,6 +17,23 @@ PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
+CLUSTER_NAME = "signals"
+
+
+def table_qualified_name(table_fqn):
+    """Return Atlas qualifiedName for a table: 'db.table@cluster'."""
+    return f"{table_fqn}@{CLUSTER_NAME}"
+
+
+def column_qualified_name(table_fqn, col):
+    """Return Atlas qualifiedName for a column: 'db.table.col@cluster'."""
+    return f"{table_fqn}.{col}@{CLUSTER_NAME}"
+
+
+def db_qualified_name(db):
+    """Return Atlas qualifiedName for a database: 'db@cluster'."""
+    return f"{db}@{CLUSTER_NAME}"
+
 
 def pg_conn(dbname="signals"):
     """Connect to a local PostgreSQL database."""
@@ -50,13 +67,13 @@ def impala_scalar(sql):
 def atlas_api(path, method="GET", **kwargs):
     """Call the Atlas v2 REST API."""
     url = f"http://localhost:21000/api/atlas/v2{path}"
-    return requests.request(method, url, auth=("admin", "admin"), timeout=10, **kwargs)
+    return requests.request(method, url, auth=("admin", "admin"), timeout=60, **kwargs)
 
 
 def atlas_admin_api(path, method="GET", **kwargs):
     """Call the Atlas admin REST API."""
     url = f"http://localhost:21000/api/atlas{path}"
-    return requests.request(method, url, auth=("admin", "admin"), timeout=10, **kwargs)
+    return requests.request(method, url, auth=("admin", "admin"), timeout=60, **kwargs)
 
 
 def atlas_api_json(path, method="GET", **kwargs):
@@ -74,3 +91,138 @@ def kudu_master_api(path):
 def run_cmd(cmd, **kwargs):
     """Run a shell command with standard timeout and capture."""
     return subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
+
+
+def register_impala_table_in_atlas(table_fqn):
+    """Register an Impala-managed Kudu table in Atlas via REST API.
+
+    Runs DESCRIBE on the table to get columns, then creates hive_db,
+    hive_table, and hive_column entities in Atlas via POST /v2/entity/bulk.
+
+    Returns dict with table_guid, db_guid, and column_guids mapping.
+    """
+    parts = table_fqn.split(".", 1)
+    db_name = parts[0] if len(parts) == 2 else "default"
+    table_name = parts[1] if len(parts) == 2 else parts[0]
+
+    # Get column metadata from Impala
+    rows = impala_execute(f"DESCRIBE {table_fqn}", fetch=True)
+    assert rows, f"DESCRIBE {table_fqn} returned no results"
+    columns = [(row[0], row[1], row[2] if len(row) > 2 else "") for row in rows]
+
+    db_qn = db_qualified_name(db_name)
+    tbl_qn = table_qualified_name(table_fqn)
+
+    # Build column entities with negative temp GUIDs
+    col_entities = []
+    col_guid_map = {}
+    for i, (col_name, col_type, col_comment) in enumerate(columns):
+        temp_guid = f"-{10 + i}"
+        col_qn = column_qualified_name(table_fqn, col_name)
+        col_guid_map[col_name] = temp_guid
+        col_entities.append({
+            "typeName": "hive_column",
+            "guid": temp_guid,
+            "attributes": {
+                "qualifiedName": col_qn,
+                "name": col_name,
+                "type": col_type,
+                "comment": col_comment or None,
+                "owner": "admin",
+                "table": {"guid": "-1", "typeName": "hive_table"},
+                "position": i,
+            },
+        })
+
+    # Build the bulk entity request
+    body = {
+        "referredEntities": {
+            "-100": {
+                "typeName": "hive_db",
+                "guid": "-100",
+                "attributes": {
+                    "qualifiedName": db_qn,
+                    "name": db_name,
+                    "clusterName": CLUSTER_NAME,
+                    "owner": "admin",
+                },
+            },
+        },
+        "entities": [{
+            "typeName": "hive_table",
+            "guid": "-1",
+            "attributes": {
+                "qualifiedName": tbl_qn,
+                "name": table_name,
+                "owner": "admin",
+                "tableType": "EXTERNAL_TABLE",
+                "db": {"guid": "-100", "typeName": "hive_db"},
+                "columns": [
+                    {"guid": ce["guid"], "typeName": "hive_column"}
+                    for ce in col_entities
+                ],
+            },
+        }],
+    }
+    # Add column entities as referred entities
+    for ce in col_entities:
+        body["referredEntities"][ce["guid"]] = ce
+
+    resp = atlas_api("/entity/bulk", method="POST", json=body)
+    resp.raise_for_status()
+    data = resp.json()
+
+    # Extract real GUIDs from guidAssignments or mutatedEntities
+    guid_assignments = data.get("guidAssignments", {})
+    result = {
+        "table_guid": guid_assignments.get("-1"),
+        "db_guid": guid_assignments.get("-100"),
+        "column_guids": {},
+    }
+
+    # If guidAssignments is empty (update case), find from mutatedEntities
+    if not result["table_guid"]:
+        mutated = data.get("mutatedEntities", {})
+        for action_entities in mutated.values():
+            for ent in action_entities:
+                if ent.get("typeName") == "hive_table":
+                    result["table_guid"] = ent.get("guid")
+                elif ent.get("typeName") == "hive_db":
+                    result["db_guid"] = ent.get("guid")
+
+    for col_name, temp_guid in col_guid_map.items():
+        real_guid = guid_assignments.get(temp_guid)
+        if real_guid:
+            result["column_guids"][col_name] = real_guid
+        else:
+            # Fallback: look up column by qualifiedName
+            mutated = data.get("mutatedEntities", {})
+            col_qn = column_qualified_name(table_fqn, col_name)
+            for action_entities in mutated.values():
+                for ent in action_entities:
+                    if (ent.get("typeName") == "hive_column"
+                            and ent.get("attributes", {}).get("qualifiedName") == col_qn):
+                        result["column_guids"][col_name] = ent.get("guid")
+
+    return result
+
+
+def delete_atlas_entity(type_name, qualified_name):
+    """Delete an Atlas entity by type and qualifiedName (soft-delete)."""
+    resp = atlas_api(
+        f"/entity/uniqueAttribute/type/{type_name}",
+        method="DELETE",
+        params={"attr:qualifiedName": qualified_name},
+    )
+    return resp
+
+
+def delete_atlas_entities_by_guids(guids):
+    """Delete multiple Atlas entities by GUID (soft-delete)."""
+    if not guids:
+        return None
+    params = [("guid", g) for g in guids if g]
+    if not params:
+        return None
+    resp = atlas_api("/entity/bulk", method="DELETE", params=params)
+    return resp

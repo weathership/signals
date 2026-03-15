@@ -171,6 +171,9 @@ in
 
       mkdir -p "$ATLAS_HOME/data" "$ATLAS_HOME/logs" "$ATLAS_HOME/conf"
 
+      # Symlink models so AtlasTypeDefStoreInitializer finds bootstrap type definitions
+      ln -sfn "$ATLAS_DIR/addons/models" "$ATLAS_HOME/models"
+
       # Copy credentials/authz to atlas home conf for runtime resolution
       cp -n "$ATLAS_CONF/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
       cp -n "$ATLAS_CONF/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
