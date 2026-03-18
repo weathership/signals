@@ -14,6 +14,7 @@
 - [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
+- [Context Engineering](./architecture/context-engineering.md)
 - [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios
@@ -56,5 +57,6 @@
 
 # Reference
 
+- [SIGDG Ontology](./reference/sigdg-ontology.md)
 - [Configuration](./reference/configuration.md)
 - [Roadmap](./reference/roadmap.md)

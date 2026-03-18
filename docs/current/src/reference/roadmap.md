@@ -74,14 +74,17 @@ Evolve the catalog bridge from a test helper to a production integration:
 
 Automatic classification of table and column names using the SIGDG ontology (BFO-grounded data governance vocabulary):
 
+- [x] Classification model trained on the SIGDG information entity hierarchy (SIGDG:0010–0060)
+- [x] Training data: 6 categories (identity, personal, business, system, transaction, metadata)
+- [x] Sensitivity levels assigned as BFO qualities (Public → Internal → Confidential → Restricted)
+- [x] Context engineering pipeline with 11 ablatable features and SAGE importance analysis
+- [x] Multi-stage pipeline (feature extraction → classification → run report + SAGE)
+- [x] Structured run reports (JSON + parquet) for method/feature comparison
 - [ ] Tagging service prototype (Python) that watches Atlas for new entities
-- [ ] Classification model trained on the SIGDG information entity hierarchy (SIGDG:0010–0060)
-- [ ] Sensitivity levels assigned as BFO qualities (Public → Internal → Confidential → Restricted)
-- [ ] Training data: 6 categories (identity, personal, business, system, transaction, metadata)
 - [ ] Write classifications back to Atlas as SIGDG tags
 - [ ] OWL formalization of SIGDG with BFO 2020 imports
 
-See [Metadata Tagging](../architecture/meta-tagging.md) for the full SIGDG ontology and BFO grounding.
+See [Metadata Tagging](../architecture/meta-tagging.md) for the architecture and [Context Engineering](../architecture/context-engineering.md) for the SAGE-based feature evaluation methodology. The [SIGDG Ontology](./sigdg-ontology.md) reference documents the full BFO-grounded vocabulary.
 
 ### 5. Ranger Tag-Based Policies
 
