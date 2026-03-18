@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "signals"
 version = "0.1.0"
@@ -9,11 +13,52 @@ dependencies = [
     "pyhocon>=0.3.61",
 ]
 
+[project.optional-dependencies]
+llm = [
+    "anthropic>=0.84.0",
+]
+owl = [
+    "owlready2>=0.50",
+]
+embedding = [
+    "sentence-transformers>=3.3.0",
+    "numpy>=1.26.0",
+]
+embedding-xgboost = [
+    "sentence-transformers>=3.3.0",
+    "numpy>=1.26.0",
+    "xgboost>=2.0.0",
+    "scikit-learn>=1.4.0",
+]
+viz = [
+    "pyarrow>=18.0.0",
+    "pandas>=2.2.0",
+]
+sage = [
+    "sage-importance>=0.0.6",
+    "numpy>=1.26.0",
+]
+
+[project.scripts]
+sigint = "sigint.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sigint", "src/signals"]
+
 [dependency-groups]
 dev = [
+    "anthropic>=0.84.0",
     "behave>=1.3.3",
     "impyla>=0.19.0",
+    "numpy>=2.4.3",
+    "owlready2>=0.50",
     "psycopg[binary]>=3.1",
+    "pyarrow>=18.0.0",
     "pytest>=8.0",
     "requests>=2.31",
+    "sage-importance>=0.0.6",
+    "sentence-transformers>=3.3.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -38,6 +38,7 @@ in
     gcc
     protobuf
     flatbuffers
+    zlib  # needed by numpy C extensions in pip wheels
 
     # Kubernetes / Orchestration
     kubectl
