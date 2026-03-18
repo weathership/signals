@@ -128,6 +128,8 @@ This validates the Atlas entity contract for Impala-style entities and enables c
 | `hive_table` | `{db}.{table}@{cluster}` | `integration_test.orders@signals` |
 | `hive_column` | `{db}.{table}.{col}@{cluster}` | `integration_test.orders.email@signals` |
 
+> The `hive_*` entity types are an interim convenience — see [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution) for the planned migration to native Impala/Kudu/Iceberg types.
+
 ## After-Scenario Cleanup
 
 `environment.py` runs best-effort cleanup after each scenario:

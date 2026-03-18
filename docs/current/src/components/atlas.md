@@ -43,6 +43,8 @@ When Impala tables are created via HMS-free DDL, they are registered in Atlas as
 
 The `hive_table_columns` COMPOSITION relationship wires columns to their parent table. Atlas resolves this automatically when entities are created via `POST /v2/entity/bulk` with temporary GUIDs.
 
+> **Note:** The `hive_*` entity types are used as an interim convenience — they ship with Atlas's bootstrap models and provide working entity CRUD, classification, and relationship support out of the box. The project targets native Impala/Kudu/Iceberg entity types. See [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution).
+
 ### Catalog Bridge
 
 The bridge function (`register_impala_table_in_atlas` in `features/platform/steps/helpers.py`) performs entity registration without Kafka or the Atlas hook infrastructure:

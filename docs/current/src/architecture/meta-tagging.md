@@ -28,7 +28,7 @@ pg: PostgreSQL + AGE {
   tooltip: "Graph queries on metadata relationships"
 }
 
-impala -> atlas: "Hook: table/column\nmetadata events"
+impala -> atlas: "Catalog bridge:\ntable/column entities"
 atlas.entities -> tagger: "New/changed entities"
 tagger -> atlas.tags: "Apply classifications"
 atlas -> pg: "Lineage + classification\ngraph queries"
@@ -155,7 +155,7 @@ Each table's columns serve as positive examples for their SIGDG category. The co
 
 Atlas provides the metadata catalog that makes Impala tables and columns visible as governed entities:
 
-- **Entity types**: `impala_table`, `impala_column`, `impala_db` map directly to Impala's catalog objects
+- **Entity types**: `hive_table`, `hive_column`, `hive_db` (interim — see [Roadmap](../reference/roadmap.md#entity-type-evolution))
 - **Classifications**: Applied as Atlas tags using SIGDG CURIEs (e.g., `SIGDG_0025_ContactInformation`)
 - **Lineage**: Atlas tracks table-level lineage from INSERT...SELECT and CTAS operations
 - **AGE graph queries**: Atlas metadata stored in PostgreSQL with AGE enables graph traversal of classification relationships, lineage paths, and impact analysis
@@ -170,7 +170,7 @@ Once entities are tagged in Atlas:
 
 ## Near-Term Plan
 
-1. **Impala → Atlas hook**: Register Impala tables in Atlas when created via HMS-free DDL
+1. **Atlas catalog bridge** (interim; hook/event-driven in future): Register Impala tables in Atlas when created via HMS-free DDL
 2. **Tagging service prototype**: Python service that reads Atlas entities and classifies against SIGDG ontology
 3. **OWL formalization**: Publish SIGDG as OWL ontology with BFO imports, verify via RASE 5-gate pipeline
 4. **Ranger tag-based policies**: Column masking and access control driven by Atlas SIGDG classifications

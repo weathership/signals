@@ -13,39 +13,64 @@ HMS-free Impala + Kudu is operational. The full table lifecycle works without th
 - **DML**: INSERT, SELECT with JOINs, aggregations, subqueries
 - **Data types**: INT, STRING, DOUBLE, BOOLEAN, BIGINT
 
+### Atlas Metadata Integration (in progress)
+
+Atlas with the AGE backend is running and the catalog bridge is validated:
+
+- **Atlas AGE backend** operational — PostgreSQL + AGE replacing JanusGraph/HBase/Solr
+- **Catalog bridge** — Python function registers Impala-managed Kudu tables in Atlas via REST API
+- **Entity CRUD** — `hive_table`, `hive_column`, `hive_db` entities (interim types from Atlas bootstrap)
+- **Classification CRUD** — custom classification types, table/column tagging, search by classification
+- **BDD coverage** — 18 scenarios across 6 features (10 tier-0 + 8 tier-1), all passing
+
 ### Infrastructure (complete)
 
-- devenv environment with PostgreSQL (AGE, pg_cron), Kerberos KDC
+- devenv environment with PostgreSQL (AGE, pg_cron, pg_trgm), Kerberos KDC
 - HMS, Polaris, Kudu processes defined in devenv.nix
 - Atlas with AGE backend (replacing JanusGraph/HBase/Solr)
 - 7 ASF component submodules on `rch/signals` branches
-- BDD feature specifications for all 6 scenarios
+- BDD feature specifications across 6 features with tier-0 and tier-1 coverage
 - CI workflow for catalog unit + integration tests
 - mdbook documentation with GitHub Pages deployment
 
 ## Near-Term Objectives
 
-### 1. Iceberg REST Catalog (via Polaris)
+### 1. Hot/Warm Data Lifecycle (keystone capability)
 
-Add warm-tier storage to the query stack:
+The core value proposition of the stack: Kudu for upsert-heavy hot-tier ingest, Iceberg for warm-tier storage as upserts taper off, and Impala providing transparent queries across both tiers.
 
 - [ ] End-to-end Iceberg table creation through Polaris REST catalog
 - [ ] SELECT queries on Iceberg tables via Impala
 - [ ] Kudu → Iceberg data migration via CTAS
-- [ ] Validated hot/warm data lifecycle
+- [ ] Lifecycle validation workload (`tests/workload/lifecycle.py`) — hot→warm transition
+- [ ] Polaris catalog integration with the catalog registry
 
-The `IcebergRESTCatalog` class already implements `createTable`, `dropTable`, and `renameTable` against the Polaris API. The remaining work is integration testing with a running Polaris instance.
+The `IcebergRESTCatalog` class already implements `createTable`, `dropTable`, and `renameTable` against the Polaris API. The remaining work is integration testing with a running Polaris instance and validating the full hot→warm lifecycle: data ingested into Kudu, aged via CTAS into Iceberg, queryable transparently through Impala.
 
-### 2. Atlas Metadata Integration
+### 2. Entity Type Evolution
 
-Make Impala tables visible in the Atlas catalog:
+The tier-1 BDD tests currently use `hive_table`, `hive_column`, and `hive_db` entity types because they ship with Atlas's bootstrap models. This is pragmatic — they provide working entity CRUD, classification, and relationship support out of the box — but entity type names should reflect the actual storage and query engines in the stack.
 
-- [ ] Register Impala tables/columns in Atlas when created via HMS-free DDL
-- [ ] Atlas entity types: `impala_db`, `impala_table`, `impala_column`
+| Phase | Entity Types | Status |
+|-------|-------------|--------|
+| Phase 1 (current) | `hive_table`, `hive_column`, `hive_db` | Working — Atlas bootstrap types, validated by 18 BDD scenarios |
+| Phase 2 | `impala_table`, `impala_column`, `impala_db` | Planned — custom type model in `addons/models/`, superType DataSet |
+| Phase 3 | `kudu_table`, `iceberg_table` alongside `impala_table` | Future — storage-tier-aware types for lineage across hot/warm |
+
+**Why this matters:** Phase 1 validates the Atlas entity contract and classification pipeline. Phase 2 makes entity types match the query engine (Impala, not Hive). Phase 3 enables lineage tracking across the Kudu→Iceberg migration boundary — when a CTAS moves data from hot to warm tier, the lineage should connect a `kudu_table` source to an `iceberg_table` target, both queryable through `impala_table`.
+
+### 3. Atlas-Impala Catalog Bridge
+
+Evolve the catalog bridge from a test helper to a production integration:
+
+- [x] Bridge function registers Impala tables in Atlas via REST API
+- [x] Classification CRUD — create types, apply to tables and columns
+- [x] Column-level tagging — individual column classification
+- [ ] Automated registration — hook or event-driven (replace manual bridge calls)
 - [ ] Lineage tracking for INSERT...SELECT and CTAS operations
-- [ ] Verify Atlas web UI shows table metadata (port 21000)
+- [ ] Search-by-classification in AGE backend (full-text search on classification names)
 
-### 3. AI/ML Metadata Tagging
+### 4. AI/ML Metadata Tagging
 
 Automatic classification of table and column names using the SIGDG ontology (BFO-grounded data governance vocabulary):
 
@@ -58,7 +83,7 @@ Automatic classification of table and column names using the SIGDG ontology (BFO
 
 See [Metadata Tagging](../architecture/meta-tagging.md) for the full SIGDG ontology and BFO grounding.
 
-### 4. Ranger Tag-Based Policies
+### 5. Ranger Tag-Based Policies
 
 Connect Atlas classifications to query-time enforcement:
 
@@ -73,7 +98,7 @@ Scenarios are organized by implementation tier:
 
 | Tier | Focus | Prerequisites |
 |------|-------|---------------|
-| **Tier 0** | Extension packaging, devenv validation | None |
+| **Tier 0** | Component health | None |
 | **Tier 1** | Query stack, metadata catalog, classification | Impala + Kudu + Atlas |
 | **Tier 2** | gRPC engine, extension deployment, self-improvement | Engine binary |
 | **Tier 3** | Full visualization pipeline, analytics scenarios | Engine + Dask + Datashader |
