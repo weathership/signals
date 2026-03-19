@@ -1899,6 +1899,8 @@ source = { editable = "." }
 dependencies = [
     { name = "ortools" },
     { name = "pyhocon" },
+    { name = "scikit-learn" },
+    { name = "xgboost" },
 ]
 
 [package.optional-dependencies]
@@ -1954,9 +1956,11 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'viz'", specifier = ">=18.0.0" },
     { name = "pyhocon", specifier = ">=0.3.61" },
     { name = "sage-importance", marker = "extra == 'sage'", specifier = ">=0.0.6" },
+    { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "scikit-learn", marker = "extra == 'embedding-xgboost'", specifier = ">=1.4.0" },
     { name = "sentence-transformers", marker = "extra == 'embedding'", specifier = ">=3.3.0" },
     { name = "sentence-transformers", marker = "extra == 'embedding-xgboost'", specifier = ">=3.3.0" },
+    { name = "xgboost", specifier = ">=3.2.0" },
     { name = "xgboost", marker = "extra == 'embedding-xgboost'", specifier = ">=2.0.0" },
 ]
 provides-extras = ["llm", "owl", "embedding", "embedding-xgboost", "viz", "sage"]

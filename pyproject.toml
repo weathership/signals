@@ -11,6 +11,8 @@ requires-python = ">=3.12"
 dependencies = [
     "ortools>=9.15.6755",
     "pyhocon>=0.3.61",
+    "scikit-learn>=1.8.0",
+    "xgboost>=3.2.0",
 ]
 
 [project.optional-dependencies]

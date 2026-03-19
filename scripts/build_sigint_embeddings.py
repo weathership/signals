@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Build a SAGE-enhanced classified parquet from meta-tagging CSVs.
 
-Produces an embedding-atlas-compatible parquet with 30 columns:
+Produces an embedding-atlas-compatible parquet with columns:
   - embedding_text (feature-derived, for --text flag)
-  - classification columns (tag_code, tag_label, confidence, etc.)
+  - classification columns (tag_code, tag_label, confidence, boost)
+  - column_kind (data / annotation / row_id)
+  - gt_code, correct (LLM ground truth evaluation)
+  - ml_tag_code, ml_tag_label, ml_confidence, ml_correct (XGBoost CV)
   - feat_* columns (11 transparency features, always present)
   - sage_* columns (11 SAGE importance values, always present)
+
+Three-signal comparison when --ground-truth is provided:
+  1. Cosine (zero-shot embedding similarity)
+  2. XGBoost (stratified k-fold CV, out-of-fold predictions)
+  3. LLM GT (expert column→code mapping — the target)
 
 SAGE always runs using classifier predictions as pseudo-ground-truth —
 this measures which features drive classification decisions regardless of
 whether external ground truth is available.
-
-When --ground-truth is provided (LLM-generated column→code JSON), accuracy
-is evaluated against that mapping.
 
 Usage:
     # Standard run (SAGE always runs with pseudo-GT)
@@ -47,8 +52,28 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import re
+
 from sigint.csv_loader import build_feature_mask, group_by_table, load_csv_columns
 from sigint.features import FEATURE_NAMES
+
+# Column-name prefixes that mark annotation/reference columns.
+_ANNOTATION_PREFIXES = (
+    "attr_", "ref_", "code_", "var_", "key_", "val_",
+    "data_", "field_", "col_", "item_",
+)
+
+
+def _classify_column_kind(column_name: str) -> str:
+    """Classify a column as 'data', 'annotation', or 'row_id'."""
+    if column_name == "row_id":
+        return "row_id"
+    for prefix in _ANNOTATION_PREFIXES:
+        if column_name.startswith(prefix):
+            suffix = column_name[len(prefix):]
+            if re.match(r"^[\d_]+$", suffix) and suffix[0].isdigit():
+                return "annotation"
+    return "data"
 
 
 def _build_classifier(args, category_set):
@@ -74,6 +99,151 @@ def _load_ground_truth(gt_path: Path) -> dict[str, str]:
     with open(gt_path) as f:
         data = json.load(f)
     return data.get("mappings", data)
+
+
+def _run_xgboost_cv(
+    clf,
+    records: list[dict],
+    results: list[dict],
+    gt: dict[str, str],
+    category_set,
+    n_folds: int = 5,
+) -> list[dict]:
+    """Run augmented k-fold ML CV and return per-column predictions.
+
+    Strategy for this extreme low-data regime (174 classes, ~2 samples each):
+    1. Augment training data with category reference embeddings (240 texts
+       the cosine classifier uses as targets), giving >=3 samples per class.
+    2. Use XGBoost with the augmented training set per fold.
+    3. Only real data samples are held out for validation (reference texts
+       are always in training), giving unbiased out-of-fold predictions.
+
+    Returns a list (parallel to *records*) of dicts with keys:
+        ml_tag_code, ml_tag_label, ml_confidence
+    """
+    import numpy as np
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.preprocessing import LabelEncoder
+    from xgboost import XGBClassifier
+
+    model = clf._get_model()
+    by_code = category_set.by_code
+
+    # Collect embedding texts (already computed in results)
+    texts = [r["embedding_text"] for r in results]
+
+    print("  Encoding column embeddings...")
+    X_all = model.encode(texts, batch_size=32, show_progress_bar=False)
+
+    # Build category reference augmentation embeddings
+    cats = category_set.categories
+    ref_texts = [c.embedding_text for c in cats]
+    ref_codes = [c.code for c in cats]
+    print(f"  Encoding {len(ref_texts)} category reference embeddings...")
+    X_ref = model.encode(ref_texts, batch_size=32, show_progress_bar=False)
+
+    # Identify GT-labeled real data indices
+    gt_indices = []
+    gt_codes = []
+    for i, rec in enumerate(records):
+        col = rec["column_name"]
+        if col in gt and gt[col] in by_code:
+            gt_indices.append(i)
+            gt_codes.append(gt[col])
+
+    # Build label encoder from union of GT codes + reference codes
+    all_codes = sorted(set(gt_codes) | set(ref_codes))
+    le = LabelEncoder()
+    le.fit(all_codes)
+    class_labels = le.classes_.tolist()
+
+    y_gt = le.transform(gt_codes)
+    y_ref = le.transform(ref_codes)
+    X_gt = X_all[gt_indices]
+
+    print(f"  GT-labeled: {len(gt_indices)} columns, {len(class_labels)} classes")
+    print(f"  Reference augmentation: {len(ref_texts)} category embeddings")
+
+    # Determine folds — check minimum class sizes in real data
+    from collections import Counter
+    class_counts = Counter(y_gt)
+    min_count = min(class_counts.values()) if class_counts else 0
+    effective_folds = min(n_folds, max(2, min_count))
+    print(f"  Using {effective_folds}-fold CV (min class size in real data: {min_count})")
+
+    # Out-of-fold predictions
+    oof_codes = [""] * len(records)
+    oof_labels = [""] * len(records)
+    oof_confs = [0.0] * len(records)
+
+    skf = StratifiedKFold(n_splits=effective_folds, shuffle=True, random_state=42)
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X_gt, y_gt), 1):
+        # Augmented training: real training samples + ALL reference embeddings
+        X_train = np.vstack([X_gt[train_idx], X_ref])
+        y_train = np.concatenate([y_gt[train_idx], y_ref])
+        X_val = X_gt[val_idx]
+
+        xgb = XGBClassifier(
+            objective="multi:softprob",
+            num_class=len(class_labels),
+            max_depth=6,
+            n_estimators=200,
+            reg_alpha=0.5,
+            learning_rate=0.1,
+            eval_metric="mlogloss",
+            random_state=42,
+            verbosity=0,
+        )
+        xgb.fit(X_train, y_train)
+
+        proba = xgb.predict_proba(X_val)
+        for j, vi in enumerate(val_idx):
+            real_idx = gt_indices[vi]
+            best = int(np.argmax(proba[j]))
+            code = class_labels[best]
+            oof_codes[real_idx] = code
+            oof_labels[real_idx] = by_code[code].label if code in by_code else code
+            oof_confs[real_idx] = float(proba[j][best])
+
+        print(f"    Fold {fold}/{effective_folds} complete")
+
+    # For non-GT columns (row_id), train on all GT + refs and predict
+    non_gt_indices = [i for i in range(len(records)) if i not in set(gt_indices)]
+    if non_gt_indices:
+        X_full_train = np.vstack([X_gt, X_ref])
+        y_full_train = np.concatenate([y_gt, y_ref])
+        xgb_full = XGBClassifier(
+            objective="multi:softprob",
+            num_class=len(class_labels),
+            max_depth=6,
+            n_estimators=200,
+            reg_alpha=0.5,
+            learning_rate=0.1,
+            eval_metric="mlogloss",
+            random_state=42,
+            verbosity=0,
+        )
+        xgb_full.fit(X_full_train, y_full_train)
+        X_non = X_all[non_gt_indices]
+        proba_non = xgb_full.predict_proba(X_non)
+        for j, idx in enumerate(non_gt_indices):
+            best = int(np.argmax(proba_non[j]))
+            code = class_labels[best]
+            oof_codes[idx] = code
+            oof_labels[idx] = by_code[code].label if code in by_code else code
+            oof_confs[idx] = float(proba_non[j][best])
+
+    # Build per-row dicts
+    ml_results = []
+    for i in range(len(records)):
+        ml_results.append({
+            "ml_tag_code": oof_codes[i],
+            "ml_tag_label": oof_labels[i],
+            "ml_confidence": round(oof_confs[i], 4),
+        })
+
+    return ml_results
 
 
 def _evaluate_accuracy(results, records, truth, category_set):
@@ -148,7 +318,7 @@ def _evaluate_accuracy(results, records, truth, category_set):
 
 
 def _write_parquet(results: list[dict], output: Path) -> None:
-    """Write 30-column parquet with feat_* and sage_* columns always present."""
+    """Write parquet with feat_*, sage_*, GT, and ML columns."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -157,11 +327,18 @@ def _write_parquet(results: list[dict], output: Path) -> None:
         ("source_table", pa.string()),
         ("column_name", pa.string()),
         ("sample_values", pa.string()),
+        ("column_kind", pa.string()),
         ("tag_code", pa.string()),
         ("tag_label", pa.string()),
         ("tag_abbrev", pa.string()),
         ("confidence", pa.float64()),
         ("boost", pa.float64()),
+        ("gt_code", pa.string()),
+        ("correct", pa.string()),
+        ("ml_tag_code", pa.string()),
+        ("ml_tag_label", pa.string()),
+        ("ml_confidence", pa.float64()),
+        ("ml_correct", pa.string()),
     ]
 
     # feat_* columns (always string)
@@ -194,6 +371,7 @@ def _write_report_json(
     output: Path,
     args,
     accuracy_metrics: dict | None,
+    ml_accuracy_metrics: dict | None,
     sage_dict: dict | None,
     enabled_features: list[str],
     n_records: int,
@@ -211,11 +389,13 @@ def _write_report_json(
             "feature_set": enabled_features,
             "disabled_features": args.disable_features or [],
             "sage_permutations": args.sage_permutations,
+            "ml_folds": args.ml_folds,
         },
         "n_columns": n_records,
         "ground_truth_source": gt_source,
         "sage_source": "pseudo",
-        "accuracy": accuracy_metrics,
+        "accuracy_cosine": accuracy_metrics,
+        "accuracy_ml": ml_accuracy_metrics,
         "sage": sage_dict,
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +453,12 @@ def main(argv: list[str] | None = None) -> int:
         "--ground-truth",
         default=None,
         help="Path to LLM ground truth JSON (column→code mappings)",
+    )
+    p.add_argument(
+        "--ml-folds",
+        type=int,
+        default=5,
+        help="Number of XGBoost CV folds (default: 5)",
     )
 
     args = p.parse_args(argv)
@@ -368,11 +554,18 @@ def main(argv: list[str] | None = None) -> int:
             "source_table": rec["source_table"],
             "column_name": rec["column_name"],
             "sample_values": sample_str,
+            "column_kind": _classify_column_kind(rec["column_name"]),
             "tag_code": classification.category.code if classification else "",
             "tag_label": classification.category.label if classification else "unclassified",
             "tag_abbrev": getattr(classification.category, "abbrev", "") if classification else "",
             "confidence": classification.confidence if classification else 0.0,
             "boost": classification.boost if classification else 0.0,
+            "gt_code": "",
+            "correct": "no_gt",
+            "ml_tag_code": "",
+            "ml_tag_label": "",
+            "ml_confidence": 0.0,
+            "ml_correct": "no_gt",
         }
 
         # feat_* columns — always present
@@ -394,71 +587,128 @@ def main(argv: list[str] | None = None) -> int:
     # ── Stage 3: Accuracy vs LLM ground truth (when provided) ────────
     accuracy_metrics: dict | None = None
     gt_source: str | None = None
+    gt: dict[str, str] = {}
 
     if args.ground_truth:
         gt = _load_ground_truth(Path(args.ground_truth))
         gt_source = "llm"
+
+        # Populate gt_code and correct columns
+        for row, rec in zip(results, records):
+            col = rec["column_name"]
+            if col in gt:
+                row["gt_code"] = gt[col]
+                row["correct"] = "correct" if row["tag_code"] == gt[col] else "wrong"
+
         accuracy_metrics = _evaluate_accuracy(results, records, gt, category_set)
+
+    # ── Stage 3.5: XGBoost CV predictions (when GT provided) ─────────
+    ml_accuracy_metrics: dict | None = None
+
+    if gt and category_set:
+        print(f"\nRunning XGBoost {args.ml_folds}-fold CV...")
+        ml_preds = _run_xgboost_cv(
+            clf, records, results, gt, category_set,
+            n_folds=args.ml_folds,
+        )
+
+        ml_correct_count = 0
+        ml_wrong_count = 0
+        for row, rec, ml in zip(results, records, ml_preds):
+            row["ml_tag_code"] = ml["ml_tag_code"]
+            row["ml_tag_label"] = ml["ml_tag_label"]
+            row["ml_confidence"] = ml["ml_confidence"]
+
+            col = rec["column_name"]
+            if col in gt:
+                is_correct = ml["ml_tag_code"] == gt[col]
+                row["ml_correct"] = "correct" if is_correct else "wrong"
+                if is_correct:
+                    ml_correct_count += 1
+                else:
+                    ml_wrong_count += 1
+
+        ml_evaluated = ml_correct_count + ml_wrong_count
+        ml_acc = ml_correct_count / ml_evaluated * 100 if ml_evaluated else 0
+
+        print(f"\n{'='*60}")
+        print("ML (XGBoost CV) ACCURACY")
+        print(f"{'='*60}")
+        print(f"  Evaluated:  {ml_evaluated}")
+        print(f"  Correct:    {ml_correct_count}")
+        print(f"  Wrong:      {ml_wrong_count}")
+        print(f"  Accuracy:   {ml_acc:.1f}%")
+        print(f"{'='*60}")
+
+        ml_accuracy_metrics = {
+            "total_evaluated": ml_evaluated,
+            "correct": ml_correct_count,
+            "wrong": ml_wrong_count,
+            "accuracy": round(ml_acc / 100, 4),
+        }
 
     # ── Stage 4: SAGE (always — predictions as pseudo-GT) ────────────
     sage_dict: dict | None = None
 
-    import numpy as np
-
-    from sigint.sage_analysis import run_sage_analysis
-
-    cats = (category_set or clf._category_set).categories
-    code_to_idx = {c.code: i for i, c in enumerate(cats)}
-
-    eval_features = []
-    pseudo_gt = []
-    for res, feat in zip(results, all_features):
-        if res["tag_code"] and res["tag_code"] in code_to_idx:
-            eval_features.append(feat)
-            pseudo_gt.append(code_to_idx[res["tag_code"]])
-
-    if eval_features:
-        print(f"\nRunning SAGE analysis ({args.sage_permutations} permutations, "
-              f"{len(eval_features)} samples, pseudo-GT)...")
-        sage_result = run_sage_analysis(
-            all_features=eval_features,
-            ground_truth_indices=np.array(pseudo_gt),
-            classifier=clf,
-            category_set=category_set or clf._category_set,
-            method_name="cosine",
-            feature_mask=feature_mask,
-            n_permutations=args.sage_permutations,
-        )
-        sage_dict = sage_result.to_dict()
-
-        # Build sage importance lookup
-        sage_importance = dict(
-            zip(sage_result.feature_names, sage_result.importance_values)
-        )
-
-        # Update sage_* columns in results — same value for every row
-        # (SAGE is a global importance measure, not per-sample)
-        for row in results:
-            for fname in FEATURE_NAMES:
-                row[f"sage_{fname}"] = sage_importance.get(fname, 0.0)
-
-        print("\nSAGE Feature Importance:")
-        ranked = sorted(
-            zip(sage_result.feature_names, sage_result.importance_values),
-            key=lambda x: -abs(x[1]),
-        )
-        for name, imp in ranked:
-            print(f"  {name:20s} {imp:+.4f}")
+    if args.sage_permutations <= 0:
+        print("\nSAGE skipped (--sage-permutations 0).")
     else:
-        print("\nSkipping SAGE: no classified columns.")
+        import numpy as np
+
+        from sigint.sage_analysis import run_sage_analysis
+
+        cats = (category_set or clf._category_set).categories
+        code_to_idx = {c.code: i for i, c in enumerate(cats)}
+
+        eval_features = []
+        pseudo_gt = []
+        for res, feat in zip(results, all_features):
+            if res["tag_code"] and res["tag_code"] in code_to_idx:
+                eval_features.append(feat)
+                pseudo_gt.append(code_to_idx[res["tag_code"]])
+
+        if eval_features:
+            print(f"\nRunning SAGE analysis ({args.sage_permutations} permutations, "
+                  f"{len(eval_features)} samples, pseudo-GT)...")
+            sage_result = run_sage_analysis(
+                all_features=eval_features,
+                ground_truth_indices=np.array(pseudo_gt),
+                classifier=clf,
+                category_set=category_set or clf._category_set,
+                method_name="cosine",
+                feature_mask=feature_mask,
+                n_permutations=args.sage_permutations,
+            )
+            sage_dict = sage_result.to_dict()
+
+            # Build sage importance lookup
+            sage_importance = dict(
+                zip(sage_result.feature_names, sage_result.importance_values)
+            )
+
+            # Update sage_* columns in results — same value for every row
+            # (SAGE is a global importance measure, not per-sample)
+            for row in results:
+                for fname in FEATURE_NAMES:
+                    row[f"sage_{fname}"] = sage_importance.get(fname, 0.0)
+
+            print("\nSAGE Feature Importance:")
+            ranked = sorted(
+                zip(sage_result.feature_names, sage_result.importance_values),
+                key=lambda x: -abs(x[1]),
+            )
+            for name, imp in ranked:
+                print(f"  {name:20s} {imp:+.4f}")
+        else:
+            print("\nSkipping SAGE: no classified columns.")
 
     # ── Write outputs ────────────────────────────────────────────────
     _write_parquet(results, output)
     print(f"\nWrote {len(results)} records to {output}")
 
     _write_report_json(
-        output, args, accuracy_metrics, sage_dict, enabled_features, len(results),
-        gt_source,
+        output, args, accuracy_metrics, ml_accuracy_metrics, sage_dict,
+        enabled_features, len(results), gt_source,
     )
 
     # ── Label distribution ───────────────────────────────────────────
