@@ -246,6 +246,415 @@ def _run_xgboost_cv(
     return ml_results
 
 
+# ── Pattern signal names for binary encoding ────────────────────────
+_PATTERN_NAMES = [
+    "email_pattern", "phone_pattern", "ssn_pattern", "ipv4_pattern",
+    "uuid_pattern", "date_iso_pattern", "url_pattern", "credit_card_pattern",
+]
+
+
+def _encode_discrete_features(features_obj) -> list[float]:
+    """Encode 11 discrete ColumnFeatures into a numeric vector.
+
+    Returns a vector of 11 floats:
+      0: cardinality (int, 0 if None)
+      1: null_ratio (float, 0 if None)
+      2: value_entropy (float, 0 if None)
+      3-10: pattern_signals (8 binary flags, one per pattern type)
+    """
+    vec: list[float] = []
+    vec.append(float(features_obj.cardinality or 0))
+    vec.append(float(features_obj.null_ratio or 0))
+    vec.append(float(features_obj.value_entropy or 0))
+
+    # Pattern signals as binary flags
+    patterns_set = set(features_obj.pattern_signals)
+    for pname in _PATTERN_NAMES:
+        vec.append(1.0 if pname in patterns_set else 0.0)
+
+    return vec  # length = 11
+
+
+def _run_xgboost_train_eval(
+    clf,
+    train_records: list[dict],
+    train_gt: dict[str, str],
+    eval_records: list[dict],
+    eval_results: list[dict],
+    eval_features_list: list,
+    eval_gt: dict[str, str],
+    category_set,
+    concat_features: bool = True,
+) -> tuple[list[dict], dict]:
+    """Train XGBoost on synthetic data, evaluate on real data.
+
+    Strategy to bridge domain shift between synthetic and real embeddings:
+    1. Augment synthetic training data with category reference embeddings
+       (the same texts the cosine classifier targets).  These anchors live
+       in the same embedding space as the real eval data, teaching XGBoost
+       the mapping from embedding regions → categories.
+    2. Scale discrete features (11 dims) so they compete with the 384-dim
+       embedding rather than getting swamped.
+    3. StandardScaler on full feature vector for stable gradient boosting.
+
+    Returns:
+        ml_preds: per-record prediction dicts for eval set
+        accuracy_metrics: accuracy report dict
+    """
+    import numpy as np
+    from sklearn.preprocessing import LabelEncoder, StandardScaler
+    from xgboost import XGBClassifier
+
+    from sigint.features import extract_features
+    from sigint.sampler import ColumnSample
+
+    model = clf._get_model()
+    by_code = category_set.by_code
+
+    # ── Prepare training data ──────────────────────────────────────
+
+    # ── Value-only feature mask ──────────────────────────────────
+    # Strips domain-specific features (column_name, source_table,
+    # sibling_context) from embedding text.  The resulting "value-only"
+    # embedding encodes only value patterns, cardinality, entropy, etc.
+    # — features that are domain-invariant between synthetic and real data.
+    _VALUE_ONLY_MASK = {
+        "column_name": False,
+        "column_type": True,
+        "sample_values": True,
+        "cardinality": True,
+        "null_ratio": True,
+        "value_entropy": True,
+        "pattern_signals": True,
+        "avg_value_length": True,
+        "numeric_ratio": True,
+        "sibling_context": False,
+        "source_table": False,
+    }
+
+    print("  Preparing synthetic training data...")
+    train_full_texts = []
+    train_vo_texts = []  # value-only
+    train_codes = []
+    train_feat_vecs = []
+
+    train_by_table = group_by_table(train_records)
+
+    for rec in train_records:
+        col = rec["column_name"]
+        if col not in train_gt:
+            continue
+        code = train_gt[col]
+        if code not in by_code:
+            continue
+
+        sample = ColumnSample(
+            column_name=rec["column_name"],
+            column_type=rec["column_type"],
+            values=rec["sample_values"],
+        )
+        siblings = [
+            ColumnSample(
+                column_name=r["column_name"],
+                column_type=r["column_type"],
+                values=r["sample_values"],
+            )
+            for r in train_by_table[rec["source_table"]]
+        ]
+        features = extract_features(
+            sample, siblings=siblings, source_table=rec["source_table"],
+        )
+        train_full_texts.append(features.to_embedding_text(None))
+        train_vo_texts.append(features.to_embedding_text(_VALUE_ONLY_MASK))
+        train_codes.append(code)
+        if concat_features:
+            train_feat_vecs.append(_encode_discrete_features(features))
+
+    print(f"  Synthetic training samples: {len(train_full_texts)}")
+
+    # ── Category reference augmentation ────────────────────────────
+    cats = category_set.categories
+    ref_texts = [c.embedding_text for c in cats]
+    ref_codes = [c.code for c in cats]
+    print(f"  Category reference augmentation: {len(ref_texts)} anchor embeddings")
+
+    # ── Prepare evaluation data ────────────────────────────────────
+    print("  Preparing evaluation data...")
+    eval_full_texts = [r["embedding_text"] for r in eval_results]
+    eval_vo_texts = [f.to_embedding_text(_VALUE_ONLY_MASK) for f in eval_features_list]
+    eval_feat_vecs = []
+    if concat_features:
+        for feat_obj in eval_features_list:
+            eval_feat_vecs.append(_encode_discrete_features(feat_obj))
+
+    # ── Self-training: cosine pseudo-labels on real data ───────────
+    pseudo_threshold = 0.50
+    pseudo_indices: list[int] = []
+    pseudo_codes: list[str] = []
+    pseudo_feat_vecs: list[list[float]] = []
+    pseudo_skip_ann = 0
+    for i, (rec, res) in enumerate(zip(eval_records, eval_results)):
+        if (res["confidence"] >= pseudo_threshold
+                and res["tag_code"]
+                and res["tag_code"] in by_code):
+            col_kind = _classify_column_kind(rec["column_name"])
+            if col_kind == "annotation":
+                pseudo_skip_ann += 1
+                continue
+            pseudo_indices.append(i)
+            pseudo_codes.append(res["tag_code"])
+            if concat_features:
+                pseudo_feat_vecs.append(
+                    _encode_discrete_features(eval_features_list[i])
+                )
+    print(f"  Self-training pseudo-labels: {len(pseudo_indices)} data columns "
+          f"(cosine conf >= {pseudo_threshold}, skipped {pseudo_skip_ann} annotation cols)")
+
+    # ── Encode dual embeddings ─────────────────────────────────────
+    # 1. Full embedding (name + values + table) — strong for data columns
+    # 2. Value-only embedding (values + patterns only) — bridges domain
+    #    shift for annotation columns where names are opaque
+    all_train_texts = train_full_texts + ref_texts
+    all_train_vo = train_vo_texts + ref_texts  # refs have no name/table anyway
+
+    print(f"  Encoding {len(all_train_texts)} full training embeddings...")
+    X_train_full_emb = model.encode(all_train_texts, batch_size=64, show_progress_bar=False)
+    print(f"  Encoding {len(all_train_vo)} value-only training embeddings...")
+    X_train_vo_emb = model.encode(all_train_vo, batch_size=64, show_progress_bar=False)
+
+    print(f"  Encoding {len(eval_full_texts)} full eval embeddings...")
+    X_eval_full_emb = model.encode(eval_full_texts, batch_size=64, show_progress_bar=False)
+    print(f"  Encoding {len(eval_vo_texts)} value-only eval embeddings...")
+    X_eval_vo_emb = model.encode(eval_vo_texts, batch_size=64, show_progress_bar=False)
+
+    emb_dim = X_train_full_emb.shape[1]
+
+    # Pseudo-labeled real columns — reuse eval encodings
+    X_pseudo_full_emb = X_eval_full_emb[pseudo_indices] if pseudo_indices else np.empty((0, emb_dim))
+    X_pseudo_vo_emb = X_eval_vo_emb[pseudo_indices] if pseudo_indices else np.empty((0, emb_dim))
+
+    # ── Build feature matrix: [full_emb | value_only_emb | discrete] ──
+    n_synth = len(train_full_texts)
+    n_ref = len(ref_texts)
+    n_pseudo = len(pseudo_indices)
+
+    if concat_features and train_feat_vecs:
+        n_discrete = len(train_feat_vecs[0])
+        scale_factor = float(np.sqrt(emb_dim / n_discrete))
+        print(f"  Discrete features: {n_discrete} (scale={scale_factor:.1f}x)")
+
+        # Training: synthetic + reference discrete features
+        synth_disc = np.array(train_feat_vecs) * scale_factor
+        ref_disc = np.zeros((n_ref, n_discrete))
+        train_disc = np.vstack([synth_disc, ref_disc])
+
+        eval_disc = np.array(eval_feat_vecs) * scale_factor
+        pseudo_disc = np.array(pseudo_feat_vecs) * scale_factor if pseudo_feat_vecs else np.empty((0, n_discrete))
+
+        X_train_combined = np.hstack([X_train_full_emb, X_train_vo_emb, train_disc])
+        X_eval_combined = np.hstack([X_eval_full_emb, X_eval_vo_emb, eval_disc])
+        X_pseudo_combined = (
+            np.hstack([X_pseudo_full_emb, X_pseudo_vo_emb, pseudo_disc])
+            if n_pseudo > 0
+            else np.empty((0, emb_dim * 2 + n_discrete))
+        )
+        total_dim = emb_dim * 2 + n_discrete
+        print(f"  Feature dim: {total_dim} (full_emb={emb_dim} + vo_emb={emb_dim} + disc={n_discrete})")
+    else:
+        X_train_combined = np.hstack([X_train_full_emb, X_train_vo_emb])
+        X_eval_combined = np.hstack([X_eval_full_emb, X_eval_vo_emb])
+        X_pseudo_combined = (
+            np.hstack([X_pseudo_full_emb, X_pseudo_vo_emb])
+            if n_pseudo > 0
+            else np.empty((0, emb_dim * 2))
+        )
+
+    # ── Cosine similarity features ─────────────────────────────────
+    # Compute cosine similarity between each column's value-only embedding
+    # and each category reference embedding.  These N_ref features encode
+    # the cosine classifier's knowledge in a domain-invariant way (category
+    # refs are the same for train and eval).
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    # Extract reference value-only embeddings (last n_ref rows of X_train_vo_emb)
+    X_ref_vo = X_train_vo_emb[n_synth:n_synth + n_ref]
+
+    # Cosine sims: train (synth+ref), eval, pseudo
+    cos_train = cosine_similarity(
+        X_train_vo_emb[:n_synth + n_ref], X_ref_vo,
+    ).astype(np.float32)
+    cos_eval = cosine_similarity(X_eval_vo_emb, X_ref_vo).astype(np.float32)
+    cos_pseudo = (
+        cosine_similarity(X_pseudo_vo_emb, X_ref_vo).astype(np.float32)
+        if n_pseudo > 0
+        else np.empty((0, n_ref), dtype=np.float32)
+    )
+
+    print(f"  Cosine similarity features: {cos_train.shape[1]} (one per category ref)")
+
+    # Append cosine sim features to combined feature matrices
+    X_train_with_cos = np.hstack([X_train_combined, cos_train])
+    X_eval_with_cos = np.hstack([X_eval_combined, cos_eval])
+    X_pseudo_with_cos = (
+        np.hstack([X_pseudo_combined, cos_pseudo])
+        if n_pseudo > 0
+        else np.empty((0, X_train_with_cos.shape[1]), dtype=np.float32)
+    )
+
+    print(f"  Total feature dim: {X_train_with_cos.shape[1]}")
+
+    # ── Combine all training sources ───────────────────────────────
+    parts = [X_train_with_cos]
+    y_train_codes = train_codes + ref_codes
+    if n_pseudo > 0:
+        parts.append(X_pseudo_with_cos)
+        y_train_codes = y_train_codes + pseudo_codes
+    X_train = np.vstack(parts)
+
+    # ── Build label encoder ────────────────────────────────────────
+    all_codes = sorted(set(y_train_codes))
+    le = LabelEncoder()
+    le.fit(all_codes)
+    class_labels = le.classes_.tolist()
+    y_train = le.transform(y_train_codes)
+
+    # ── StandardScaler for stable XGBoost learning ─────────────────
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_eval = scaler.transform(X_eval_with_cos)
+
+    print(f"  Classes: {len(class_labels)}, Training shape: {X_train.shape}")
+    print(f"    Synthetic: {len(train_full_texts)}, Reference: {len(ref_texts)}, Pseudo: {n_pseudo}")
+
+    # ── Train XGBoost ──────────────────────────────────────────────
+    xgb = XGBClassifier(
+        objective="multi:softprob",
+        num_class=len(class_labels),
+        max_depth=8,
+        n_estimators=500,
+        reg_alpha=0.3,
+        learning_rate=0.08,
+        subsample=0.8,
+        colsample_bytree=0.6,
+        min_child_weight=2,
+        eval_metric="mlogloss",
+        random_state=42,
+        verbosity=0,
+    )
+    xgb.fit(X_train, y_train)
+    print("  XGBoost training complete.")
+
+    # ── Predict on eval set ────────────────────────────────────────
+    proba = xgb.predict_proba(X_eval)
+
+    # Pass 1: Raw XGBoost predictions for all columns
+    raw_preds: list[tuple[str, float]] = []  # (code, confidence)
+    for i in range(len(eval_records)):
+        best = int(np.argmax(proba[i]))
+        raw_preds.append((class_labels[best], float(proba[i][best])))
+
+    # Pass 2: Paired column propagation — for each annotation column,
+    # if its predecessor is a data column with a confident prediction,
+    # propagate that prediction.  This exploits the dataset structure:
+    # data columns and annotation columns are paired (annotation follows
+    # its data column) and refer to the same category.
+    pair_propagated = 0
+    for i, rec in enumerate(eval_records):
+        kind = _classify_column_kind(rec["column_name"])
+        if kind != "annotation" or i == 0:
+            continue
+        prev_kind = _classify_column_kind(eval_records[i - 1]["column_name"])
+        if prev_kind != "data":
+            continue
+        prev_code, prev_conf = raw_preds[i - 1]
+        _, cur_conf = raw_preds[i]
+        # Propagate when: data col is confident enough AND XGBoost is uncertain
+        if prev_conf >= 0.35 and cur_conf < 0.50 and prev_code in by_code:
+            raw_preds[i] = (prev_code, prev_conf * 0.9)
+            pair_propagated += 1
+    print(f"  Paired column propagation: {pair_propagated} annotation columns corrected")
+
+    ml_preds: list[dict] = []
+    ml_correct = 0
+    ml_wrong = 0
+    ml_correct_data = 0
+    ml_wrong_data = 0
+    ml_correct_ann = 0
+    ml_wrong_ann = 0
+
+    misclassified: list[dict] = []
+
+    for i, rec in enumerate(eval_records):
+        code, conf = raw_preds[i]
+        kind = _classify_column_kind(rec["column_name"])
+        label = by_code[code].label if code in by_code else code
+
+        ml_preds.append({
+            "ml_tag_code": code,
+            "ml_tag_label": label,
+            "ml_confidence": round(conf, 4),
+        })
+
+        col = rec["column_name"]
+        if col in eval_gt:
+            expected = eval_gt[col]
+            is_correct = code == expected
+            if is_correct:
+                ml_correct += 1
+                if kind == "data":
+                    ml_correct_data += 1
+                elif kind == "annotation":
+                    ml_correct_ann += 1
+            else:
+                ml_wrong += 1
+                if kind == "data":
+                    ml_wrong_data += 1
+                elif kind == "annotation":
+                    ml_wrong_ann += 1
+                exp_label = by_code[expected].label if expected in by_code else expected
+                misclassified.append({
+                    "column": col, "kind": kind,
+                    "expected": f"{expected} ({exp_label})",
+                    "predicted": f"{code} ({label})",
+                    "confidence": round(conf, 3),
+                })
+
+    ml_evaluated = ml_correct + ml_wrong
+    ml_acc = ml_correct / ml_evaluated * 100 if ml_evaluated else 0
+
+    data_eval = ml_correct_data + ml_wrong_data
+    ann_eval = ml_correct_ann + ml_wrong_ann
+    data_acc = ml_correct_data / data_eval * 100 if data_eval else 0
+    ann_acc = ml_correct_ann / ann_eval * 100 if ann_eval else 0
+
+    print(f"\n{'='*60}")
+    print("ML (XGBoost train→eval) ACCURACY")
+    print(f"{'='*60}")
+    print(f"  Overall:    {ml_correct}/{ml_evaluated} ({ml_acc:.1f}%)")
+    print(f"  Data cols:  {ml_correct_data}/{data_eval} ({data_acc:.1f}%)")
+    print(f"  Ann cols:   {ml_correct_ann}/{ann_eval} ({ann_acc:.1f}%)")
+    print(f"{'='*60}")
+
+    # Print misclassified columns for error analysis
+    if misclassified:
+        print(f"\n  Misclassified columns ({len(misclassified)}):")
+        for m in sorted(misclassified, key=lambda x: x["kind"]):
+            print(f"    [{m['kind'][:3]}] {m['column']}: "
+                  f"expected {m['expected']}, "
+                  f"got {m['predicted']} (conf={m['confidence']})")
+
+    accuracy_metrics = {
+        "total_evaluated": ml_evaluated,
+        "correct": ml_correct,
+        "wrong": ml_wrong,
+        "accuracy": round(ml_acc / 100, 4),
+        "data_accuracy": round(data_acc / 100, 4),
+        "annotation_accuracy": round(ann_acc / 100, 4),
+    }
+
+    return ml_preds, accuracy_metrics
+
+
 def _evaluate_accuracy(results, records, truth, category_set):
     """Evaluate accuracy and print report. Returns (correct, wrong, misclassified)."""
     correct = 0
@@ -460,6 +869,18 @@ def main(argv: list[str] | None = None) -> int:
         default=5,
         help="Number of XGBoost CV folds (default: 5)",
     )
+    p.add_argument(
+        "--train-dir",
+        default=None,
+        help="Path to synthetic training data directory (from generate_meta_tagging_train.py). "
+        "When provided, trains XGBoost on synthetic data and evaluates on real data "
+        "instead of running k-fold CV.",
+    )
+    p.add_argument(
+        "--no-concat-features",
+        action="store_true",
+        help="Disable discrete feature concatenation (ablation: embedding-only XGBoost).",
+    )
 
     args = p.parse_args(argv)
     data_dir = Path(args.data_dir).expanduser()
@@ -602,10 +1023,44 @@ def main(argv: list[str] | None = None) -> int:
 
         accuracy_metrics = _evaluate_accuracy(results, records, gt, category_set)
 
-    # ── Stage 3.5: XGBoost CV predictions (when GT provided) ─────────
+    # ── Stage 3.5: XGBoost predictions ──────────────────────────────
     ml_accuracy_metrics: dict | None = None
 
-    if gt and category_set:
+    if args.train_dir and gt and category_set:
+        # ── Train/eval split using synthetic training data ─────────
+        train_dir = Path(args.train_dir).expanduser()
+        print(f"\nLoading synthetic training data from {train_dir}...")
+        train_records = load_csv_columns(train_dir)
+        train_gt = _load_ground_truth(train_dir / "ground_truth.json")
+        print(f"  Synthetic columns: {len(train_records)}, GT mappings: {len(train_gt)}")
+
+        concat = not args.no_concat_features
+        print(f"  Feature concatenation: {'enabled' if concat else 'disabled'}")
+
+        ml_preds, ml_accuracy_metrics = _run_xgboost_train_eval(
+            clf,
+            train_records=train_records,
+            train_gt=train_gt,
+            eval_records=records,
+            eval_results=results,
+            eval_features_list=all_features,
+            eval_gt=gt,
+            category_set=category_set,
+            concat_features=concat,
+        )
+
+        for row, ml in zip(results, ml_preds):
+            row["ml_tag_code"] = ml["ml_tag_code"]
+            row["ml_tag_label"] = ml["ml_tag_label"]
+            row["ml_confidence"] = ml["ml_confidence"]
+
+        for row, rec in zip(results, records):
+            col = rec["column_name"]
+            if col in gt:
+                row["ml_correct"] = "correct" if row["ml_tag_code"] == gt[col] else "wrong"
+
+    elif gt and category_set:
+        # ── Fallback: k-fold CV on real data ───────────────────────
         print(f"\nRunning XGBoost {args.ml_folds}-fold CV...")
         ml_preds = _run_xgboost_cv(
             clf, records, results, gt, category_set,
