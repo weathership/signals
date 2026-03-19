@@ -95,8 +95,8 @@ s2: "Stage 2\nClassification" {
   style.fill: "#e8f4f8"
 }
 
-s3: "Stage 3\nGround Truth +\nXGBoost CV" {
-  tooltip: "LLM GT evaluation + augmented k-fold cross-validated ML predictions"
+s3: "Stage 3\nGround Truth +\nXGBoost" {
+  tooltip: "LLM GT evaluation + XGBoost (CV or train→eval with synthetic data)"
   style.fill: "#f0e8f8"
 }
 
@@ -132,19 +132,13 @@ When ground truth is provided (`--ground-truth`), the pipeline produces three in
 | Signal | Method | Data Columns | Annotation Columns | Overall |
 |--------|--------|-------------|-------------------|---------|
 | **Cosine** | Zero-shot embedding similarity + name boost | 98.9% | 7.4% | 53.1% |
-| **XGBoost** | Augmented stratified k-fold CV | 79.4% | 10.9% | 45.1% |
+| **XGBoost CV** | Augmented stratified k-fold CV | 79.4% | 10.9% | 45.1% |
+| **XGBoost train→eval** | Synthetic training + self-training + paired propagation | 98.9% | 92.0% | 95.4% |
 | **LLM GT** | Expert column→code mapping (target) | — | — | — |
 
-Agreement analysis across 350 GT-labeled columns:
+The XGBoost CV baseline uses category reference embedding augmentation to overcome the extreme low-data regime (212 classes, ~2 samples each). Each fold's training set includes all 212 category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
 
-| Category | Count | Interpretation |
-|----------|-------|----------------|
-| Both correct | 142 | High-confidence predictions |
-| Cosine only | 44 | Name semantics sufficient |
-| XGBoost only | 16 | ML features find signal cosine misses |
-| Both wrong | 148 | Primarily annotation columns lacking semantic signal |
-
-The XGBoost CV uses category reference embedding augmentation to overcome the extreme low-data regime (212 classes, ~2 samples each). Each fold's training set includes all 212 category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
+The train→eval pipeline replaces k-fold CV with synthetic training data and several additional techniques that collectively push accuracy from 45.1% to 95.4%. See [Classification Training](./classification-training.md) for the full methodology and accuracy progression.
 
 ### Column Kinds
 
@@ -197,14 +191,13 @@ Each run produces a parquet (38 columns) and companion report JSON:
 | Features | `feat_column_name` ... `feat_source_table` (×11) | Transparency: input features as strings |
 | SAGE | `sage_column_name` ... `sage_source_table` (×11) | Global feature importance values |
 
-## Direction
+## Current Status
 
-The three-signal comparison reveals a clear split: cosine embedding similarity dominates on semantically named data columns (98.9%) but fails on opaque annotation columns (7.4%). XGBoost CV shows marginal improvement on annotation columns (10.9%) but cannot match cosine on data columns (79.4%). The 148 columns where both methods fail are almost entirely annotation references — columns whose names encode taxonomy codes rather than semantic meaning.
+The train→eval pipeline achieves 95.4% overall accuracy (334/350), closing the annotation column gap from 7.4% (cosine) to 92.0%. The remaining 16 errors are inherently confusable category pairs: ADID/GUID, BAN/PAN, Under13/Under18, Billing/Shipping address, and security flaw subtypes. See [Classification Training](./classification-training.md) for the full methodology.
 
-The path forward:
+What remains:
 
-1. **Annotation column signal** — annotation columns contain taxonomy codes as values (e.g., `1.1.1.1.1.1.1`). A dedicated annotation-aware classifier that decodes these suffixes could close the 90% gap on annotation columns
+1. **Confusable pair resolution** — the 16 remaining errors cluster in ~6 category pairs that share identical value patterns. Resolving these requires either richer context (e.g., table-level schema hints) or category consolidation
 2. **Feature refinement** — richer pattern detectors (date formats, currency symbols, statistical distributions), deeper sample analysis (value distributions, min/max/mode)
-3. **Training set expansion** — more columns with ambiguous names that require sample-value reasoning, and real-world datasets where column names don't match known taxonomy entries
-4. **Ensemble methods** — the 16 columns where XGBoost is correct and cosine is wrong suggest a hybrid approach could push overall accuracy above either method alone
-5. **Feedback integration** — analyst corrections feed back as training signal, with SAGE tracking whether corrections improve non-name features
+3. **Real-world validation** — the current eval set is a single annotated dataset; accuracy on production datasets with different naming conventions is unknown
+4. **Feedback integration** — analyst corrections feed back as training signal, with SAGE tracking whether corrections improve non-name features

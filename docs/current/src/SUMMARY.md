@@ -15,6 +15,7 @@
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
 - [Context Engineering](./architecture/context-engineering.md)
+- [Classification Training](./architecture/classification-training.md)
 - [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios
