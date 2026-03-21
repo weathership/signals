@@ -12,7 +12,7 @@ dependencies = [
     "ortools>=9.15.6755",
     "pyhocon>=0.3.61",
     "scikit-learn>=1.8.0",
-    "xgboost>=3.2.0",
+    "catboost>=1.2.7",
 ]
 
 [project.optional-dependencies]
@@ -26,10 +26,10 @@ embedding = [
     "sentence-transformers>=3.3.0",
     "numpy>=1.26.0",
 ]
-embedding-xgboost = [
+embedding-catboost = [
     "sentence-transformers>=3.3.0",
     "numpy>=1.26.0",
-    "xgboost>=2.0.0",
+    "catboost>=1.2.7",
     "scikit-learn>=1.4.0",
 ]
 viz = [
