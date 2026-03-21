@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Train an XGBoost classifier on LLM-labeled embedding data.
+"""Train a CatBoost classifier on LLM-labeled embedding data.
 
 Reads a labeled parquet (from build_sigint_embeddings.py with --classifier llm),
-embeds each column's embedding_text, and trains an XGBClassifier.
+embeds each column's embedding_text, and trains a CatBoostClassifier.
 
 Usage:
     # Step 1: generate LLM-labeled training data
@@ -10,10 +10,10 @@ Usage:
         --data-dir ~/local/tmp/meta-tagging/ --classifier llm \
         --api-key $ANTHROPIC_API_KEY --output build/sigint_llm_labeled.parquet
 
-    # Step 2: train XGBoost on it
-    uv run python scripts/train_xgboost.py \
+    # Step 2: train CatBoost on it
+    uv run python scripts/train_catboost.py \
         --input build/sigint_llm_labeled.parquet \
-        --output build/sigint_xgb_model.json \
+        --output build/sigint_cb_model.cbm \
         --embedding-model all-MiniLM-L6-v2
 """
 
@@ -27,7 +27,7 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Train XGBoost on LLM-labeled embeddings",
+        description="Train CatBoost on LLM-labeled embeddings",
     )
     p.add_argument(
         "--input",
@@ -36,8 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--output",
-        default="build/sigint_xgb_model.json",
-        help="Output model file path (.json)",
+        default="build/sigint_cb_model.cbm",
+        help="Output model file path (.cbm)",
     )
     p.add_argument(
         "--embedding-model",
@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     from sklearn.metrics import classification_report
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import LabelEncoder
-    from xgboost import XGBClassifier
+    from catboost import CatBoostClassifier
 
     # Load labeled data
     print(f"Loading {input_path}...")
@@ -117,22 +117,23 @@ def main(argv: list[str] | None = None) -> int:
         X_test, y_test = X, y
         print("Warning: too few samples for proper train/test split, using full dataset")
 
-    # Train XGBoost
-    print("Training XGBoost...")
-    xgb = XGBClassifier(
-        objective="multi:softprob",
-        num_class=len(class_codes),
-        max_depth=6,
-        n_estimators=100,
-        reg_alpha=0.5,
+    # Train CatBoost
+    print("Training CatBoost...")
+    cb = CatBoostClassifier(
+        loss_function="MultiClass",
+        classes_count=len(class_codes),
+        depth=6,
+        iterations=100,
+        l2_leaf_reg=0.5,
         learning_rate=0.1,
-        eval_metric="mlogloss",
-        random_state=42,
+        random_seed=42,
+        verbose=0,
+        posterior_sampling=True,
     )
-    xgb.fit(X_train, y_train)
+    cb.fit(X_train, y_train)
 
     # Evaluate
-    y_pred = xgb.predict(X_test)
+    y_pred = cb.predict(X_test).flatten().astype(int)
     target_names = [f"{c} ({le.inverse_transform([i])[0]})" for i, c in enumerate(class_codes)]
 
     print("\nClassification Report:")
@@ -140,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Save model
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    xgb.save_model(str(output_path))
+    cb.save_model(str(output_path))
 
     # Save class mapping alongside model
     classes_path = output_path.with_suffix(".classes.json")

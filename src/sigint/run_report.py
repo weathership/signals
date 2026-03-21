@@ -27,6 +27,14 @@ class ColumnResult:
     evidence: str
     ground_truth_code: str | None = None
     correct: bool | None = None
+    # Optional DST fields (populated when --dst is used)
+    dst_belief: float = 0.0
+    dst_plausibility: float = 0.0
+    dst_uncertainty_gap: float = 0.0
+    dst_conflict: float = 0.0
+    dst_needs_clarification: bool = False
+    dst_evidence_sources: str = ""
+    dst_belief_path: str = ""
 
 
 @dataclass
@@ -106,6 +114,27 @@ class RunReport:
             ),
             "correct": pa.array(
                 [c.correct if c.correct is not None else False for c in self.columns]
+            ),
+            "dst_belief": pa.array(
+                [c.dst_belief for c in self.columns], type=pa.float64()
+            ),
+            "dst_plausibility": pa.array(
+                [c.dst_plausibility for c in self.columns], type=pa.float64()
+            ),
+            "dst_uncertainty_gap": pa.array(
+                [c.dst_uncertainty_gap for c in self.columns], type=pa.float64()
+            ),
+            "dst_conflict": pa.array(
+                [c.dst_conflict for c in self.columns], type=pa.float64()
+            ),
+            "dst_needs_clarification": pa.array(
+                [c.dst_needs_clarification for c in self.columns]
+            ),
+            "dst_evidence_sources": pa.array(
+                [c.dst_evidence_sources for c in self.columns]
+            ),
+            "dst_belief_path": pa.array(
+                [c.dst_belief_path for c in self.columns]
             ),
         }
 

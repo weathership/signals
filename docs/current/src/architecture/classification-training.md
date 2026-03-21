@@ -1,6 +1,8 @@
 # Classification Training
 
-The classification pipeline's XGBoost train→eval mode achieves 95.4% accuracy (334/350 columns) by training on synthetic data and evaluating on real data. This page documents the synthetic data generator, the training pipeline, and the techniques that bridge the domain shift between synthetic and real columns.
+The classification pipeline's CatBoost train→eval mode achieves 95.4% accuracy (334/350 columns) by training on synthetic data and evaluating on real data. This page documents the synthetic data generator, the training pipeline, and the techniques that bridge the domain shift between synthetic and real columns.
+
+> **Note**: CatBoost replaced XGBoost in March 2026. CatBoost's ordered boosting (`posterior_sampling=True`) eliminates the self-training target leakage identified in the integrity audit. See the [CatBoost migration](#catboost-migration) section for details.
 
 ## Why Synthetic Training
 
@@ -8,7 +10,7 @@ The real dataset has extreme data scarcity: 175 leaf categories with ~2 samples 
 
 A second challenge is the **annotation column problem**. Half the columns in the evaluation set have opaque names like `attr_1_1_1_8_1` that encode taxonomy codes rather than semantic meaning. Cosine similarity achieves 98.9% on semantically named data columns but only 7.4% on annotation columns — the classifier depends on column names, not value patterns.
 
-Synthetic training data addresses both problems: it generates thousands of columns per category with controlled name diversity, and half the synthetic columns use opaque names, forcing XGBoost to learn from value patterns rather than column names.
+Synthetic training data addresses both problems: it generates thousands of columns per category with controlled name diversity, and half the synthetic columns use opaque names, forcing CatBoost to learn from value patterns rather than column names.
 
 ## Synthetic Data Generator
 
@@ -56,7 +58,7 @@ CSV headers use `table.column` format (e.g., `synth_001.credit_card_number`) mat
 
 ## Train/Eval Pipeline
 
-The `--train-dir` flag in `build_sigint_embeddings.py` activates train→eval mode. The pipeline applies five techniques that collectively raise accuracy from a 33.4% naive baseline to 95.4%.
+The `--train-dir` flag in `build_sigint_embeddings.py` activates train→eval mode. The pipeline applies four techniques that collectively raise accuracy from a 33.4% naive baseline to 95.4%.
 
 ### Feature Vector
 
@@ -79,11 +81,7 @@ The full embedding encodes everything including column name and table context �
 
 ### Category Reference Augmentation
 
-All 212 taxonomy reference embeddings (the same texts cosine similarity uses as targets) are included as training samples. These anchor embeddings exist in the same embedding space as the real eval data, teaching XGBoost the mapping from embedding regions to categories even when synthetic embeddings differ from real ones.
-
-### Self-Training
-
-Cosine pseudo-labels from confident data-column predictions (confidence ≥ 0.50) are added to the training set. Only data columns are used — annotation columns are excluded because cosine performs poorly on them (7.4%). This injects real-domain embedding patterns into the training set without requiring manual labels.
+All 212 taxonomy reference embeddings (the same texts cosine similarity uses as targets) are included as training samples. These anchor embeddings exist in the same embedding space as the real eval data, teaching CatBoost the mapping from embedding regions to categories even when synthetic embeddings differ from real ones.
 
 ### Cosine Similarity Features
 
@@ -95,11 +93,11 @@ The 11 discrete features (cardinality, null ratio, entropy, 8 pattern flags) are
 
 ### Paired Column Propagation
 
-A post-prediction pass exploits the dataset structure: data columns and annotation columns are paired (the annotation column follows its data column), and both refer to the same category. When XGBoost is uncertain about an annotation column (confidence < 0.50) but confident about the preceding data column (confidence ≥ 0.35), the data column's prediction is propagated to the annotation column.
+A post-prediction pass exploits the dataset structure: data columns and annotation columns are paired (the annotation column follows its data column), and both refer to the same category. When CatBoost is uncertain about an annotation column (confidence < 0.50) but confident about the preceding data column (confidence ≥ 0.35), the data column's prediction is propagated to the annotation column.
 
 ### StandardScaler
 
-The full feature vector is normalized with `StandardScaler` before XGBoost training for stable gradient boosting across features with different scales.
+The full feature vector is normalized with `StandardScaler` before CatBoost training for stable gradient boosting across features with different scales.
 
 ## Results
 
@@ -109,12 +107,39 @@ Accuracy progression on 350 GT-labeled columns, showing each technique's margina
 |-----------|---------|--------------|-------------------|
 | Baseline (k-fold CV) | 45.1% | 79.4% | 10.9% |
 | Synthetic train→eval | 33.4% | 44.0% | 22.9% |
-| + Self-training | 66.3% | 96.6% | 36.0% |
 | + Dual embedding | 83.4% | 98.3% | 68.6% |
 | + Cosine sim features | 86.0% | 98.9% | 73.1% |
 | + Paired propagation | 95.4% | 98.9% | 92.0% |
 
-The naive synthetic baseline (33.4%) is *worse* than k-fold CV because of domain shift between synthetic and real embeddings. Self-training closes the domain gap by injecting confident real-data predictions. Dual embedding and cosine similarity features provide the largest gains on annotation columns by reducing reliance on column names.
+The naive synthetic baseline (33.4%) is *worse* than k-fold CV because of domain shift between synthetic and real embeddings. Dual embedding and cosine similarity features provide the largest gains on annotation columns by reducing reliance on column names.
+
+## CatBoost Migration
+
+CatBoost replaced XGBoost in March 2026 for two reasons:
+
+### 1. Self-Training Target Leakage
+
+The XGBoost pipeline included a self-training step that injected cosine pseudo-labels (confidence ≥ 0.50) from evaluation data columns into the training set. While this improved accuracy metrics, it constituted target leakage: evaluation embeddings were present in the training data, inflating accuracy measurements. The self-training block has been removed entirely.
+
+### 2. Ordered Boosting
+
+CatBoost's `posterior_sampling=True` enables ordered boosting — a method that constructs each tree using only "historical" data points, preventing the prediction shift that occurs when a model is trained and evaluated on the same data distribution. This provides a principled alternative to self-training without leakage.
+
+### Hyperparameter Mapping
+
+| XGBoost | CatBoost | Notes |
+|---------|----------|-------|
+| `objective="multi:softprob"` | `loss_function="MultiClass"` | Both produce probability vectors |
+| `n_estimators` | `iterations` | Number of boosting rounds |
+| `max_depth` | `depth` | Maximum tree depth |
+| `reg_alpha` | `l2_leaf_reg` | L2 regularization |
+| `colsample_bytree` | `rsm` | Random subspace method (feature sampling) |
+| `min_child_weight` | `min_data_in_leaf` | Minimum samples per leaf |
+| — | `posterior_sampling=True` | Ordered boosting (CatBoost-specific) |
+
+### Evidence Fusion Integration
+
+CatBoost's `predict_proba()` output is now available as a mass function source for [evidence fusion](./evidence-fusion.md). When a trained CatBoost model is loaded, its class probabilities are converted to a `BeliefAssignment` via `catboost_to_mass()`, contributing independent evidence alongside cosine similarity, pattern detection, and name matching. CatBoost's virtual ensembles can additionally provide per-class variance estimates, enabling adaptive discounting: high model uncertainty → more mass allocated to \\(\Theta\\) (total ignorance).
 
 ### Remaining Errors
 
@@ -144,6 +169,15 @@ uv run python scripts/build_sigint_embeddings.py \
     --ground-truth config/sigint/meta_tagging_gt.json \
     --train-dir build/datasets/sigint_train/ \
     --output build/sigint_embeddings.parquet
+
+# Train→eval with DST belief intervals
+uv run python scripts/build_sigint_embeddings.py \
+    --data-dir ~/local/tmp/meta-tagging/ \
+    --taxonomy annotations --threshold 0.25 \
+    --ground-truth config/sigint/meta_tagging_gt.json \
+    --train-dir build/datasets/sigint_train/ \
+    --dst \
+    --output build/sigint_dst.parquet
 
 # Run tests
 uv run pytest tests/sigint/test_generate_train.py -v

@@ -48,7 +48,7 @@ atlas -> pg: "Lineage + classification\ngraph queries"
 
 4. **Classifications are written back to Atlas** as tags on the entity, making them visible in the catalog UI and available for policy enforcement via Ranger.
 
-The classification model uses a [context engineering](./context-engineering.md) approach — each column is represented as a structured feature vector that can be measured and optimized using SAGE feature importance analysis.
+The classification model uses a [context engineering](./context-engineering.md) approach — each column is represented as a structured feature vector that can be measured and optimized using SAGE feature importance analysis. When the `--dst` flag is enabled, the pipeline outputs Dempster-Shafer belief intervals at every hierarchy level via the [evidence fusion](./evidence-fusion.md) layer.
 
 ## Atlas Integration
 
@@ -71,6 +71,7 @@ Once entities are tagged in Atlas:
 
 1. **Atlas catalog bridge** (interim; hook/event-driven in future): Register Impala tables in Atlas when created via HMS-free DDL
 2. **Tagging service prototype**: Python service that reads Atlas entities and classifies against SIGDG ontology
-3. **OWL formalization**: Publish SIGDG as OWL ontology with BFO imports, verify via RASE 5-gate pipeline
-4. **Ranger tag-based policies**: Column masking and access control driven by Atlas SIGDG classifications
-5. **Feedback loop**: Analyst corrections to classifications improve the model over time
+3. **Evidence fusion calibration**: Calibrate DST discount factors and mass constants against held-out data; resolve source independence assumption (see [Research Roadmap](../reference/research-roadmap.md))
+4. **OWL formalization**: Publish SIGDG as OWL ontology with BFO imports, verify via RASE 5-gate pipeline
+5. **Ranger tag-based policies**: Column masking and access control driven by Atlas SIGDG classifications
+6. **Feedback loop**: Analyst corrections to classifications improve the model over time

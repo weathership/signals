@@ -1,8 +1,8 @@
 """Embedding-based column classifier using sentence-transformers.
 
 Zero-shot mode: cosine similarity of column embedding vs SIGDG category
-reference embeddings.  XGBoost mode: when a trained model file exists,
-uses XGBClassifier.predict_proba() on the embedding vector instead.
+reference embeddings.  CatBoost mode: when a trained model file exists,
+uses CatBoostClassifier.predict_proba() on the embedding vector instead.
 """
 
 from __future__ import annotations
@@ -22,12 +22,13 @@ class EmbeddingClassifierConfig:
     """Configuration for the embedding classifier."""
 
     model_name: str = "all-MiniLM-L6-v2"
-    xgboost_model_path: str | None = None
+    model_path: str | None = None
     confidence_threshold: float = 0.3
     include_values: bool = True
     max_values: int = 5
     batch_size: int = 32
     name_match_boost: bool = True
+
 
 
 def _camel_to_words(name: str) -> str:
@@ -88,7 +89,7 @@ def _get_leaf_categories() -> list:
 
 
 class EmbeddingClassifier:
-    """Classify columns via embedding similarity or XGBoost.
+    """Classify columns via embedding similarity or CatBoost.
 
     Satisfies the ``Classifier`` protocol.
     """
@@ -108,8 +109,8 @@ class EmbeddingClassifier:
             else self._category_set.categories
         )
         self._category_embeddings = None  # (N, dim) ndarray
-        self._xgb_model = None
-        self._xgb_classes = None
+        self._cb_model = None
+        self._cb_classes = None
 
     # ── Lazy loading ─────────────────────────────────────────────────
 
@@ -148,40 +149,40 @@ class EmbeddingClassifier:
         self._category_embeddings = self._category_embeddings / norms
         return self._category_embeddings
 
-    def _get_xgb_model(self):
-        """Lazily load a trained XGBoost model if configured."""
-        if self._xgb_model is not None:
-            return self._xgb_model, self._xgb_classes
+    def _get_cb_model(self):
+        """Lazily load a trained CatBoost model if configured."""
+        if self._cb_model is not None:
+            return self._cb_model, self._cb_classes
 
-        if not self._config.xgboost_model_path:
+        if not self._config.model_path:
             return None, None
 
         import json as _json
         from pathlib import Path
 
-        model_path = Path(self._config.xgboost_model_path)
+        model_path = Path(self._config.model_path)
         if not model_path.exists():
             return None, None
 
         try:
-            from xgboost import XGBClassifier
+            from catboost import CatBoostClassifier
         except ImportError:
             raise ImportError(
-                "xgboost package required for XGBoost classification. "
-                "Install with: pip install 'signals[embedding-xgboost]'"
+                "catboost package required for CatBoost classification. "
+                "Install with: pip install 'signals[embedding-catboost]'"
             )
 
-        self._xgb_model = XGBClassifier()
-        self._xgb_model.load_model(str(model_path))
+        self._cb_model = CatBoostClassifier()
+        self._cb_model.load_model(str(model_path))
 
         # Load class label mapping (saved alongside model)
         classes_path = model_path.with_suffix(".classes.json")
         if classes_path.exists():
-            self._xgb_classes = _json.loads(classes_path.read_text())
+            self._cb_classes = _json.loads(classes_path.read_text())
         else:
-            self._xgb_classes = None
+            self._cb_classes = None
 
-        return self._xgb_model, self._xgb_classes
+        return self._cb_model, self._cb_classes
 
     # ── Classification ───────────────────────────────────────────────
 
@@ -198,9 +199,9 @@ class EmbeddingClassifier:
         When *features* is provided, the embedding text is built from the
         discrete feature set instead of the raw sample.
         """
-        xgb, classes = self._get_xgb_model()
-        if xgb is not None:
-            return self._classify_xgboost(sample, xgb, classes)
+        cb, classes = self._get_cb_model()
+        if cb is not None:
+            return self._classify_catboost(sample, cb, classes)
         return self._classify_cosine(sample, features=features, feature_mask=feature_mask)
 
     def _classify_cosine(
@@ -294,10 +295,10 @@ class EmbeddingClassifier:
             boost=round(best_boost, 3),
         )
 
-    def _classify_xgboost(
-        self, sample: ColumnSample, xgb, classes: list[str] | None
+    def _classify_catboost(
+        self, sample: ColumnSample, cb, classes: list[str] | None
     ) -> Classification | None:
-        """Classification via trained XGBoost model."""
+        """Classification via trained CatBoost model."""
         import numpy as np
 
         model = self._get_model()
@@ -308,7 +309,7 @@ class EmbeddingClassifier:
         )
         vec = model.encode([text], batch_size=1)
 
-        proba = xgb.predict_proba(vec)[0]
+        proba = cb.predict_proba(vec)[0]
         best_idx = int(np.argmax(proba))
         confidence = float(proba[best_idx])
 
@@ -333,6 +334,105 @@ class EmbeddingClassifier:
         return Classification(
             category=cat,
             confidence=round(confidence, 3),
-            evidence=f"xgboost confidence {confidence:.3f} for {cat.label}",
+            evidence=f"catboost confidence {confidence:.3f} for {cat.label}",
             sensitivity_code=sensitivity,
         )
+
+    def classify_dst(
+        self,
+        sample: ColumnSample,
+        frame,  # FrameOfDiscernment
+        hierarchical_category_set,  # HierarchicalCategorySet
+        *,
+        features: ColumnFeatures | None = None,
+        feature_mask: dict[str, bool] | None = None,
+    ):
+        """Classify with Dempster-Shafer belief intervals.
+
+        Combines up to 4 evidence sources:
+        1. Cosine similarities → mass function
+        2. CatBoost probabilities → mass function (if model loaded)
+        3. Pattern signals → mass function (if features provided)
+        4. Name match → mass function (if enabled)
+
+        Returns a HierarchicalClassification with belief intervals.
+        """
+        import numpy as np
+
+        from sigint.classifier import HierarchicalClassification
+        from sigint.mass_functions import (
+            catboost_to_mass,
+            cosine_to_mass,
+            name_match_to_mass,
+            pattern_to_mass,
+        )
+
+        model = self._get_model()
+        text = build_embedding_text(
+            sample,
+            include_values=self._config.include_values,
+            max_values=self._config.max_values,
+            features=features,
+            feature_mask=feature_mask,
+        )
+        vec = model.encode([text], batch_size=1)[0]
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+
+        cat_embs = self._get_category_embeddings()
+        sims = cat_embs @ vec
+
+        # Build cosine similarity dict
+        cats = self._category_set.categories
+        sim_dict = {cat.code: float(sims[i]) for i, cat in enumerate(cats)}
+
+        source_masses: dict[str, object] = {}
+
+        # 1. Cosine evidence
+        source_masses["cosine"] = cosine_to_mass(sim_dict, frame, discount=0.3)
+
+        # 2. CatBoost evidence (if model loaded)
+        cb, classes = self._get_cb_model()
+        if cb is not None:
+            vec_2d = model.encode([text], batch_size=1)
+            proba = cb.predict_proba(vec_2d)[0]
+            proba_dict = {}
+            for i, prob in enumerate(proba):
+                if classes and i < len(classes):
+                    proba_dict[classes[i]] = float(prob)
+            source_masses["catboost"] = catboost_to_mass(proba_dict, frame)
+
+        # 3. Pattern evidence (if features provided)
+        if features is not None and features.pattern_signals:
+            source_masses["patterns"] = pattern_to_mass(
+                features.pattern_signals, frame
+            )
+
+        # 4. Name match evidence (if enabled)
+        if self._config.name_match_boost:
+            source_masses["name_match"] = name_match_to_mass(
+                sample.column_name, frame, self._category_set
+            )
+
+        # Sensitivity
+        sensitivity = None
+        if self._category_set.name == "sigdg":
+            # Will be set based on best category from combination
+            pass
+
+        result = HierarchicalClassification.from_combined_evidence(
+            source_masses=source_masses,
+            frame=frame,
+            category_set=hierarchical_category_set,
+            sensitivity_code=None,
+        )
+
+        # Set sensitivity based on the chosen category
+        if self._category_set.name == "sigdg":
+            sensitivity = DEFAULT_SENSITIVITY.get(result.category.code)
+            # Re-create with correct sensitivity (frozen dataclass)
+            from dataclasses import replace
+            result = replace(result, sensitivity_code=sensitivity)
+
+        return result

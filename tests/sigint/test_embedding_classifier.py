@@ -255,19 +255,19 @@ class TestCosineClassification:
         assert result.sensitivity_code == expected
 
 
-# ── XGBoost dispatch ────────────────────────────────────────────────
+# ── CatBoost dispatch ────────────────────────────────────────────────
 
 
-class TestXGBoostDispatch:
-    def test_uses_xgboost_when_model_exists(self, tmp_path):
-        """When xgboost_model_path points to an existing file, XGBoost path is used."""
-        model_file = tmp_path / "model.json"
+class TestCatBoostDispatch:
+    def test_uses_catboost_when_model_exists(self, tmp_path):
+        """When model_path points to an existing file, CatBoost path is used."""
+        model_file = tmp_path / "model.cbm"
         model_file.write_text("{}")  # placeholder
         classes_file = tmp_path / "model.classes.json"
         classes_file.write_text('["0085", "0076"]')
 
         cfg = EmbeddingClassifierConfig(
-            xgboost_model_path=str(model_file),
+            model_path=str(model_file),
             confidence_threshold=0.3,
         )
         clf = EmbeddingClassifier(cfg)
@@ -277,20 +277,20 @@ class TestXGBoostDispatch:
         mock_st.encode.return_value = np.ones((1, 384))
         clf._model = mock_st
 
-        # Mock XGBClassifier
-        mock_xgb = MagicMock()
-        mock_xgb.predict_proba.return_value = np.array([[0.85, 0.15]])
-        clf._xgb_model = mock_xgb
-        clf._xgb_classes = ["0085", "0076"]
+        # Mock CatBoostClassifier
+        mock_cb = MagicMock()
+        mock_cb.predict_proba.return_value = np.array([[0.85, 0.15]])
+        clf._cb_model = mock_cb
+        clf._cb_classes = ["0085", "0076"]
 
         result = clf.classify(_make_sample("tax_id"))
         assert result is not None
         assert result.category.code == "0085"
-        assert "xgboost" in result.evidence
+        assert "catboost" in result.evidence
 
     def test_falls_back_to_cosine_without_model(self):
-        """Without xgboost_model_path, falls back to cosine."""
-        cfg = EmbeddingClassifierConfig(xgboost_model_path=None)
+        """Without model_path, falls back to cosine."""
+        cfg = EmbeddingClassifierConfig(model_path=None)
         clf = EmbeddingClassifier(cfg)
 
         # Mock ST model for cosine path
@@ -314,9 +314,9 @@ class TestXGBoostDispatch:
         assert result is not None
         assert "cosine=" in result.evidence
 
-    def test_xgb_low_confidence_returns_none(self):
+    def test_cb_low_confidence_returns_none(self):
         cfg = EmbeddingClassifierConfig(
-            xgboost_model_path="/fake/path",
+            model_path="/fake/path",
             confidence_threshold=0.9,
         )
         clf = EmbeddingClassifier(cfg)
@@ -325,11 +325,11 @@ class TestXGBoostDispatch:
         mock_st.encode.return_value = np.ones((1, 384))
         clf._model = mock_st
 
-        mock_xgb = MagicMock()
+        mock_cb = MagicMock()
         # All classes get low probability
-        mock_xgb.predict_proba.return_value = np.array([[0.3, 0.3, 0.4]])
-        clf._xgb_model = mock_xgb
-        clf._xgb_classes = ["0085", "0076", "0073"]
+        mock_cb.predict_proba.return_value = np.array([[0.3, 0.3, 0.4]])
+        clf._cb_model = mock_cb
+        clf._cb_classes = ["0085", "0076", "0073"]
 
         result = clf.classify(_make_sample())
         assert result is None
