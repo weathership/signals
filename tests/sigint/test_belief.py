@@ -111,10 +111,12 @@ class TestDempsterCombine:
         m1 = BeliefAssignment(masses={a: 0.7, theta: 0.3})
         m2 = BeliefAssignment(masses={a: 0.6, theta: 0.4})
 
-        result = dempster_combine(m1, m2)
+        result, k = dempster_combine(m1, m2)
         assert result.is_valid
         # Both agree on A, so belief in A should be higher
         assert result.belief(a) > 0.7
+        # No conflict when both sources agree
+        assert k == 0.0
 
     def test_conflicting_sources(self):
         """Two sources with partial conflict still combine."""
@@ -125,8 +127,10 @@ class TestDempsterCombine:
         m1 = BeliefAssignment(masses={a: 0.7, theta: 0.3})
         m2 = BeliefAssignment(masses={b: 0.6, theta: 0.4})
 
-        result = dempster_combine(m1, m2)
+        result, k = dempster_combine(m1, m2)
         assert result.is_valid
+        # K = m1({A})*m2({B}) = 0.7*0.6 = 0.42
+        assert abs(k - 0.42) < 1e-9
 
     def test_total_conflict_raises(self):
         """Total conflict (K=1) raises ValueError."""
@@ -147,9 +151,10 @@ class TestDempsterCombine:
         m1 = BeliefAssignment(masses={a: 0.6, theta: 0.4})
         vacuous = BeliefAssignment(masses={theta: 1.0})
 
-        result = dempster_combine(m1, vacuous)
+        result, k = dempster_combine(m1, vacuous)
         assert result.is_valid
         assert abs(result.belief(a) - 0.6) < 1e-9
+        assert k == 0.0  # no conflict with vacuous
 
     def test_normalization_preserved(self):
         """Combined result is always normalized."""
@@ -160,8 +165,22 @@ class TestDempsterCombine:
         m1 = BeliefAssignment(masses={a: 0.5, theta: 0.5})
         m2 = BeliefAssignment(masses={b: 0.3, theta: 0.7})
 
-        result = dempster_combine(m1, m2)
+        result, k = dempster_combine(m1, m2)
         assert result.is_valid
+        assert k > 0  # partial conflict expected
+
+    def test_returns_conflict_value(self):
+        """dempster_combine returns the exact conflict K."""
+        a = FocalElement(frozenset({"A"}))
+        b = FocalElement(frozenset({"B"}))
+        theta = FocalElement(frozenset({"A", "B"}))
+
+        # m1({A})=0.5, m2({B})=0.3 → K = 0.5*0.3 = 0.15
+        m1 = BeliefAssignment(masses={a: 0.5, theta: 0.5})
+        m2 = BeliefAssignment(masses={b: 0.3, theta: 0.7})
+
+        _, k = dempster_combine(m1, m2)
+        assert abs(k - 0.15) < 1e-9
 
     def test_combine_multiple(self):
         """Three sources combine left-to-right."""
@@ -172,9 +191,27 @@ class TestDempsterCombine:
         m2 = BeliefAssignment(masses={a: 0.4, theta: 0.6})
         m3 = BeliefAssignment(masses={a: 0.3, theta: 0.7})
 
-        result = combine_multiple([m1, m2, m3])
+        result, k = combine_multiple([m1, m2, m3])
         assert result.is_valid
         assert result.belief(a) > 0.5  # convergence strengthens belief
+        assert k == 0.0  # all agree on A, no conflict
+
+    def test_combine_multiple_cumulative_k(self):
+        """Cumulative K uses Smarandache-Dezert formula: K = 1 - prod(1-Ki)."""
+        a = FocalElement(frozenset({"A"}))
+        b = FocalElement(frozenset({"B"}))
+        theta = FocalElement(frozenset({"A", "B"}))
+
+        m1 = BeliefAssignment(masses={a: 0.5, theta: 0.5})
+        m2 = BeliefAssignment(masses={b: 0.3, theta: 0.7})
+        m3 = BeliefAssignment(masses={b: 0.2, theta: 0.8})
+
+        _, cumulative_k = combine_multiple([m1, m2, m3])
+        # K should be > 0 (sources disagree)
+        assert cumulative_k > 0
+        # Cumulative K should be greater than any single pairwise K
+        _, k12 = dempster_combine(m1, m2)
+        assert cumulative_k > k12
 
     def test_combine_multiple_empty_raises(self):
         with pytest.raises(ValueError, match="empty"):
@@ -230,6 +267,24 @@ class TestFrameOfDiscernment:
         frame = FrameOfDiscernment(cs)
 
         assert frame.theta.codes == cs.leaf_codes
+
+    def test_confusable_map_lookup(self):
+        """confusable_map maps each singleton code to pair FocalElements."""
+        cs = sigdg_category_set(hierarchical=True)
+        pairs = [("0013", "0012")]
+        frame = FrameOfDiscernment(cs, confusable_pairs=pairs)
+
+        cmap = frame.confusable_map
+        assert "0013" in cmap
+        assert "0012" in cmap
+        # Both codes map to the same pair FocalElement
+        assert cmap["0013"][0] is cmap["0012"][0]
+        assert cmap["0013"][0].codes == frozenset({"0013", "0012"})
+
+    def test_confusable_map_empty_without_pairs(self):
+        cs = sigdg_category_set(hierarchical=True)
+        frame = FrameOfDiscernment(cs)
+        assert frame.confusable_map == {}
 
     def test_vacuous_mass(self):
         cs = sigdg_category_set(hierarchical=True)

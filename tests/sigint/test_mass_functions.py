@@ -142,3 +142,83 @@ class TestNameMatchToMass:
         ba = name_match_to_mass("xyzzy_nonsense", frame, cs)
         assert ba.is_valid
         assert ba.masses[frame.theta] == 1.0
+
+
+def _make_frame_with_pairs():
+    cs = sigdg_category_set(hierarchical=True)
+    pairs = [("0013", "0012")]  # DeviceIdentifier / PlatformIdentifier
+    frame = FrameOfDiscernment(cs, confusable_pairs=pairs)
+    return frame, cs
+
+
+class TestConfusableRedistribution:
+    def test_cosine_ambiguous_pair_redistributes(self):
+        """Top-2 in a confusable pair with close ratio → mass on pair FE."""
+        frame, _ = _make_frame_with_pairs()
+        # Give similar similarities to the confusable pair members
+        sims = {"0013": 0.9, "0012": 0.85}
+        ba = cosine_to_mass(sims, frame, discount=0.3)
+        assert ba.is_valid
+
+        # The pair focal element should have received some mass
+        pair_fe = frame.confusables[0]
+        pair_mass = ba.masses.get(pair_fe, 0.0)
+        assert pair_mass > 0, "Expected mass on confusable pair FE"
+
+    def test_cosine_clear_winner_no_redistribution(self):
+        """Dominant singleton → no redistribution to pair FE."""
+        frame, _ = _make_frame_with_pairs()
+        # Wide gap: after softmax, ratio will be ~7:1 (well above 3:1 threshold)
+        sims = {"0013": 0.95, "0012": -1.0}
+        ba = cosine_to_mass(sims, frame, discount=0.3)
+        assert ba.is_valid
+
+        pair_fe = frame.confusables[0]
+        pair_mass = ba.masses.get(pair_fe, 0.0)
+        assert pair_mass == 0.0, "No mass expected on pair FE for clear winner"
+
+    def test_catboost_ambiguous_pair_redistributes(self):
+        """CatBoost with ambiguous pair → mass on pair FE."""
+        frame, _ = _make_frame_with_pairs()
+        proba = {"0013": 0.45, "0012": 0.40, "0085": 0.15}
+        ba = catboost_to_mass(proba, frame)
+        assert ba.is_valid
+
+        pair_fe = frame.confusables[0]
+        pair_mass = ba.masses.get(pair_fe, 0.0)
+        assert pair_mass > 0, "Expected mass on confusable pair FE"
+
+    def test_no_redistribution_without_pairs(self):
+        """Frame without confusable pairs → no redistribution."""
+        frame, _ = _make_frame()  # no pairs
+        sims = {"0013": 0.9, "0012": 0.85}
+        ba = cosine_to_mass(sims, frame, discount=0.3)
+        assert ba.is_valid
+
+        # No pair focal elements exist, so no pair mass
+        for fe in ba.masses:
+            assert len(fe.codes) != 2 or fe == frame.theta or ba.masses[fe] == 0.0
+
+    def test_pignistic_with_pair_mass(self):
+        """BetP distributes pair mass equally to both members."""
+        from sigint.belief import BeliefAssignment, FocalElement
+
+        a = FocalElement(frozenset({"A"}), "A")
+        b = FocalElement(frozenset({"B"}), "B")
+        pair_ab = FocalElement(frozenset({"A", "B"}), "A|B")
+        theta = FocalElement(frozenset({"A", "B", "C"}), "Θ")
+
+        # m({A})=0.3, m({A,B})=0.2, m(Θ)=0.5
+        ba = BeliefAssignment(masses={a: 0.3, pair_ab: 0.2, theta: 0.5})
+        assert ba.is_valid
+
+        # BetP({A}) = 0.3/1 + 0.2/2 + 0.5/3 = 0.3 + 0.1 + 0.1667 = 0.5667
+        betp_a = ba.pignistic_probability(a)
+        assert abs(betp_a - (0.3 + 0.1 + 0.5 / 3)) < 1e-9
+
+        # BetP({B}) = 0.2/2 + 0.5/3 = 0.1 + 0.1667 = 0.2667
+        betp_b = ba.pignistic_probability(b)
+        assert abs(betp_b - (0.1 + 0.5 / 3)) < 1e-9
+
+        # Pair mass splits equally: A gets more total BetP than B
+        assert betp_a > betp_b

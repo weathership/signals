@@ -100,8 +100,13 @@ class BeliefAssignment:
         return total
 
 
-def dempster_combine(m1: BeliefAssignment, m2: BeliefAssignment) -> BeliefAssignment:
+def dempster_combine(
+    m1: BeliefAssignment, m2: BeliefAssignment,
+) -> tuple[BeliefAssignment, float]:
     """Dempster's rule of combination (conjunctive, normalized).
+
+    Returns ``(combined_assignment, K)`` where **K** is the conflict
+    mass (sum of products assigned to the empty set before normalization).
 
     Raises ValueError on total conflict (K=1).
     """
@@ -129,17 +134,26 @@ def dempster_combine(m1: BeliefAssignment, m2: BeliefAssignment) -> BeliefAssign
         for fe, m in combined.items()
         if m > 1e-15
     }
-    return BeliefAssignment(masses=result)
+    return BeliefAssignment(masses=result), conflict
 
 
-def combine_multiple(assignments: list[BeliefAssignment]) -> BeliefAssignment:
-    """Left-to-right Dempster combination of multiple sources."""
+def combine_multiple(
+    assignments: list[BeliefAssignment],
+) -> tuple[BeliefAssignment, float]:
+    """Left-to-right Dempster combination of multiple sources.
+
+    Returns ``(combined_assignment, cumulative_K)`` where cumulative K
+    is computed as ``K = 1 - ∏(1 - Kᵢ)`` (Smarandache & Dezert, 2005).
+    """
     if not assignments:
         raise ValueError("Cannot combine empty list of assignments")
     result = assignments[0]
+    product_of_complements = 1.0
     for other in assignments[1:]:
-        result = dempster_combine(result, other)
-    return result
+        result, k_i = dempster_combine(result, other)
+        product_of_complements *= (1.0 - k_i)
+    cumulative_k = 1.0 - product_of_complements
+    return result, cumulative_k
 
 
 class FrameOfDiscernment:
@@ -209,6 +223,15 @@ class FrameOfDiscernment:
     @property
     def confusables(self) -> list[FocalElement]:
         return self._confusables
+
+    @cached_property
+    def confusable_map(self) -> dict[str, list[FocalElement]]:
+        """Map singleton code -> confusable pair FocalElements containing it."""
+        result: dict[str, list[FocalElement]] = {}
+        for fe in self._confusables:
+            for code in fe.codes:
+                result.setdefault(code, []).append(fe)
+        return result
 
     @cached_property
     def all_focal_elements(self) -> list[FocalElement]:

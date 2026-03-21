@@ -157,10 +157,7 @@ class HierarchicalClassification:
             conflict = 0.0
         else:
             try:
-                combined = combine_multiple(non_vacuous)
-                # Compute conflict K from the last combination
-                # (approximate: product of all pairwise conflicts)
-                conflict = _compute_conflict(non_vacuous)
+                combined, conflict = combine_multiple(non_vacuous)
             except ValueError:
                 combined = frame.vacuous()
                 conflict = 1.0
@@ -194,10 +191,19 @@ class HierarchicalClassification:
 
         bel = combined.belief(frame.singleton(best_code))
         pl = combined.plausibility(frame.singleton(best_code))
+
+        # Annotate significant confusable pair mass
+        confusable_parts: list[str] = []
+        for fe, m in combined.masses.items():
+            if len(fe.codes) == 2 and m > 0.05 and fe.label:
+                confusable_parts.append(f"{fe.label}={m:.2f}")
+
         evidence = (
             f"dst({', '.join(source_parts)}) → {cat.label} "
             f"[Bel={bel:.2f}, Pl={pl:.2f}, K={conflict:.2f}]"
         )
+        if confusable_parts:
+            evidence += f" [confusable: {', '.join(confusable_parts)}]"
 
         return cls(
             category=cat,
@@ -213,26 +219,3 @@ class HierarchicalClassification:
         )
 
 
-def _compute_conflict(assignments: list) -> float:
-    """Approximate conflict K from pairwise combination."""
-    if len(assignments) < 2:
-        return 0.0
-
-    total_conflict = 0.0
-    result = assignments[0]
-    for other in assignments[1:]:
-        # Compute conflict for this pair
-        pair_conflict = 0.0
-        for fe1, m1 in result.masses.items():
-            for fe2, m2 in other.masses.items():
-                if not (fe1.codes & fe2.codes):
-                    pair_conflict += m1 * m2
-        total_conflict = max(total_conflict, pair_conflict)
-
-        from sigint.belief import dempster_combine
-        try:
-            result = dempster_combine(result, other)
-        except ValueError:
-            return 1.0
-
-    return total_conflict

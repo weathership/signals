@@ -888,12 +888,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.dst:
         from sigint.belief import FrameOfDiscernment
         from sigint.category_set import sigdg_category_set
+        from sigint.confusable_pairs import get_confusable_pairs
 
         if hierarchical_cs is None:
             hierarchical_cs = sigdg_category_set(hierarchical=True)
-        frame = FrameOfDiscernment(hierarchical_cs)
+        pairs = get_confusable_pairs(args.taxonomy)
+        frame = FrameOfDiscernment(hierarchical_cs, confusable_pairs=pairs)
         print(f"DST enabled: {len(frame.singletons)} singletons, "
               f"{len(frame.internal_nodes)} internal nodes, "
+              f"{len(frame.confusables)} confusable pairs, "
               f"{len(frame.all_focal_elements)} total focal elements")
 
     # ── Feature mask ─────────────────────────────────────────────────

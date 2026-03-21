@@ -17,6 +17,66 @@ def _camel_to_words(name: str) -> str:
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).lower()
 
 
+def _redistribute_confusable_mass(
+    masses: dict[FocalElement, float],
+    frame: FrameOfDiscernment,
+    ratio_threshold: float = 3.0,
+) -> dict[FocalElement, float]:
+    """Redistribute singleton mass to confusable pair focal elements.
+
+    When the top-2 singleton masses (excluding Theta) both belong to a
+    known confusable pair and their ratio is below *ratio_threshold*,
+    half of the 2nd-place mass is moved to the pair focal element.
+
+    This captures honest ambiguity: instead of arbitrarily picking one
+    leaf, the mass function represents uncertainty between the pair.
+    """
+    if not frame.confusable_map:
+        return masses
+
+    # Find top-2 singletons by mass (exclude Theta)
+    singleton_masses: list[tuple[str, FocalElement, float]] = []
+    for fe, m in masses.items():
+        if len(fe.codes) == 1:
+            code = next(iter(fe.codes))
+            singleton_masses.append((code, fe, m))
+
+    singleton_masses.sort(key=lambda x: -x[2])
+    if len(singleton_masses) < 2:
+        return masses
+
+    code1, _, m1 = singleton_masses[0]
+    code2, fe2, m2 = singleton_masses[1]
+
+    if m2 <= 1e-15:
+        return masses
+
+    # Check ratio — only redistribute when evidence is genuinely ambiguous
+    ratio = m1 / m2
+    if ratio >= ratio_threshold:
+        return masses
+
+    # Check if both codes share a confusable pair
+    pairs1 = frame.confusable_map.get(code1, [])
+    target_pair: FocalElement | None = None
+    for pair_fe in pairs1:
+        if code2 in pair_fe.codes:
+            target_pair = pair_fe
+            break
+
+    if target_pair is None:
+        return masses
+
+    # Redistribute: move half of 2nd-place mass to the pair
+    transfer = m2 / 2.0
+    result = dict(masses)
+    result[fe2] = m2 - transfer
+    result[target_pair] = result.get(target_pair, 0.0) + transfer
+
+    # Clean up near-zero entries
+    return {fe: m for fe, m in result.items() if m > 1e-15}
+
+
 def cosine_to_mass(
     similarities: dict[str, float],
     frame: FrameOfDiscernment,
@@ -26,6 +86,10 @@ def cosine_to_mass(
 
     Applies softmax to similarities, then discounts by *discount* so
     a fraction of mass goes to Theta (total ignorance).
+
+    When the frame has confusable pairs and the top-2 singletons form
+    a known pair with a close mass ratio, mass is redistributed to
+    the pair focal element.
 
     Args:
         similarities: {category_code: cosine_similarity} for leaf codes.
@@ -55,6 +119,7 @@ def cosine_to_mass(
             masses[frame.singleton(code)] = mass
 
     masses[frame.theta] = discount
+    masses = _redistribute_confusable_mass(masses, frame)
     return BeliefAssignment(masses=masses)
 
 
@@ -92,6 +157,7 @@ def catboost_to_mass(
             masses[frame.singleton(code)] = prob * evidence_mass
 
     masses[frame.theta] = discount
+    masses = _redistribute_confusable_mass(masses, frame)
     return BeliefAssignment(masses=masses)
 
 
