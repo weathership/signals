@@ -16,6 +16,7 @@
 - [Metadata Tagging](./architecture/meta-tagging.md)
 - [Context Engineering](./architecture/context-engineering.md)
 - [Classification Training](./architecture/classification-training.md)
+- [Evidence Fusion](./architecture/evidence-fusion.md)
 - [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios
@@ -60,4 +61,5 @@
 
 - [SIGDG Ontology](./reference/sigdg-ontology.md)
 - [Configuration](./reference/configuration.md)
+- [Research Roadmap](./reference/research-roadmap.md)
 - [Roadmap](./reference/roadmap.md)

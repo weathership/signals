@@ -95,8 +95,8 @@ s2: "Stage 2\nClassification" {
   style.fill: "#e8f4f8"
 }
 
-s3: "Stage 3\nGround Truth +\nXGBoost" {
-  tooltip: "LLM GT evaluation + XGBoost (CV or train→eval with synthetic data)"
+s3: "Stage 3\nGround Truth +\nCatBoost" {
+  tooltip: "LLM GT evaluation + CatBoost (CV or train→eval with synthetic data)"
   style.fill: "#f0e8f8"
 }
 
@@ -132,13 +132,15 @@ When ground truth is provided (`--ground-truth`), the pipeline produces three in
 | Signal | Method | Data Columns | Annotation Columns | Overall |
 |--------|--------|-------------|-------------------|---------|
 | **Cosine** | Zero-shot embedding similarity + name boost | 98.9% | 7.4% | 53.1% |
-| **XGBoost CV** | Augmented stratified k-fold CV | 79.4% | 10.9% | 45.1% |
-| **XGBoost train→eval** | Synthetic training + self-training + paired propagation | 98.9% | 92.0% | 95.4% |
+| **CatBoost CV** | Augmented stratified k-fold CV | 79.4% | 10.9% | 45.1% |
+| **CatBoost train→eval** | Synthetic training + ordered boosting + paired propagation | 98.9% | 92.0% | 95.4% |
 | **LLM GT** | Expert column→code mapping (target) | — | — | — |
 
-The XGBoost CV baseline uses category reference embedding augmentation to overcome the extreme low-data regime (212 classes, ~2 samples each). Each fold's training set includes all 212 category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
+The CatBoost CV baseline uses category reference embedding augmentation to overcome the extreme low-data regime (212 classes, ~2 samples each). Each fold's training set includes all 212 category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
 
 The train→eval pipeline replaces k-fold CV with synthetic training data and several additional techniques that collectively push accuracy from 45.1% to 95.4%. See [Classification Training](./classification-training.md) for the full methodology and accuracy progression.
+
+When the `--dst` flag is enabled, the pipeline additionally produces Dempster-Shafer belief intervals at every hierarchy level. See [Evidence Fusion](./evidence-fusion.md) for the full DST architecture.
 
 ### Column Kinds
 
@@ -187,7 +189,7 @@ Each run produces a parquet (38 columns) and companion report JSON:
 | Identity | `embedding_text`, `source_table`, `column_name`, `sample_values`, `column_kind` | Column metadata and kind |
 | Cosine | `tag_code`, `tag_label`, `tag_abbrev`, `confidence`, `boost` | Zero-shot cosine predictions |
 | Ground Truth | `gt_code`, `correct` | LLM GT evaluation (when provided) |
-| XGBoost CV | `ml_tag_code`, `ml_tag_label`, `ml_confidence`, `ml_correct` | Cross-validated ML predictions |
+| CatBoost CV | `ml_tag_code`, `ml_tag_label`, `ml_confidence`, `ml_correct` | Cross-validated ML predictions |
 | Features | `feat_column_name` ... `feat_source_table` (×11) | Transparency: input features as strings |
 | SAGE | `sage_column_name` ... `sage_source_table` (×11) | Global feature importance values |
 
