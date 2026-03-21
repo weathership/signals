@@ -10,9 +10,8 @@ layout = "elk"
 inline = false
 output-dir = "d2"
 
-# Disabled: mdbook-katex 0.9.4 (nixpkgs) incompatible with mdbook 0.5.2
-# Re-enable when nixpkgs updates the package
-# [preprocessor.katex]
+# katex preprocessor disabled (0.9.4 incompatible with mdbook 0.5.2).
+# Using MathJax 3 via client-side JS instead — see theme/mathjax.js
 
 # Disabled: mdbook-mermaid has parsing issues with mdbook 0.5.x in CI
 # Re-enable when adding mermaid diagrams and a compatible version is available
@@ -22,7 +21,7 @@ output-dir = "d2"
 [output.html]
 default-theme = "light"
 additional-css = ["theme/custom.css"]
-additional-js = ["theme/diagrams.js"]
+additional-js = ["theme/diagrams.js", "theme/mathjax.js"]
 
 [output.html.print]
 enable = true
