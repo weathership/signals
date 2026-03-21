@@ -17,6 +17,17 @@ from sigint.ontology import CATEGORIES, DEFAULT_SENSITIVITY
 from sigint.sampler import ColumnSample
 
 
+def _detect_device() -> str:
+    """Return 'cuda' if a CUDA GPU is available, else 'cpu'."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
+
+
 @dataclass
 class EmbeddingClassifierConfig:
     """Configuration for the embedding classifier."""
@@ -28,6 +39,7 @@ class EmbeddingClassifierConfig:
     max_values: int = 5
     batch_size: int = 32
     name_match_boost: bool = True
+    device: str = "auto"  # "auto", "cuda", "cuda:0", "cpu"
 
 
 
@@ -115,7 +127,12 @@ class EmbeddingClassifier:
     # ── Lazy loading ─────────────────────────────────────────────────
 
     def _get_model(self):
-        """Lazily load the SentenceTransformer model."""
+        """Lazily load the SentenceTransformer model.
+
+        When ``config.device`` is ``"auto"``, detects CUDA availability.
+        GPU batch sizes are automatically scaled up from the configured
+        value when a CUDA device is selected.
+        """
         if self._model is not None:
             return self._model
 
@@ -127,7 +144,17 @@ class EmbeddingClassifier:
                 "Install with: pip install 'signals[embedding]'"
             )
 
-        self._model = SentenceTransformer(self._config.model_name)
+        device = self._config.device
+        if device == "auto":
+            device = _detect_device()
+
+        self._model = SentenceTransformer(self._config.model_name, device=device)
+
+        # Scale batch size for GPU — small models like MiniLM-L6 can easily
+        # handle 256+ on a modern GPU
+        if device.startswith("cuda") and self._config.batch_size <= 64:
+            self._config.batch_size = 256
+
         return self._model
 
     def _get_category_embeddings(self):

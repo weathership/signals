@@ -8,6 +8,7 @@ from sigint.category_set import is_data_column
 from sigint.embedding_classifier import (
     EmbeddingClassifier,
     EmbeddingClassifierConfig,
+    _detect_device,
     build_embedding_text,
     _camel_to_words,
     _build_category_text,
@@ -782,3 +783,35 @@ class TestGenerality:
         result2 = clf.classify(_make_sample("inbox", "STRING", ["a@b.com"]))
         assert result2 is not None
         assert result2.boost == 0.0  # no match
+
+
+class TestDetectDevice:
+    def test_returns_string(self):
+        """_detect_device returns 'cuda' or 'cpu'."""
+        result = _detect_device()
+        assert result in ("cuda", "cpu")
+
+    def test_returns_cpu_without_torch(self, monkeypatch):
+        """Falls back to 'cpu' when torch is not importable."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "torch":
+                raise ImportError("no torch")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        assert _detect_device() == "cpu"
+
+    def test_gpu_batch_size_scaling(self, monkeypatch):
+        """GPU device auto-scales batch_size from <=64 to 256."""
+        import sys
+
+        mock_st_module = MagicMock()
+        monkeypatch.setitem(sys.modules, "sentence_transformers", mock_st_module)
+
+        cfg = EmbeddingClassifierConfig(batch_size=32, device="cuda:0")
+        clf = EmbeddingClassifier(cfg)
+        clf._get_model()
+        assert cfg.batch_size == 256

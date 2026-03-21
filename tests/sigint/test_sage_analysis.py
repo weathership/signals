@@ -52,7 +52,7 @@ def _make_mock_classifier(dim=384, n_cats=2):
     mock_model = MagicMock()
     cat_embs = np.eye(n_cats, dim)
 
-    def mock_encode(texts, batch_size=32):
+    def mock_encode(texts, batch_size=32, **kwargs):
         n = len(texts)
         vecs = np.zeros((n, dim))
         for i in range(n):
@@ -163,6 +163,65 @@ class TestFeatureMaskModel:
 # ── Integration with mocked SAGE ─────────────────────────────────────
 
 
+class TestEmbeddingCache:
+    def test_cache_hits_on_duplicate_texts(self):
+        """Duplicate texts should produce cache hits."""
+        features = [_make_features("email"), _make_features("email")]
+        cs = _make_category_set()
+        clf = _make_mock_classifier(n_cats=2)
+
+        model = FeatureMaskModel(features, clf, cs)
+        X = np.array([[0] * 11, [0] * 11])  # same indices → same text
+        model(X)
+
+        # First call: both texts identical, but first is a miss, second is a hit
+        assert model.cache_hits == 1
+        assert model.cache_misses == 1
+
+    def test_cache_miss_on_different_texts(self):
+        """Different texts should produce cache misses."""
+        features = [_make_features("email"), _make_features("phone")]
+        cs = _make_category_set()
+        clf = _make_mock_classifier(n_cats=2)
+
+        model = FeatureMaskModel(features, clf, cs)
+        X = np.array([[0] * 11, [1] * 11])  # different indices → different text
+        model(X)
+
+        assert model.cache_hits == 0
+        assert model.cache_misses == 2
+
+    def test_cache_reused_across_calls(self):
+        """Cache should be reused across multiple __call__ invocations."""
+        features = [_make_features("email"), _make_features("phone")]
+        cs = _make_category_set()
+        clf = _make_mock_classifier(n_cats=2)
+
+        model = FeatureMaskModel(features, clf, cs)
+        X0 = np.array([[0] * 11])
+        X1 = np.array([[0] * 11])  # same text as X0
+
+        model(X0)
+        assert model.cache_misses == 1
+        assert model.cache_hits == 0
+
+        model(X1)
+        assert model.cache_misses == 1  # no new misses
+        assert model.cache_hits == 1
+
+    def test_cache_size_limit(self):
+        """Cache should stop storing after reaching cache_size."""
+        features = [_make_features(f"col_{i}") for i in range(5)]
+        cs = _make_category_set()
+        clf = _make_mock_classifier(n_cats=2)
+
+        model = FeatureMaskModel(features, clf, cs, cache_size=2)
+        X = np.array([[i] * 11 for i in range(5)])
+        model(X)
+
+        assert len(model._cache) == 2  # only 2 entries stored
+
+
 class TestRunSageAnalysis:
     def test_produces_sage_result(self):
         """Test run_sage_analysis with real SAGE library but mock classifier."""
@@ -194,3 +253,23 @@ class TestRunSageAnalysis:
         assert result.method == "cosine"
         assert result.n_samples == 3
         assert result.elapsed_seconds > 0
+
+    def test_convergence_detection_flag(self):
+        """Test that detect_convergence parameter is accepted."""
+        from sigint.sage_analysis import run_sage_analysis
+
+        features = [_make_features("email"), _make_features("phone")]
+        cs = _make_category_set()
+        clf = _make_mock_classifier(n_cats=2)
+        gt_indices = np.array([0, 1])
+
+        # Should not raise — convergence detection enabled
+        result = run_sage_analysis(
+            all_features=features,
+            ground_truth_indices=gt_indices,
+            classifier=clf,
+            category_set=cs,
+            n_permutations=4,
+            detect_convergence=True,
+        )
+        assert isinstance(result, SageResult)
