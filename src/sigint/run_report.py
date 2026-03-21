@@ -27,6 +27,14 @@ class ColumnResult:
     evidence: str
     ground_truth_code: str | None = None
     correct: bool | None = None
+    # Optional DST fields (populated when --dst is used)
+    dst_belief: float = 0.0
+    dst_plausibility: float = 0.0
+    dst_uncertainty_gap: float = 0.0
+    dst_conflict: float = 0.0
+    dst_needs_clarification: bool = False
+    dst_evidence_sources: str = ""
+    dst_belief_path: str = ""
 
 
 @dataclass

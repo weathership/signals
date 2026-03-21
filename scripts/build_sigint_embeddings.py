@@ -6,13 +6,13 @@ Produces an embedding-atlas-compatible parquet with columns:
   - classification columns (tag_code, tag_label, confidence, boost)
   - column_kind (data / annotation / row_id)
   - gt_code, correct (LLM ground truth evaluation)
-  - ml_tag_code, ml_tag_label, ml_confidence, ml_correct (XGBoost CV)
+  - ml_tag_code, ml_tag_label, ml_confidence, ml_correct (CatBoost CV)
   - feat_* columns (11 transparency features, always present)
   - sage_* columns (11 SAGE importance values, always present)
 
 Three-signal comparison when --ground-truth is provided:
   1. Cosine (zero-shot embedding similarity)
-  2. XGBoost (stratified k-fold CV, out-of-fold predictions)
+  2. CatBoost (stratified k-fold CV, out-of-fold predictions)
   3. LLM GT (expert column→code mapping — the target)
 
 SAGE always runs using classifier predictions as pseudo-ground-truth —
@@ -38,7 +38,7 @@ Usage:
         --data-dir ~/local/tmp/meta-tagging/ \
         --taxonomy annotations --threshold 0.25 \
         --disable-features sample_values sibling_context \
-        --output build/sigint_ablation.parquet
+        --output build/sigint_embeddings.parquet
 
     # Visualize with embedding-atlas
     embedding-atlas build/sigint_embeddings.parquet --text embedding_text
@@ -83,7 +83,7 @@ def _build_classifier(args, category_set):
     name_boost = not args.no_name_boost
     cfg = EmbeddingClassifierConfig(
         model_name=args.embedding_model,
-        xgboost_model_path=args.xgboost_model,
+        model_path=args.model_path,
         confidence_threshold=args.threshold,
         name_match_boost=name_boost,
     )
@@ -101,7 +101,7 @@ def _load_ground_truth(gt_path: Path) -> dict[str, str]:
     return data.get("mappings", data)
 
 
-def _run_xgboost_cv(
+def _run_catboost_cv(
     clf,
     records: list[dict],
     results: list[dict],
@@ -114,7 +114,7 @@ def _run_xgboost_cv(
     Strategy for this extreme low-data regime (174 classes, ~2 samples each):
     1. Augment training data with category reference embeddings (240 texts
        the cosine classifier uses as targets), giving >=3 samples per class.
-    2. Use XGBoost with the augmented training set per fold.
+    2. Use CatBoost with the augmented training set per fold.
     3. Only real data samples are held out for validation (reference texts
        are always in training), giving unbiased out-of-fold predictions.
 
@@ -124,7 +124,7 @@ def _run_xgboost_cv(
     import numpy as np
     from sklearn.model_selection import StratifiedKFold
     from sklearn.preprocessing import LabelEncoder
-    from xgboost import XGBClassifier
+    from catboost import CatBoostClassifier
 
     model = clf._get_model()
     by_code = category_set.by_code
@@ -184,20 +184,20 @@ def _run_xgboost_cv(
         y_train = np.concatenate([y_gt[train_idx], y_ref])
         X_val = X_gt[val_idx]
 
-        xgb = XGBClassifier(
-            objective="multi:softprob",
-            num_class=len(class_labels),
-            max_depth=6,
-            n_estimators=200,
-            reg_alpha=0.5,
+        cb = CatBoostClassifier(
+            loss_function="MultiClass",
+            classes_count=len(class_labels),
+            depth=6,
+            iterations=200,
+            l2_leaf_reg=0.5,
             learning_rate=0.1,
-            eval_metric="mlogloss",
-            random_state=42,
-            verbosity=0,
+            random_seed=42,
+            verbose=0,
+            posterior_sampling=True,
         )
-        xgb.fit(X_train, y_train)
+        cb.fit(X_train, y_train)
 
-        proba = xgb.predict_proba(X_val)
+        proba = cb.predict_proba(X_val)
         for j, vi in enumerate(val_idx):
             real_idx = gt_indices[vi]
             best = int(np.argmax(proba[j]))
@@ -213,20 +213,20 @@ def _run_xgboost_cv(
     if non_gt_indices:
         X_full_train = np.vstack([X_gt, X_ref])
         y_full_train = np.concatenate([y_gt, y_ref])
-        xgb_full = XGBClassifier(
-            objective="multi:softprob",
-            num_class=len(class_labels),
-            max_depth=6,
-            n_estimators=200,
-            reg_alpha=0.5,
+        cb_full = CatBoostClassifier(
+            loss_function="MultiClass",
+            classes_count=len(class_labels),
+            depth=6,
+            iterations=200,
+            l2_leaf_reg=0.5,
             learning_rate=0.1,
-            eval_metric="mlogloss",
-            random_state=42,
-            verbosity=0,
+            random_seed=42,
+            verbose=0,
+            posterior_sampling=True,
         )
-        xgb_full.fit(X_full_train, y_full_train)
+        cb_full.fit(X_full_train, y_full_train)
         X_non = X_all[non_gt_indices]
-        proba_non = xgb_full.predict_proba(X_non)
+        proba_non = cb_full.predict_proba(X_non)
         for j, idx in enumerate(non_gt_indices):
             best = int(np.argmax(proba_non[j]))
             code = class_labels[best]
@@ -275,7 +275,7 @@ def _encode_discrete_features(features_obj) -> list[float]:
     return vec  # length = 11
 
 
-def _run_xgboost_train_eval(
+def _run_catboost_train_eval(
     clf,
     train_records: list[dict],
     train_gt: dict[str, str],
@@ -286,12 +286,12 @@ def _run_xgboost_train_eval(
     category_set,
     concat_features: bool = True,
 ) -> tuple[list[dict], dict]:
-    """Train XGBoost on synthetic data, evaluate on real data.
+    """Train CatBoost on synthetic data, evaluate on real data.
 
     Strategy to bridge domain shift between synthetic and real embeddings:
     1. Augment synthetic training data with category reference embeddings
        (the same texts the cosine classifier targets).  These anchors live
-       in the same embedding space as the real eval data, teaching XGBoost
+       in the same embedding space as the real eval data, teaching CatBoost
        the mapping from embedding regions → categories.
     2. Scale discrete features (11 dims) so they compete with the 384-dim
        embedding rather than getting swamped.
@@ -303,7 +303,7 @@ def _run_xgboost_train_eval(
     """
     import numpy as np
     from sklearn.preprocessing import LabelEncoder, StandardScaler
-    from xgboost import XGBClassifier
+    from catboost import CatBoostClassifier
 
     from sigint.features import extract_features
     from sigint.sampler import ColumnSample
@@ -387,29 +387,6 @@ def _run_xgboost_train_eval(
         for feat_obj in eval_features_list:
             eval_feat_vecs.append(_encode_discrete_features(feat_obj))
 
-    # ── Self-training: cosine pseudo-labels on real data ───────────
-    pseudo_threshold = 0.50
-    pseudo_indices: list[int] = []
-    pseudo_codes: list[str] = []
-    pseudo_feat_vecs: list[list[float]] = []
-    pseudo_skip_ann = 0
-    for i, (rec, res) in enumerate(zip(eval_records, eval_results)):
-        if (res["confidence"] >= pseudo_threshold
-                and res["tag_code"]
-                and res["tag_code"] in by_code):
-            col_kind = _classify_column_kind(rec["column_name"])
-            if col_kind == "annotation":
-                pseudo_skip_ann += 1
-                continue
-            pseudo_indices.append(i)
-            pseudo_codes.append(res["tag_code"])
-            if concat_features:
-                pseudo_feat_vecs.append(
-                    _encode_discrete_features(eval_features_list[i])
-                )
-    print(f"  Self-training pseudo-labels: {len(pseudo_indices)} data columns "
-          f"(cosine conf >= {pseudo_threshold}, skipped {pseudo_skip_ann} annotation cols)")
-
     # ── Encode dual embeddings ─────────────────────────────────────
     # 1. Full embedding (name + values + table) — strong for data columns
     # 2. Value-only embedding (values + patterns only) — bridges domain
@@ -429,14 +406,9 @@ def _run_xgboost_train_eval(
 
     emb_dim = X_train_full_emb.shape[1]
 
-    # Pseudo-labeled real columns — reuse eval encodings
-    X_pseudo_full_emb = X_eval_full_emb[pseudo_indices] if pseudo_indices else np.empty((0, emb_dim))
-    X_pseudo_vo_emb = X_eval_vo_emb[pseudo_indices] if pseudo_indices else np.empty((0, emb_dim))
-
     # ── Build feature matrix: [full_emb | value_only_emb | discrete] ──
     n_synth = len(train_full_texts)
     n_ref = len(ref_texts)
-    n_pseudo = len(pseudo_indices)
 
     if concat_features and train_feat_vecs:
         n_discrete = len(train_feat_vecs[0])
@@ -449,25 +421,14 @@ def _run_xgboost_train_eval(
         train_disc = np.vstack([synth_disc, ref_disc])
 
         eval_disc = np.array(eval_feat_vecs) * scale_factor
-        pseudo_disc = np.array(pseudo_feat_vecs) * scale_factor if pseudo_feat_vecs else np.empty((0, n_discrete))
 
         X_train_combined = np.hstack([X_train_full_emb, X_train_vo_emb, train_disc])
         X_eval_combined = np.hstack([X_eval_full_emb, X_eval_vo_emb, eval_disc])
-        X_pseudo_combined = (
-            np.hstack([X_pseudo_full_emb, X_pseudo_vo_emb, pseudo_disc])
-            if n_pseudo > 0
-            else np.empty((0, emb_dim * 2 + n_discrete))
-        )
         total_dim = emb_dim * 2 + n_discrete
         print(f"  Feature dim: {total_dim} (full_emb={emb_dim} + vo_emb={emb_dim} + disc={n_discrete})")
     else:
         X_train_combined = np.hstack([X_train_full_emb, X_train_vo_emb])
         X_eval_combined = np.hstack([X_eval_full_emb, X_eval_vo_emb])
-        X_pseudo_combined = (
-            np.hstack([X_pseudo_full_emb, X_pseudo_vo_emb])
-            if n_pseudo > 0
-            else np.empty((0, emb_dim * 2))
-        )
 
     # ── Cosine similarity features ─────────────────────────────────
     # Compute cosine similarity between each column's value-only embedding
@@ -479,37 +440,23 @@ def _run_xgboost_train_eval(
     # Extract reference value-only embeddings (last n_ref rows of X_train_vo_emb)
     X_ref_vo = X_train_vo_emb[n_synth:n_synth + n_ref]
 
-    # Cosine sims: train (synth+ref), eval, pseudo
+    # Cosine sims: train (synth+ref), eval
     cos_train = cosine_similarity(
         X_train_vo_emb[:n_synth + n_ref], X_ref_vo,
     ).astype(np.float32)
     cos_eval = cosine_similarity(X_eval_vo_emb, X_ref_vo).astype(np.float32)
-    cos_pseudo = (
-        cosine_similarity(X_pseudo_vo_emb, X_ref_vo).astype(np.float32)
-        if n_pseudo > 0
-        else np.empty((0, n_ref), dtype=np.float32)
-    )
 
     print(f"  Cosine similarity features: {cos_train.shape[1]} (one per category ref)")
 
     # Append cosine sim features to combined feature matrices
     X_train_with_cos = np.hstack([X_train_combined, cos_train])
     X_eval_with_cos = np.hstack([X_eval_combined, cos_eval])
-    X_pseudo_with_cos = (
-        np.hstack([X_pseudo_combined, cos_pseudo])
-        if n_pseudo > 0
-        else np.empty((0, X_train_with_cos.shape[1]), dtype=np.float32)
-    )
 
     print(f"  Total feature dim: {X_train_with_cos.shape[1]}")
 
     # ── Combine all training sources ───────────────────────────────
-    parts = [X_train_with_cos]
+    X_train = X_train_with_cos
     y_train_codes = train_codes + ref_codes
-    if n_pseudo > 0:
-        parts.append(X_pseudo_with_cos)
-        y_train_codes = y_train_codes + pseudo_codes
-    X_train = np.vstack(parts)
 
     # ── Build label encoder ────────────────────────────────────────
     all_codes = sorted(set(y_train_codes))
@@ -518,36 +465,36 @@ def _run_xgboost_train_eval(
     class_labels = le.classes_.tolist()
     y_train = le.transform(y_train_codes)
 
-    # ── StandardScaler for stable XGBoost learning ─────────────────
+    # ── StandardScaler for stable gradient boosting ────────────────
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_eval = scaler.transform(X_eval_with_cos)
 
     print(f"  Classes: {len(class_labels)}, Training shape: {X_train.shape}")
-    print(f"    Synthetic: {len(train_full_texts)}, Reference: {len(ref_texts)}, Pseudo: {n_pseudo}")
+    print(f"    Synthetic: {len(train_full_texts)}, Reference: {len(ref_texts)}")
 
-    # ── Train XGBoost ──────────────────────────────────────────────
-    xgb = XGBClassifier(
-        objective="multi:softprob",
-        num_class=len(class_labels),
-        max_depth=8,
-        n_estimators=500,
-        reg_alpha=0.3,
+    # ── Train CatBoost ─────────────────────────────────────────────
+    cb = CatBoostClassifier(
+        loss_function="MultiClass",
+        classes_count=len(class_labels),
+        depth=8,
+        iterations=500,
+        l2_leaf_reg=0.3,
         learning_rate=0.08,
         subsample=0.8,
-        colsample_bytree=0.6,
-        min_child_weight=2,
-        eval_metric="mlogloss",
-        random_state=42,
-        verbosity=0,
+        rsm=0.6,
+        min_data_in_leaf=2,
+        random_seed=42,
+        verbose=0,
+        posterior_sampling=True,
     )
-    xgb.fit(X_train, y_train)
-    print("  XGBoost training complete.")
+    cb.fit(X_train, y_train)
+    print("  CatBoost training complete.")
 
     # ── Predict on eval set ────────────────────────────────────────
-    proba = xgb.predict_proba(X_eval)
+    proba = cb.predict_proba(X_eval)
 
-    # Pass 1: Raw XGBoost predictions for all columns
+    # Pass 1: Raw CatBoost predictions for all columns
     raw_preds: list[tuple[str, float]] = []  # (code, confidence)
     for i in range(len(eval_records)):
         best = int(np.argmax(proba[i]))
@@ -568,7 +515,7 @@ def _run_xgboost_train_eval(
             continue
         prev_code, prev_conf = raw_preds[i - 1]
         _, cur_conf = raw_preds[i]
-        # Propagate when: data col is confident enough AND XGBoost is uncertain
+        # Propagate when: data col is confident enough AND CatBoost is uncertain
         if prev_conf >= 0.35 and cur_conf < 0.50 and prev_code in by_code:
             raw_preds[i] = (prev_code, prev_conf * 0.9)
             pair_propagated += 1
@@ -628,7 +575,7 @@ def _run_xgboost_train_eval(
     ann_acc = ml_correct_ann / ann_eval * 100 if ann_eval else 0
 
     print(f"\n{'='*60}")
-    print("ML (XGBoost train→eval) ACCURACY")
+    print("ML (CatBoost train→eval) ACCURACY")
     print(f"{'='*60}")
     print(f"  Overall:    {ml_correct}/{ml_evaluated} ({ml_acc:.1f}%)")
     print(f"  Data cols:  {ml_correct_data}/{data_eval} ({data_acc:.1f}%)")
@@ -748,6 +695,13 @@ def _write_parquet(results: list[dict], output: Path) -> None:
         ("ml_tag_label", pa.string()),
         ("ml_confidence", pa.float64()),
         ("ml_correct", pa.string()),
+        ("dst_belief", pa.float64()),
+        ("dst_plausibility", pa.float64()),
+        ("dst_uncertainty_gap", pa.float64()),
+        ("dst_conflict", pa.float64()),
+        ("dst_needs_clarification", pa.bool_()),
+        ("dst_evidence_sources", pa.string()),
+        ("dst_belief_path", pa.string()),
     ]
 
     # feat_* columns (always string)
@@ -765,6 +719,10 @@ def _write_parquet(results: list[dict], output: Path) -> None:
         if col_type == pa.float64():
             arrays[col_name] = pa.array(
                 [r.get(col_name, 0.0) for r in results], type=pa.float64()
+            )
+        elif col_type == pa.bool_():
+            arrays[col_name] = pa.array(
+                [r.get(col_name, False) for r in results], type=pa.bool_()
             )
         else:
             arrays[col_name] = pa.array(
@@ -785,6 +743,7 @@ def _write_report_json(
     enabled_features: list[str],
     n_records: int,
     gt_source: str | None,
+    results: list[dict] | None = None,
 ) -> None:
     """Write companion .report.json alongside the parquet."""
     report_path = output.with_suffix(".report.json")
@@ -806,7 +765,21 @@ def _write_report_json(
         "accuracy_cosine": accuracy_metrics,
         "accuracy_ml": ml_accuracy_metrics,
         "sage": sage_dict,
+        "dst_enabled": getattr(args, "dst", False),
     }
+
+    # DST summary when enabled
+    if getattr(args, "dst", False) and results:
+        dst_gaps = [r["dst_uncertainty_gap"] for r in results if r.get("dst_belief", 0) > 0]
+        dst_conflicts = [r["dst_conflict"] for r in results if r.get("dst_belief", 0) > 0]
+        clarification_count = sum(1 for r in results if r.get("dst_needs_clarification", False))
+        report["dst_summary"] = {
+            "avg_uncertainty_gap": round(sum(dst_gaps) / len(dst_gaps), 4) if dst_gaps else 0.0,
+            "avg_conflict": round(sum(dst_conflicts) / len(dst_conflicts), 4) if dst_conflicts else 0.0,
+            "clarification_count": clarification_count,
+            "dst_columns_evaluated": len(dst_gaps),
+        }
+
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
@@ -834,7 +807,7 @@ def main(argv: list[str] | None = None) -> int:
         default="all-MiniLM-L6-v2",
         help="SentenceTransformer model (default: all-MiniLM-L6-v2)",
     )
-    p.add_argument("--xgboost-model", default=None, help="Path to trained XGBoost model (.json)")
+    p.add_argument("--model-path", default=None, help="Path to trained CatBoost model (.cbm)")
     p.add_argument(
         "--threshold",
         type=float,
@@ -867,19 +840,24 @@ def main(argv: list[str] | None = None) -> int:
         "--ml-folds",
         type=int,
         default=5,
-        help="Number of XGBoost CV folds (default: 5)",
+        help="Number of CatBoost CV folds (default: 5)",
     )
     p.add_argument(
         "--train-dir",
         default=None,
         help="Path to synthetic training data directory (from generate_meta_tagging_train.py). "
-        "When provided, trains XGBoost on synthetic data and evaluates on real data "
+        "When provided, trains CatBoost on synthetic data and evaluates on real data "
         "instead of running k-fold CV.",
     )
     p.add_argument(
         "--no-concat-features",
         action="store_true",
-        help="Disable discrete feature concatenation (ablation: embedding-only XGBoost).",
+        help="Disable discrete feature concatenation (ablation: embedding-only CatBoost).",
+    )
+    p.add_argument(
+        "--dst",
+        action="store_true",
+        help="Enable Dempster-Shafer belief functions for hierarchical uncertainty.",
     )
 
     args = p.parse_args(argv)
@@ -892,6 +870,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Build category set ───────────────────────────────────────────
     category_set = None
+    hierarchical_cs = None
+    frame = None
     if args.taxonomy == "annotations":
         from sigint.category_set import annotation_category_set
 
@@ -899,8 +879,22 @@ def main(argv: list[str] | None = None) -> int:
         if not ann_path.exists():
             print(f"Error: {ann_path} not found", file=sys.stderr)
             return 1
-        category_set = annotation_category_set(ann_path)
+        category_set = annotation_category_set(ann_path, hierarchical=args.dst)
+        if args.dst:
+            hierarchical_cs = category_set
         print(f"Loaded annotation taxonomy: {len(category_set.categories)} leaf categories")
+
+    # ── DST setup ────────────────────────────────────────────────────
+    if args.dst:
+        from sigint.belief import FrameOfDiscernment
+        from sigint.category_set import sigdg_category_set
+
+        if hierarchical_cs is None:
+            hierarchical_cs = sigdg_category_set(hierarchical=True)
+        frame = FrameOfDiscernment(hierarchical_cs)
+        print(f"DST enabled: {len(frame.singletons)} singletons, "
+              f"{len(frame.internal_nodes)} internal nodes, "
+              f"{len(frame.all_focal_elements)} total focal elements")
 
     # ── Feature mask ─────────────────────────────────────────────────
     feature_mask = build_feature_mask(args.disable_features)
@@ -997,13 +991,73 @@ def main(argv: list[str] | None = None) -> int:
         for fname in FEATURE_NAMES:
             row[f"sage_{fname}"] = 0.0
 
+        # DST columns — defaults when --dst is off
+        row["dst_belief"] = 0.0
+        row["dst_plausibility"] = 0.0
+        row["dst_uncertainty_gap"] = 0.0
+        row["dst_conflict"] = 0.0
+        row["dst_needs_clarification"] = False
+        row["dst_evidence_sources"] = ""
+        row["dst_belief_path"] = ""
+
+        # Run DST if enabled
+        if args.dst and frame is not None and hierarchical_cs is not None:
+            dst_result = clf.classify_dst(
+                sample, frame, hierarchical_cs,
+                features=features, feature_mask=feature_mask,
+            )
+            if dst_result is not None:
+                bel = dst_result.belief_at(dst_result.category.code)
+                pl = dst_result.plausibility_at(dst_result.category.code)
+                row["dst_belief"] = round(bel, 4)
+                row["dst_plausibility"] = round(pl, 4)
+                row["dst_uncertainty_gap"] = round(pl - bel, 4)
+                row["dst_conflict"] = dst_result.conflict
+                row["dst_needs_clarification"] = dst_result.needs_clarification
+
+                # Source evidence summary as JSON
+                src_summary = {}
+                for src_name, ba in dst_result.source_masses.items():
+                    best_mass = 0.0
+                    for fe, m in ba.masses.items():
+                        if len(fe.codes) == 1 and m > best_mass:
+                            best_mass = m
+                    src_summary[src_name] = round(best_mass, 3)
+                row["dst_evidence_sources"] = json.dumps(src_summary)
+
+                # Belief path from leaf to root
+                if hasattr(hierarchical_cs, "ancestors"):
+                    path = []
+                    code = dst_result.category.code
+                    cat_obj = hierarchical_cs.all_by_code.get(code)
+                    path.append({
+                        "code": code,
+                        "label": cat_obj.label if cat_obj else code,
+                        "bel": round(bel, 3),
+                        "pl": round(pl, 3),
+                    })
+                    for anc_code in hierarchical_cs.ancestors(code):
+                        anc_bel = dst_result.belief_at(anc_code)
+                        anc_pl = dst_result.plausibility_at(anc_code)
+                        anc_cat = hierarchical_cs.all_by_code.get(anc_code)
+                        path.append({
+                            "code": anc_code,
+                            "label": anc_cat.label if anc_cat else anc_code,
+                            "bel": round(anc_bel, 3),
+                            "pl": round(anc_pl, 3),
+                        })
+                    row["dst_belief_path"] = json.dumps(path)
+
         results.append(row)
 
         label = row["tag_label"]
         conf = row["confidence"]
         abbrev = row["tag_abbrev"]
         tag = f"{abbrev} ({label})" if abbrev else label
-        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({conf:.2f})")
+        dst_info = ""
+        if args.dst and row["dst_belief"] > 0:
+            dst_info = f" [Bel={row['dst_belief']:.2f}, Pl={row['dst_plausibility']:.2f}]"
+        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({conf:.2f}){dst_info}")
 
     # ── Stage 3: Accuracy vs LLM ground truth (when provided) ────────
     accuracy_metrics: dict | None = None
@@ -1023,7 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
 
         accuracy_metrics = _evaluate_accuracy(results, records, gt, category_set)
 
-    # ── Stage 3.5: XGBoost predictions ──────────────────────────────
+    # ── Stage 3.5: CatBoost predictions ─────────────────────────────
     ml_accuracy_metrics: dict | None = None
 
     if args.train_dir and gt and category_set:
@@ -1037,7 +1091,7 @@ def main(argv: list[str] | None = None) -> int:
         concat = not args.no_concat_features
         print(f"  Feature concatenation: {'enabled' if concat else 'disabled'}")
 
-        ml_preds, ml_accuracy_metrics = _run_xgboost_train_eval(
+        ml_preds, ml_accuracy_metrics = _run_catboost_train_eval(
             clf,
             train_records=train_records,
             train_gt=train_gt,
@@ -1061,8 +1115,8 @@ def main(argv: list[str] | None = None) -> int:
 
     elif gt and category_set:
         # ── Fallback: k-fold CV on real data ───────────────────────
-        print(f"\nRunning XGBoost {args.ml_folds}-fold CV...")
-        ml_preds = _run_xgboost_cv(
+        print(f"\nRunning CatBoost {args.ml_folds}-fold CV...")
+        ml_preds = _run_catboost_cv(
             clf, records, results, gt, category_set,
             n_folds=args.ml_folds,
         )
@@ -1087,7 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
         ml_acc = ml_correct_count / ml_evaluated * 100 if ml_evaluated else 0
 
         print(f"\n{'='*60}")
-        print("ML (XGBoost CV) ACCURACY")
+        print("ML (CatBoost CV) ACCURACY")
         print(f"{'='*60}")
         print(f"  Evaluated:  {ml_evaluated}")
         print(f"  Correct:    {ml_correct_count}")
@@ -1163,7 +1217,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _write_report_json(
         output, args, accuracy_metrics, ml_accuracy_metrics, sage_dict,
-        enabled_features, len(results), gt_source,
+        enabled_features, len(results), gt_source, results=results,
     )
 
     # ── Label distribution ───────────────────────────────────────────
