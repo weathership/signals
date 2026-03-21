@@ -78,9 +78,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="SentenceTransformer model name (default: all-MiniLM-L6-v2)",
     )
     p.add_argument(
-        "--xgboost-model",
+        "--model-path",
         default=None,
-        help="Path to trained XGBoost model (.json) for embedding classifier",
+        help="Path to trained CatBoost model (.cbm) for embedding classifier",
     )
     return p.parse_args(argv)
 
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         anthropic_model=args.model,
         annotations_path=args.annotations,
         embedding_model=args.embedding_model,
-        xgboost_model_path=args.xgboost_model,
+        model_path=args.model_path,
     )
 
     tagger = Tagger(cfg)

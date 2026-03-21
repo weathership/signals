@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from sigint.category_set import ReferenceCategory
+from sigint.category_set import CategorySet, ReferenceCategory
 from sigint.ontology import Category
 from sigint.sampler import ColumnSample
+
+if TYPE_CHECKING:
+    from sigint.belief import BeliefAssignment, FrameOfDiscernment
 
 
 @dataclass(frozen=True)
@@ -55,13 +58,13 @@ class HierarchicalClassification:
     boost: float = 0.0
 
     # DST fields
-    belief_assignment: object = None  # BeliefAssignment (avoid import cycle at module level)
+    belief_assignment: BeliefAssignment | None = None
     conflict: float = 0.0
-    source_masses: dict[str, object] = field(default_factory=dict)  # name → BeliefAssignment
+    source_masses: dict[str, BeliefAssignment] = field(default_factory=dict)
 
     # Store references for hierarchy navigation (not serialized)
-    _frame: object = field(default=None, repr=False, compare=False)
-    _category_set: object = field(default=None, repr=False, compare=False)
+    _frame: FrameOfDiscernment | None = field(default=None, repr=False, compare=False)
+    _category_set: CategorySet | None = field(default=None, repr=False, compare=False)
 
     @property
     def atlas_type_name(self) -> str:
@@ -127,9 +130,9 @@ class HierarchicalClassification:
     @classmethod
     def from_combined_evidence(
         cls,
-        source_masses: dict[str, object],  # name → BeliefAssignment
-        frame,  # FrameOfDiscernment
-        category_set,  # HierarchicalCategorySet
+        source_masses: dict[str, BeliefAssignment],
+        frame: FrameOfDiscernment,
+        category_set: CategorySet,
         sensitivity_code: str | None = None,
     ) -> HierarchicalClassification:
         """Combine source masses via Dempster's rule, find best category.

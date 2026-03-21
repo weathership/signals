@@ -38,7 +38,7 @@ def _create_classifier(cfg: TaggingConfig) -> Classifier:
 
         emb_cfg = EmbeddingClassifierConfig(
             model_name=cfg.embedding_model,
-            xgboost_model_path=cfg.xgboost_model_path,
+            model_path=cfg.model_path,
             confidence_threshold=cfg.confidence_threshold,
             include_values=cfg.embedding_include_values,
         )

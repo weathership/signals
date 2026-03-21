@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate synthetic training COLUMNS for XGBoost meta-tagging classifier.
+"""Generate synthetic training COLUMNS for CatBoost meta-tagging classifier.
 
 For each of 175 annotation categories, produces ~30 synthetic columns:
   - ~15 semantic-name variants (diverse human-readable column names)
   - ~15 opaque-name variants (random/coded names with category-matching values)
 
-The opaque-name variants force XGBoost to learn from VALUE PATTERNS rather than
+The opaque-name variants force CatBoost to learn from VALUE PATTERNS rather than
 column names — critical for classifying annotation columns like attr_1_1_1_8_1.
 
 Output:
@@ -1101,7 +1101,7 @@ def write_output(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Generate synthetic training columns for XGBoost meta-tagging classifier."
+        description="Generate synthetic training columns for CatBoost meta-tagging classifier."
     )
     p.add_argument(
         "--data-dir",

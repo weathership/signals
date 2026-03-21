@@ -29,10 +29,6 @@ class EmbeddingClassifierConfig:
     batch_size: int = 32
     name_match_boost: bool = True
 
-    def __post_init__(self):
-        # Backward-compat alias
-        if hasattr(self, "xgboost_model_path") and self.model_path is None:
-            self.model_path = self.xgboost_model_path
 
 
 def _camel_to_words(name: str) -> str:

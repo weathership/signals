@@ -34,7 +34,7 @@ class TaggingConfig:
 
     # Embedding classifier
     embedding_model: str = "all-MiniLM-L6-v2"
-    xgboost_model_path: str | None = None
+    model_path: str | None = None
     embedding_include_values: bool = True
 
     # Databases / tables to process

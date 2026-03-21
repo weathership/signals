@@ -57,12 +57,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--method",
-        choices=["cosine", "xgboost"],
+        choices=["cosine", "catboost"],
         default="cosine",
         help="Classification method",
     )
     p.add_argument("--embedding-model", default="all-MiniLM-L6-v2", help="SentenceTransformer model")
-    p.add_argument("--xgboost-model", default=None, help="Path to trained XGBoost model")
+    p.add_argument("--model-path", default=None, help="Path to trained CatBoost model (.cbm)")
     p.add_argument("--threshold", type=float, default=0.3, help="Confidence threshold")
     p.add_argument("--no-name-boost", action="store_true", help="Disable name-match boost")
     p.add_argument(
@@ -149,10 +149,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     name_boost = not args.no_name_boost
-    xgb_path = args.xgboost_model if args.method == "xgboost" else None
+    model_path = args.model_path if args.method == "catboost" else None
     cfg = EmbeddingClassifierConfig(
         model_name=args.embedding_model,
-        xgboost_model_path=xgb_path,
+        model_path=model_path,
         confidence_threshold=args.threshold,
         name_match_boost=name_boost,
     )
