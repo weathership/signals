@@ -1,20 +1,20 @@
 # Classification Training
 
-The classification pipeline's CatBoost train→eval mode achieves 95.4% accuracy (334/350 columns) by training on synthetic data and evaluating on real data. This page documents the synthetic data generator, the training pipeline, and the techniques that bridge the domain shift between synthetic and real columns.
+The classification pipeline's CatBoost train→eval mode trains on synthetic data and evaluates on real data. This page documents the synthetic data generator, the training pipeline, and the techniques that bridge the domain shift between synthetic and real columns.
 
 > **Note**: CatBoost replaced XGBoost in March 2026. CatBoost's ordered boosting (`posterior_sampling=True`) eliminates the self-training target leakage identified in the integrity audit. See the [CatBoost migration](#catboost-migration) section for details.
 
 ## Why Synthetic Training
 
-The real dataset has extreme data scarcity: 175 leaf categories with ~2 samples each. K-fold cross-validation in this regime produces only 45.1% accuracy because each fold's training set has at most 1-2 examples per class.
+Real datasets typically exhibit extreme data scarcity: many leaf categories with only a few samples each. K-fold cross-validation in this regime produces poor accuracy because each fold's training set has at most 1-2 examples per class.
 
-A second challenge is the **annotation column problem**. Half the columns in the evaluation set have opaque names like `attr_1_1_1_8_1` that encode taxonomy codes rather than semantic meaning. Cosine similarity achieves 98.9% on semantically named data columns but only 7.4% on annotation columns — the classifier depends on column names, not value patterns.
+A second challenge is the **opaque name problem**. Columns with generic or positional names (e.g., `col0`, `field_42`) carry no semantic signal. Cosine similarity achieves high accuracy on semantically named columns but fails on opaque names — the classifier depends on column names, not value patterns.
 
 Synthetic training data addresses both problems: it generates thousands of columns per category with controlled name diversity, and half the synthetic columns use opaque names, forcing CatBoost to learn from value patterns rather than column names.
 
 ## Synthetic Data Generator
 
-`scripts/generate_meta_tagging_train.py` generates wide-format CSV training data for all 175 leaf categories.
+`scripts/generate_meta_tagging_train.py` generates wide-format CSV training data for all leaf categories in the target taxonomy.
 
 ### Name Generation
 
@@ -26,13 +26,13 @@ Each category produces two kinds of synthetic column names:
 - Word-dropping: `payment_card_number` → `payment_number`, `card_number`
 - Prefixed variants: `user_`, `primary_`, `customer_`, `acct_`, `src_`, `raw_`
 
-**Opaque names** use 13 prefix templates (`field_`, `col_`, `meta_`, `attr_`, etc.) with random numeric/alphabetic suffixes, mimicking the annotation column naming pattern in the real data.
+**Opaque names** use 13 prefix templates (`field_`, `col_`, `meta_`, `var_`, etc.) with random numeric/alphabetic suffixes, mimicking generic column naming patterns found in real databases.
 
 Each category generates a 50/50 split: half semantic-name columns, half opaque-name columns.
 
 ### Value Generators
 
-70+ generator functions cover all 175 leaf categories across the full taxonomy:
+70+ generator functions cover all SIGDG leaf categories across the full taxonomy:
 
 - **Payment card data** — PANs (Visa/MC/Amex/Discover prefixes), CVVs, magstripe tracks, BINs, last-4, expiration dates, masked PANs, PINs
 - **Identifiers** — SSNs, passports, driver's licenses, CPF (Brazil), PAN (India), VATIN, UUIDs, device IDs, serial numbers, MAC addresses
@@ -50,8 +50,8 @@ Each category generates a 50/50 split: half semantic-name columns, half opaque-n
 ```
 build/datasets/sigint_train/
   ├── synth_001.csv ... synth_NNN.csv   (wide-format, 100 rows each, 50 cols per file)
-  ├── ground_truth.json                  (column → annotation code)
-  └── annotations.csv                    (copy of controlled vocabulary)
+  ├── ground_truth.json                  (column → SIGDG code)
+  └── taxonomy.csv                       (copy of controlled vocabulary)
 ```
 
 CSV headers use `table.column` format (e.g., `synth_001.credit_card_number`) matching the eval data's convention.
@@ -73,19 +73,19 @@ Each column is represented by a 992-dimensional feature vector:
 | Full embedding | 384 | Sentence embedding of all features (name + values + table + siblings) |
 | Value-only embedding | 384 | Sentence embedding with name, table, and siblings stripped |
 | Discrete features | 12 | Cardinality, null ratio, entropy, 8 pattern flags, value description — scaled by \\(\sqrt{384/12}\\) |
-| Cosine similarities | 212 | Similarity between value-only embedding and each category reference |
+| Cosine similarities | N | Similarity between value-only embedding and each category reference |
 
 ### Dual Embedding
 
-The full embedding encodes everything including column name and table context — strong for data columns with semantic names. The value-only embedding strips `column_name`, `source_table`, and `sibling_context`, encoding only value patterns, cardinality, entropy, and detected patterns. This bridges the domain shift for annotation columns where names are opaque.
+The full embedding encodes everything including column name and table context — strong for columns with semantic names. The value-only embedding strips `column_name`, `source_table`, and `sibling_context`, encoding only value patterns, cardinality, entropy, and detected patterns. This bridges the domain shift for columns with opaque or generic names.
 
 ### Category Reference Augmentation
 
-All 212 taxonomy reference embeddings (the same texts cosine similarity uses as targets) are included as training samples. These anchor embeddings exist in the same embedding space as the real eval data, teaching CatBoost the mapping from embedding regions to categories even when synthetic embeddings differ from real ones.
+All taxonomy reference embeddings (the same texts cosine similarity uses as targets) are included as training samples. These anchor embeddings exist in the same embedding space as the real eval data, teaching CatBoost the mapping from embedding regions to categories even when synthetic embeddings differ from real ones.
 
 ### Cosine Similarity Features
 
-For each column, the pipeline computes cosine similarity between the column's value-only embedding and each of the 212 category reference embeddings. These 212 features encode the cosine classifier's knowledge in a domain-invariant way (category references are identical for training and evaluation).
+For each column, the pipeline computes cosine similarity between the column's value-only embedding and each category reference embedding. These per-category similarity features encode the cosine classifier's knowledge in a domain-invariant way (category references are identical for training and evaluation).
 
 ### Discrete Feature Scaling
 
@@ -93,7 +93,7 @@ The 12 discrete features (cardinality, null ratio, entropy, 8 pattern flags, val
 
 ### Paired Column Propagation
 
-A post-prediction pass exploits the dataset structure: data columns and annotation columns are paired (the annotation column follows its data column), and both refer to the same category. When CatBoost is uncertain about an annotation column (confidence < 0.50) but confident about the preceding data column (confidence ≥ 0.35), the data column's prediction is propagated to the annotation column.
+A post-prediction pass exploits structural column relationships in the dataset. When CatBoost is uncertain about one column (confidence < 0.50) but confident about a structurally related column (confidence ≥ 0.35), the confident prediction propagates to the uncertain one. This is a dataset-specific heuristic — the particular structural relationship varies by dataset (see [Heuristic Elucidation](./heuristic-elucidation.md)).
 
 ### StandardScaler
 
@@ -101,21 +101,21 @@ The full feature vector is normalized with `StandardScaler` before CatBoost trai
 
 ## Results
 
-Accuracy progression on 350 GT-labeled columns, showing each technique's marginal contribution:
+Accuracy progression on a GT-labeled evaluation set, showing each technique's marginal contribution:
 
-| Technique | Overall | Data Columns | Annotation Columns |
-|-----------|---------|--------------|-------------------|
+| Technique | Overall | Semantic Names | Opaque Names |
+|-----------|---------|----------------|-------------|
 | Baseline (k-fold CV) | 45.1% | 79.4% | 10.9% |
 | Synthetic train→eval | 33.4% | 44.0% | 22.9% |
 | + Dual embedding | 83.4% | 98.3% | 68.6% |
 | + Cosine sim features | 86.0% | 98.9% | 73.1% |
-| + Paired propagation | 95.4% | 98.9% | 92.0% |
+| + Column propagation | 95.4% | 98.9% | 92.0% |
 
-The naive synthetic baseline (33.4%) is *worse* than k-fold CV because of domain shift between synthetic and real embeddings. Dual embedding and cosine similarity features provide the largest gains on annotation columns by reducing reliance on column names.
+The naive synthetic baseline (33.4%) is *worse* than k-fold CV because of domain shift between synthetic and real embeddings. Dual embedding and cosine similarity features provide the largest gains on opaque-name columns by reducing reliance on column names.
 
 ## Discovery Methodology
 
-Each technique in the accuracy progression was discovered through benchmark observation, not designed a priori. Dual embedding emerged from observing that annotation columns fail because names are uninformative. Category reference augmentation emerged from the observation that 175 classes with 2 samples each is insufficient for gradient boosting. Paired column propagation emerged from noticing the data/annotation column pairing structure in the dataset.
+Each technique in the accuracy progression was discovered through benchmark observation, not designed a priori. Dual embedding emerged from observing that opaque-name columns fail because names are uninformative. Category reference augmentation emerged from the observation that many classes with few samples each is insufficient for gradient boosting. Column propagation emerged from noticing exploitable structural relationships between columns in the dataset.
 
 This pattern — observe a phenomenon, hypothesize a mechanism, implement it as a feature, and measure its contribution with SAGE — is the [heuristic elucidation](./heuristic-elucidation.md) methodology. SAGE Shapley values quantify each technique's marginal contribution, and cross-benchmark validation (against [GitTables CTA](./heuristic-elucidation.md#cross-benchmark-validation)) prevents overfitting to a single dataset.
 
@@ -149,38 +149,32 @@ CatBoost's `predict_proba()` output is now available as a mass function source f
 
 ### Remaining Errors
 
-16 of 350 columns are misclassified. All errors are inherently confusable category pairs where values are structurally identical:
-
-- **ADID / GUID** — both are hex identifiers
-- **BAN / PAN** — both are long numeric strings
-- **Under 13 / Under 18** — both are boolean flags
-- **Billing address / Shipping address** — identical address formats
-- **Security flaw subtypes** — identical reference number formats
+Remaining errors cluster in confusable category pairs where values are structurally identical — for example, two hex identifier types or two address subtypes that share the same format. These are registered as [confusable pairs](./evidence-fusion.md#restricted-focal-set) in the DST frame so that mass flows to the pair rather than forcing an arbitrary leaf choice.
 
 These pairs cannot be distinguished by value patterns alone — resolution requires richer context (table-level schema, data dictionary, or category consolidation).
 
 ## Commands
 
 ```bash
-# Generate synthetic training data (175 categories × 30 variants = 5,250 columns)
+# Generate synthetic training data (N categories × 30 variants each)
 uv run python scripts/generate_meta_tagging_train.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
+    --data-dir <data-dir> \
     --output-dir build/datasets/sigint_train/ \
     --variants-per-category 30
 
 # Train→eval pipeline
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
-    --ground-truth config/sigint/meta_tagging_gt.json \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
     --train-dir build/datasets/sigint_train/ \
     --output build/sigint_embeddings.parquet
 
 # Train→eval with DST belief intervals
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
-    --ground-truth config/sigint/meta_tagging_gt.json \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
     --train-dir build/datasets/sigint_train/ \
     --dst \
     --output build/sigint_dst.parquet

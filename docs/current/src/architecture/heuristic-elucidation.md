@@ -57,18 +57,18 @@ Seven heuristics have been discovered through this cycle. Each row links to the 
 | # | Heuristic | Observation | Implementation | Generalizes? |
 |---|-----------|-------------|----------------|-------------|
 | 1 | [Dual embedding](./classification-training.md#dual-embedding) | Annotation columns have opaque names; the full embedding encodes a misleading name signal | Second embedding with name, table, and siblings stripped (value-only); concatenated as 384 additional dims | Yes |
-| 2 | [Category reference augmentation](./classification-training.md#category-reference-augmentation) | 175 classes with ~2 real samples each; CatBoost cannot learn class boundaries | Inject 212 taxonomy reference embeddings as anchor training points | Yes |
-| 3 | [Cosine similarity features](./classification-training.md#cosine-similarity-features) | Cosine similarity to category references is a strong zero-shot signal on semantic names | Encode 212 cosine similarities as CatBoost input features, bridging zero-shot and trained classifiers | Yes |
-| 4 | [Paired column propagation](./classification-training.md#paired-column-propagation) | Data and annotation columns are structurally paired; the annotation follows its data column | Post-prediction pass: propagate confident data-column predictions to uncertain annotation columns | No — dataset-specific |
+| 2 | [Category reference augmentation](./classification-training.md#category-reference-augmentation) | Many classes with few real samples each; CatBoost cannot learn class boundaries | Inject taxonomy reference embeddings as anchor training points | Yes |
+| 3 | [Cosine similarity features](./classification-training.md#cosine-similarity-features) | Cosine similarity to category references is a strong zero-shot signal on semantic names | Encode per-category cosine similarities as CatBoost input features, bridging zero-shot and trained classifiers | Yes |
+| 4 | [Column propagation](./classification-training.md#paired-column-propagation) | Structurally related columns share the same category; one may have a confident prediction while the other does not | Post-prediction pass: propagate confident predictions to uncertain structurally-related columns | No — dataset-specific |
 | 5 | [Value description](./context-engineering.md#feature-decomposition) | Generic names (`col0`, `field_1`) have no semantic content; cosine similarity on these is random | Substitute NL descriptions of value patterns when the column name is generic (12th SAGE feature) | Yes |
 | 6 | [Discrete feature scaling](./classification-training.md#discrete-feature-scaling) | 12 discrete features are ignored by gradient boosting when 384-dim embedding vectors dominate split gain | Scale discrete features by \\(\sqrt{384/12}\\) so magnitudes compete | Yes |
-| 7 | [Synthetic data generation](./classification-training.md#why-synthetic-training) | The evaluation data was procedurally generated from annotations; the generation process is reverse-engineerable | 70+ value generators covering all 175 categories, with 50/50 semantic/opaque name split | Partially |
+| 7 | [Synthetic data generation](./classification-training.md#why-synthetic-training) | Evaluation data generation process is known or inferable; reverse-engineering it produces unlimited training data | 70+ value generators covering all SIGDG categories, with 50/50 semantic/opaque name split | Partially |
 
 ### Generalization Status
 
 Heuristics 1-3, 5-6 are **universally applicable** — they address structural properties (class imbalance, feature scale mismatch, uninformative names) that arise in any column classification task.
 
-Heuristic 4 (paired propagation) is **dataset-specific**: it exploits a structural property of the meta-tagging dataset where each data column is followed by its annotation counterpart. Other datasets may have different column relationships that warrant different propagation heuristics — but the *methodology* of exploiting structural relationships is universal.
+Heuristic 4 (column propagation) is **dataset-specific**: it exploits a structural property where columns are related and share category assignments. Other datasets may have different column relationships that warrant different propagation heuristics — but the *methodology* of exploiting structural relationships is universal.
 
 Heuristic 7 (synthetic data generation) applies when the evaluation data's generation process is known or inferable. For production data with unknown provenance, the role of synthetic generation shifts to LLM bootstrapping — the LLM classifies a sample of real columns to produce training signal.
 
@@ -76,17 +76,16 @@ Heuristic 7 (synthetic data generation) applies when the evaluation data's gener
 
 Two benchmarks with complementary properties test whether heuristics generalize:
 
-| Property | Meta-tagging dataset | GitTables CTA benchmark |
+| Property | SIGDG evaluation set | GitTables CTA benchmark |
 |----------|---------------------|------------------------|
-| Column names | 50% semantic (`payment_card_number`), 50% opaque (`attr_1_1_2_1_3`) | 100% generic (`col0`, `col1`, empty) |
-| Taxonomy | SIGDG (175 leaves, BFO-grounded) | DBpedia (122 types) |
-| Column count | 350 (with GT labels) | 2517 (with GT labels) |
-| Source | Annotated enterprise dataset | Academic benchmark (SemTab 2021) |
+| Column names | Mixed semantic (`payment_card_number`) and opaque (`col_42`) | 100% generic (`col0`, `col1`, empty) |
+| Taxonomy | SIGDG (42 categories, 30 leaves, BFO-grounded) | BFO-grounded (122 types mapped from DBpedia) |
+| Source | Synthetic + real enterprise data | Academic benchmark (SemTab 2021) |
 
 ### Method Accuracy by Benchmark
 
-| Method | Meta-tag (data cols) | Meta-tag (ann cols) | Meta-tag (overall) | GitTables |
-|--------|---------------------|--------------------|--------------------|-----------|
+| Method | SIGDG (semantic) | SIGDG (opaque) | SIGDG (overall) | GitTables |
+|--------|-----------------|----------------|-----------------|-----------|
 | Cosine (zero-shot) | **99.4%** | 8.0% | 53.7% | 1.6% |
 | CatBoost (standalone) | 66.3% | 29.7% | 48.0% | **81.6%** |
 | DST fusion | — | — | — | 71.4% |
@@ -94,11 +93,11 @@ Two benchmarks with complementary properties test whether heuristics generalize:
 
 The cross-benchmark comparison reveals three regimes:
 
-1. **Cosine dominates** (meta-tag data columns): Semantic column names directly match category labels. Cosine similarity achieves 99.4% accuracy. CatBoost adds noise.
+1. **Cosine dominates** (semantic names): Semantic column names directly match category labels. Cosine similarity achieves 99.4% accuracy. CatBoost adds noise.
 
-2. **CatBoost dominates** (GitTables, meta-tag annotation columns): Column names are uninformative. CatBoost trained on value patterns achieves 81.6% on GitTables. Cosine adds pure conflict (K > 0.5 on 100% of GitTables columns).
+2. **CatBoost dominates** (generic/opaque names): Column names are uninformative. CatBoost trained on value patterns achieves 81.6% on GitTables. Cosine adds pure conflict (K > 0.5 on 100% of GitTables columns).
 
-3. **Methods are complementary** (meta-tag overall): The union of correct answers reaches 66.0% — 12 points above either method alone. A well-tuned DST fusion captures both.
+3. **Methods are complementary** (mixed names): The union of correct answers reaches 66.0% — 12 points above either method alone. A well-tuned DST fusion captures both.
 
 ### Confidence-Gated Fusion
 
@@ -164,7 +163,7 @@ reject -> llm.observe: "try different\napproach"
 
 ### Role of Each Component
 
-**LLM as observer**: Given a new dataset, the LLM examines column names, value distributions, table structure, and identifies phenomena. For example: "these columns appear to be paired — each semantic column is followed by an opaque annotation column with the same values."
+**LLM as observer**: Given a new dataset, the LLM examines column names, value distributions, table structure, and identifies phenomena. For example: "these columns have generic positional names — value patterns are the only discriminative signal."
 
 **LLM as bootstrapper**: The LLM classifies a sample of columns to generate training signal for CatBoost, replacing manual ground-truth labeling. This is the target design for production deployment — the LLM runs once to create training data, then the transparent CatBoost+DST pipeline handles ongoing classification without LLM dependency.
 

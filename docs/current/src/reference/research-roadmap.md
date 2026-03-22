@@ -280,7 +280,7 @@ r10 -> r04: "VE variance uses\ncatboost_to_mass"
 
 All work items should be evaluated against the same protocol for consistency:
 
-1. **Accuracy**: Classification accuracy on the 350 GT-labeled evaluation set (maintain ≥ 95%)
+1. **Accuracy**: Classification accuracy on the GT-labeled evaluation set (maintain ≥ 95%)
 2. **Calibration**: Expected Calibration Error (ECE) — do belief intervals track true accuracy?
 3. **Uncertainty separation**: Do columns flagged `needs_clarification` genuinely have higher error rates?
 4. **Conflict utility**: Does high \\(K\\) correlate with misclassification? (ROC-AUC of \\(K\\) as a misclassification predictor)

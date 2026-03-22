@@ -103,15 +103,15 @@ combine -> decide.conflict
 
 ## Restricted Focal Set
 
-For a taxonomy with \\(N\\) leaves, the power set \\(2^N\\) contains \\(2^{175}\\) elements for the full annotation taxonomy — computationally intractable. The implementation uses a restricted focal set [Denoeux, 2008] containing only semantically meaningful subsets:
+For a taxonomy with \\(N\\) leaves, the power set \\(2^N\\) is computationally intractable for any non-trivial taxonomy. The implementation uses a restricted focal set [Denoeux, 2008] containing only semantically meaningful subsets:
 
-| Element Type | Count | Description |
-|-------------|-------|-------------|
-| Singletons | ~175 | One per leaf category |
-| Internal nodes | ~40 | Descendant leaf sets for each parent in the hierarchy |
-| Confusable pairs | ~10 | Manually specified pairs (ADID/GUID, BAN/PAN, etc.) |
+| Element Type | Count (SIGDG) | Description |
+|-------------|---------------|-------------|
+| Singletons | 30 | One per leaf category |
+| Internal nodes | 12 | Descendant leaf sets for each parent in the hierarchy |
+| Confusable pairs | ~10 | Manually specified pairs from error analysis |
 | \\(\Theta\\) | 1 | Full frame (total ignorance) |
-| **Total** | **~220** | vs. \\(2^{175} \approx 10^{52}\\) |
+| **Total** | **~53** | vs. \\(2^{30} \approx 10^{9}\\) |
 
 This exploits the category hierarchy: rather than tracking arbitrary subsets, focal elements correspond to nodes in the taxonomy tree. An internal node like `IdentityInformation (0010)` maps to the focal element \\(\\{0011, 0012, 0013\\}\\) — the set of its descendant leaves.
 
@@ -146,11 +146,11 @@ frame: "Frame of Discernment (Θ)" {
 
 ### Complexity
 
-Each Dempster combination computes pairwise intersections over focal elements. With \\(F \approx 220\\) focal elements and \\(S = 4\\) sources requiring \\(S-1 = 3\\) combinations:
+Each Dempster combination computes pairwise intersections over focal elements. With \\(F\\) focal elements and \\(S = 4\\) sources requiring \\(S-1 = 3\\) combinations:
 
-\\[\text{Cost per column} = 3 \times F^2 \approx 3 \times 48{,}400 \approx 145{,}000 \text{ operations}\\]
+\\[\text{Cost per column} = 3 \times F^2\\]
 
-At ~1µs per intersection check, total DST overhead is ~0.15ms per column — negligible compared to the ~50ms sentence-transformer encode step.
+For the SIGDG taxonomy (\\(F \approx 53\\)), this is ~8,400 operations per column — negligible compared to the ~50ms sentence-transformer encode step. Even for larger taxonomies with hundreds of focal elements, DST overhead remains sub-millisecond.
 
 ## Mass Function Converters
 
@@ -233,9 +233,9 @@ Cross-benchmark experiments reveal that cosine similarity evidence is not unifor
 
 On **GitTables** (2517 columns, all generic names): CatBoost standalone achieves 81.6%, but DST fusion with cosine drops to 71.4%. Mean Dempster conflict \\(K = 0.65\\), with 100% of columns exceeding \\(K > 0.5\\). Cosine evidence is near-random and creates systematic conflict.
 
-On the **meta-tagging dataset** (350 columns, mixed names): cosine achieves 99.4% on semantically named data columns but 8.0% on opaque annotation columns. CatBoost adds value precisely where cosine fails (29.7% on annotation columns). The union ceiling of both methods reaches 66.0% — 12 points above either alone.
+On the **SIGDG evaluation set** (mixed semantic and opaque names): cosine achieves 99.4% on semantically named columns but only 8.0% on opaque-name columns. CatBoost adds value precisely where cosine fails (29.7% on opaque columns). The union ceiling of both methods reaches 66.0% — 12 points above either alone.
 
-The confidence metric cleanly separates the regimes: data columns (cosine confidence > 0.35) are cosine-reliable; annotation columns (cosine confidence < 0.05) require CatBoost. This aligns with the source independence analysis in [R-01](../reference/research-roadmap.md) — cosine and CatBoost share the embedding space, but confidence gating prevents the shared representation from producing over-reinforcement or destructive interference.
+The confidence metric cleanly separates the regimes: semantic-name columns (cosine confidence > 0.35) are cosine-reliable; opaque-name columns (cosine confidence < 0.05) require CatBoost. This aligns with the source independence analysis in [R-01](../reference/research-roadmap.md) — cosine and CatBoost share the embedding space, but confidence gating prevents the shared representation from producing over-reinforcement or destructive interference.
 
 See [Heuristic Elucidation](./heuristic-elucidation.md#cross-benchmark-validation) for the full cross-benchmark analysis that motivated this pattern.
 

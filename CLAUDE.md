@@ -33,27 +33,27 @@ uv run python scripts/evaluate_gittables.py \
     --output build/gittables_eval.parquet
 ```
 
-**Internal synthetic data** trains and evaluates on the SIGDG taxonomy (175 leaf categories):
+**Internal synthetic data** trains and evaluates on the SIGDG taxonomy (42 categories, 30 leaves):
 ```bash
 # Generate synthetic training data (70+ value generators, 50/50 semantic/opaque names)
 uv run python scripts/generate_meta_tagging_train.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
+    --data-dir <data-dir> \
     --output-dir build/datasets/sigint_train/ \
     --variants-per-category 30
 
-# Train→eval pipeline (95.4% accuracy on 350 GT-labeled columns)
+# Train→eval pipeline
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
-    --ground-truth config/sigint/meta_tagging_gt.json \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
     --train-dir build/datasets/sigint_train/ \
     --output build/sigint_embeddings.parquet
 
 # With DST belief intervals
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
-    --ground-truth config/sigint/meta_tagging_gt.json \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
     --train-dir build/datasets/sigint_train/ \
     --dst \
     --output build/sigint_dst.parquet
@@ -72,7 +72,7 @@ uv run python scripts/build_sigint_embeddings.py \
 | `src/sigint/confusable_pairs.py` | Known ambiguous category pairs (ADID/GUID, BAN/PAN) |
 | `src/sigint/category_set.py` | Taxonomy-agnostic category sets (SIGDG + GitTables) |
 | `scripts/build_sigint_embeddings.py` | Full pipeline: features → classification → CatBoost → SAGE |
-| `scripts/generate_meta_tagging_train.py` | Synthetic column generator (175 categories, 70+ value generators) |
+| `scripts/generate_meta_tagging_train.py` | Synthetic column generator (all SIGDG leaves, 70+ value generators) |
 | `config/sigint/gittables_taxonomy.py` | BFO-grounded GitTables taxonomy (122 types) |
 
 ## Development Environment
@@ -105,8 +105,8 @@ uv run pytest tests/sigint/test_belief.py tests/sigint/test_mass_functions.py -v
 
 # Run SAGE analysis with feature importance
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
     --sage-permutations 512 \
     --output build/sigint_embeddings.parquet
 

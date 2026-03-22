@@ -6,7 +6,7 @@ The goal: replace intuition about "what information helps the classifier" with m
 
 ## The Problem
 
-An embedding classifier that encodes column metadata as free-form text achieves high accuracy on well-named data columns — but most correct predictions are assisted by string-matching heuristics (name boost). Annotation columns with opaque numeric identifiers (e.g., `attr_1_1_1_8_1`) expose the model's dependence on column names: cosine similarity drops to 7.4% accuracy on these columns while maintaining 98.9% on semantically named data columns.
+An embedding classifier that encodes column metadata as free-form text achieves high accuracy on well-named columns — but most correct predictions are assisted by string-matching heuristics (name boost). Columns with opaque or generic names (e.g., `col0`, `field_42`) expose the model's dependence on column names: cosine similarity drops dramatically on these columns while maintaining high accuracy on semantically named columns.
 
 To build a classifier that generalizes beyond known column names, we need to:
 
@@ -132,16 +132,16 @@ s4 -> out: "38 columns\n355 rows"
 
 When ground truth is provided (`--ground-truth`), the pipeline produces three independent classification signals per column:
 
-| Signal | Method | Data Columns | Annotation Columns | Overall |
-|--------|--------|-------------|-------------------|---------|
-| **Cosine** | Zero-shot embedding similarity + name boost | 98.9% | 7.4% | 53.1% |
-| **CatBoost CV** | Augmented stratified k-fold CV | 79.4% | 10.9% | 45.1% |
-| **CatBoost train→eval** | Synthetic training + ordered boosting + paired propagation | 98.9% | 92.0% | 95.4% |
+| Signal | Method | Semantic Names | Opaque Names | Overall |
+|--------|--------|----------------|-------------|---------|
+| **Cosine** | Zero-shot embedding similarity + name boost | High | Low | Moderate |
+| **CatBoost CV** | Augmented stratified k-fold CV | Moderate | Low | Moderate |
+| **CatBoost train→eval** | Synthetic training + ordered boosting + column propagation | High | High | High |
 | **LLM GT** | Expert column→code mapping (target) | — | — | — |
 
-The CatBoost CV baseline uses category reference embedding augmentation to overcome the extreme low-data regime (212 classes, ~2 samples each). Each fold's training set includes all 212 category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
+The CatBoost CV baseline uses category reference embedding augmentation to overcome extreme low-data regimes. Each fold's training set includes all category reference embeddings (the same texts cosine uses as targets), giving at least 2 training points per class even in held-out folds.
 
-The train→eval pipeline replaces k-fold CV with synthetic training data and several additional techniques that collectively push accuracy from 45.1% to 95.4%. See [Classification Training](./classification-training.md) for the full methodology and accuracy progression.
+The train→eval pipeline replaces k-fold CV with synthetic training data and several additional techniques. See [Classification Training](./classification-training.md) for the full methodology and accuracy progression.
 
 When the `--dst` flag is enabled, the pipeline additionally produces Dempster-Shafer belief intervals at every hierarchy level. See [Evidence Fusion](./evidence-fusion.md) for the full DST architecture.
 
@@ -149,33 +149,33 @@ When the `--dst` flag is enabled, the pipeline additionally produces Dempster-Sh
 
 The pipeline classifies each column into one of three kinds based on naming patterns:
 
-- **data** (175): Semantically named columns (`email`, `first_name`, `amount`) — cosine excels here
-- **annotation** (175): Opaque taxonomy-encoded references (`attr_1_1_1_8_1`, `ref_1_1_1_4_2_1_1`) — both methods struggle
-- **row_id** (5): Row identifiers — excluded from GT evaluation
+- **data**: Semantically named columns (`email`, `first_name`, `amount`) — cosine excels here
+- **opaque**: Generic or positional names (`col0`, `field_42`) — CatBoost train→eval is needed
+- **row_id**: Row identifiers — excluded from GT evaluation
 
 ### Ablation Runs
 
 The pipeline supports controlled ablation experiments:
 
 ```bash
-# Three-signal comparison with LLM ground truth
+# Three-signal comparison with ground truth
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
-    --ground-truth config/sigint/meta_tagging_gt.json \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
     --output build/sigint_embeddings.parquet
 
 # Feature ablation (disable specific features)
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
     --disable-features sample_values sibling_context \
     --output build/sigint_ablation.parquet
 
 # With SAGE feature importance
 uv run python scripts/build_sigint_embeddings.py \
-    --data-dir ~/local/tmp/meta-tagging/ \
-    --taxonomy annotations --threshold 0.25 \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
     --sage-permutations 512 \
     --output build/sigint_embeddings.parquet
 
@@ -198,11 +198,11 @@ Each run produces a parquet (38 columns) and companion report JSON:
 
 ## Current Status
 
-The train→eval pipeline achieves 95.4% overall accuracy (334/350), closing the annotation column gap from 7.4% (cosine) to 92.0%. The remaining 16 errors are inherently confusable category pairs: ADID/GUID, BAN/PAN, Under13/Under18, Billing/Shipping address, and security flaw subtypes. See [Classification Training](./classification-training.md) for the full methodology.
+The train→eval pipeline closes the opaque-name accuracy gap. Remaining errors are inherently confusable category pairs — types whose values are structurally identical (e.g., two address subtypes, two hex identifier formats). See [Classification Training](./classification-training.md) for the full methodology.
 
 What remains:
 
-1. **Confusable pair resolution** — the 16 remaining errors cluster in ~6 category pairs that share identical value patterns. Resolving these requires either richer context (e.g., table-level schema hints) or category consolidation
+1. **Confusable pair resolution** — remaining errors cluster in category pairs that share identical value patterns. Resolving these requires either richer context (e.g., table-level schema hints) or category consolidation
 2. **Feature refinement** — richer pattern detectors (date formats, currency symbols, statistical distributions), deeper sample analysis (value distributions, min/max/mode)
-3. **Real-world validation** — the current eval set is a single annotated dataset; accuracy on production datasets with different naming conventions is unknown
+3. **Cross-dataset validation** — accuracy on datasets with different naming conventions and taxonomies (see [GitTables CTA benchmark](./heuristic-elucidation.md#cross-benchmark-validation))
 4. **Feedback integration** — analyst corrections feed back as training signal, with SAGE tracking whether corrections improve non-name features
