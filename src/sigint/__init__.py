@@ -2,7 +2,7 @@
 
 __version__ = "0.1.0"
 
-from sigint.classifier import Classification, Classifier
+from sigint.classifier import Classification, Classifier, HierarchicalClassification
 from sigint.config import TaggingConfig
 from sigint.ontology import CATEGORIES, SENSITIVITY_LEVELS, Category, SensitivityLevel
 
@@ -11,6 +11,7 @@ __all__ = [
     "Category",
     "Classification",
     "Classifier",
+    "HierarchicalClassification",
     "SENSITIVITY_LEVELS",
     "SensitivityLevel",
     "TaggingConfig",

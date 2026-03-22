@@ -44,7 +44,7 @@ class FeatureMaskModel:
     """Wraps a classifier as a model function for SAGE.
 
     SAGE requires ``model(X) -> predictions`` where X is (N, D).
-    Our X has shape (N, 11) where X[i, j] = index into per-feature value
+    Our X has shape (N, 12) where X[i, j] = index into per-feature value
     lookup table.  When SAGE marginalizes feature j for sample i, it
     substitutes sample k's value — asking "what if this column had a
     different name but the same values?".
@@ -91,7 +91,7 @@ class FeatureMaskModel:
         """Predict class probabilities for a batch of feature index vectors.
 
         Args:
-            X: (N, 11) array of sample indices per feature.
+            X: (N, 12) array of sample indices per feature.
 
         Returns:
             (N, n_classes) array of softmax'd cosine similarities.

@@ -7,6 +7,8 @@ from sigint.features import (
     ColumnFeatures,
     detect_patterns,
     extract_features,
+    _is_generic_name,
+    _generate_value_description,
     _numeric_ratio,
     _shannon_entropy,
 )
@@ -320,4 +322,170 @@ class TestFeatureValue:
             value_entropy=None,
         )
         assert f.feature_names == FEATURE_NAMES
-        assert len(f.feature_names) == 11
+        assert len(f.feature_names) == 12
+
+
+# ── Generic name detection ────────────────────────────────────────
+
+
+class TestGenericNameDetection:
+    def test_col_with_digit(self):
+        assert _is_generic_name("col0") is True
+        assert _is_generic_name("col1") is True
+        assert _is_generic_name("col123") is True
+
+    def test_bare_col(self):
+        assert _is_generic_name("col") is True
+
+    def test_column_with_digit(self):
+        assert _is_generic_name("column0") is True
+        assert _is_generic_name("column12") is True
+
+    def test_field_var(self):
+        assert _is_generic_name("field0") is True
+        assert _is_generic_name("var1") is True
+
+    def test_unnamed(self):
+        assert _is_generic_name("Unnamed") is True
+        assert _is_generic_name("Unnamed: 0") is True
+
+    def test_empty_string(self):
+        assert _is_generic_name("") is True
+
+    def test_underscore(self):
+        assert _is_generic_name("_") is True
+
+    def test_digit_only(self):
+        assert _is_generic_name("0") is True
+        assert _is_generic_name("42") is True
+
+    def test_real_names_not_generic(self):
+        assert _is_generic_name("email") is False
+        assert _is_generic_name("customer_name") is False
+        assert _is_generic_name("date_of_birth") is False
+        assert _is_generic_name("price") is False
+
+
+# ── Value description ─────────────────────────────────────────────
+
+
+class TestValueDescription:
+    def test_date_pattern(self):
+        desc = _generate_value_description(
+            ["2024-01-15", "2023-12-31"], None, ["date_iso_pattern"]
+        )
+        assert "date" in desc.lower()
+        assert "YYYY-MM-DD" in desc
+
+    def test_email_pattern(self):
+        desc = _generate_value_description(
+            ["a@b.com", "c@d.org"], None, ["email_pattern"]
+        )
+        assert "email" in desc.lower()
+
+    def test_url_pattern(self):
+        desc = _generate_value_description(
+            ["https://example.com"], None, ["url_pattern"]
+        )
+        assert "URL" in desc
+
+    def test_uuid_pattern(self):
+        desc = _generate_value_description(
+            ["550e8400-e29b-41d4-a716-446655440000"], None, ["uuid_pattern"]
+        )
+        assert "UUID" in desc
+
+    def test_sequential_integers(self):
+        desc = _generate_value_description(
+            ["1", "2", "3", "4", "5"], "int", []
+        )
+        assert "sequential" in desc.lower()
+
+    def test_decimal_numbers(self):
+        desc = _generate_value_description(
+            ["1.5", "2.7", "3.14"], None, []
+        )
+        assert "decimal" in desc.lower()
+
+    def test_long_text(self):
+        long_val = "x" * 120
+        desc = _generate_value_description([long_val], None, [])
+        assert "long text" in desc.lower()
+
+    def test_categorical_labels(self):
+        desc = _generate_value_description(
+            ["A", "B", "A", "B", "A", "B"], None, []
+        )
+        assert "categorical" in desc.lower()
+
+    def test_empty_values(self):
+        assert _generate_value_description([], None, []) == ""
+
+    def test_short_text(self):
+        desc = _generate_value_description(
+            ["hello", "world", "foo", "bar", "baz"], None, []
+        )
+        assert "text" in desc.lower()
+
+
+# ── Generic name substitution in embedding text ──────────────────
+
+
+class TestGenericNameSubstitution:
+    def test_generic_name_replaced_by_value_description(self):
+        f = ColumnFeatures(
+            column_name_humanized="col0",
+            column_type=None,
+            sample_values_text="2024-01-15, 2023-12-31",
+            cardinality=2,
+            null_ratio=None,
+            value_entropy=0.0,
+            value_description="column of date values in YYYY-MM-DD format",
+            is_generic_name=True,
+        )
+        text = f.to_embedding_text()
+        assert "col0" not in text
+        assert "date values" in text
+
+    def test_real_name_gets_value_description_appended(self):
+        f = ColumnFeatures(
+            column_name_humanized="price",
+            column_type="float",
+            sample_values_text="19.99, 29.99",
+            cardinality=2,
+            null_ratio=None,
+            value_entropy=0.0,
+            value_description="column of decimal numeric measurements",
+            is_generic_name=False,
+        )
+        text = f.to_embedding_text()
+        assert "price" in text
+        assert "decimal numeric" in text
+
+    def test_generic_name_ablation_removes_description(self):
+        f = ColumnFeatures(
+            column_name_humanized="col0",
+            column_type=None,
+            sample_values_text="a@b.com",
+            cardinality=1,
+            null_ratio=None,
+            value_entropy=0.0,
+            value_description="column of email addresses",
+            is_generic_name=True,
+        )
+        mask = {n: True for n in FEATURE_NAMES}
+        mask["column_name"] = False
+        text = f.to_embedding_text(mask)
+        assert "email" not in text
+        assert "col0" not in text
+
+    def test_extract_features_sets_generic_flag(self):
+        s = _sample("col0", "INT", ["1", "2", "3", "4", "5"])
+        f = extract_features(s)
+        assert f.is_generic_name is True
+        assert f.value_description != ""
+
+    def test_extract_features_real_name_not_generic(self):
+        s = _sample("customer_email", "STRING", ["a@b.com", "c@d.org"])
+        f = extract_features(s)
+        assert f.is_generic_name is False

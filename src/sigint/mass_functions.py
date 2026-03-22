@@ -161,6 +161,27 @@ def catboost_to_mass(
     return BeliefAssignment(masses=masses)
 
 
+# Pattern → SIGDG category code mapping
+SIGDG_PATTERN_MAP: dict[str, str] = {
+    "email_pattern": "0076",       # EmailAddress
+    "phone_pattern": "0074",       # PhoneNumber
+    "ssn_pattern": "0085",         # TaxIdentifier
+    "ipv4_pattern": "0041",        # ConfigurationData
+    "uuid_pattern": "0013",        # DeviceIdentifier
+    "date_iso_pattern": "0077",    # AgeInformation
+    "url_pattern": "0041",         # ConfigurationData
+    "credit_card_pattern": "0070", # PaymentCardData
+}
+
+
+def get_pattern_category_map(taxonomy: str) -> dict[str, str]:
+    """Return the pattern-to-category mapping for a given taxonomy."""
+    if taxonomy == "gittables":
+        from config.sigint.gittables_taxonomy import GITTABLES_PATTERN_MAP
+        return GITTABLES_PATTERN_MAP
+    return SIGDG_PATTERN_MAP
+
+
 def pattern_to_mass(
     pattern_signals: list[str],
     frame: FrameOfDiscernment,
@@ -177,7 +198,7 @@ def pattern_to_mass(
         pattern_category_map: Optional override for pattern→code mapping.
     """
     if pattern_category_map is None:
-        pattern_category_map = _DEFAULT_PATTERN_MAP
+        pattern_category_map = SIGDG_PATTERN_MAP
 
     if not pattern_signals:
         return frame.vacuous()
@@ -200,19 +221,6 @@ def pattern_to_mass(
 
     masses[frame.theta] = 0.1
     return BeliefAssignment(masses=masses)
-
-
-# Default pattern → SIGDG category code mapping
-_DEFAULT_PATTERN_MAP: dict[str, str] = {
-    "email_pattern": "0076",       # EmailAddress
-    "phone_pattern": "0074",       # PhoneNumber
-    "ssn_pattern": "0085",         # TaxIdentifier
-    "ipv4_pattern": "0041",        # ConfigurationData
-    "uuid_pattern": "0013",        # DeviceIdentifier
-    "date_iso_pattern": "0077",    # AgeInformation
-    "url_pattern": "0041",         # ConfigurationData
-    "credit_card_pattern": "0070", # PaymentCardData
-}
 
 
 def name_match_to_mass(

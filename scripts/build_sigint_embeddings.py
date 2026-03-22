@@ -7,8 +7,8 @@ Produces an embedding-atlas-compatible parquet with columns:
   - column_kind (data / annotation / row_id)
   - gt_code, correct (LLM ground truth evaluation)
   - ml_tag_code, ml_tag_label, ml_confidence, ml_correct (CatBoost CV)
-  - feat_* columns (11 transparency features, always present)
-  - sage_* columns (11 SAGE importance values, always present)
+  - feat_* columns (12 transparency features, always present)
+  - sage_* columns (12 SAGE importance values, always present)
 
 Three-signal comparison when --ground-truth is provided:
   1. Cosine (zero-shot embedding similarity)
@@ -54,7 +54,7 @@ from pathlib import Path
 
 import re
 
-from sigint.csv_loader import build_feature_mask, group_by_table, load_csv_columns
+from sigint.csv_loader import build_feature_mask, group_by_table, load_csv_columns, load_parquet_columns
 from sigint.features import FEATURE_NAMES
 
 # Column-name prefixes that mark annotation/reference columns.
@@ -254,13 +254,16 @@ _PATTERN_NAMES = [
 
 
 def _encode_discrete_features(features_obj) -> list[float]:
-    """Encode 11 discrete ColumnFeatures into a numeric vector.
+    """Encode discrete ColumnFeatures into a numeric vector.
 
-    Returns a vector of 11 floats:
+    Returns a vector of 11 floats (numeric features only):
       0: cardinality (int, 0 if None)
       1: null_ratio (float, 0 if None)
       2: value_entropy (float, 0 if None)
       3-10: pattern_signals (8 binary flags, one per pattern type)
+
+    Note: value_description (12th SAGE feature) is a text feature
+    incorporated via embedding text, not the discrete feature vector.
     """
     vec: list[float] = []
     vec.append(float(features_obj.cardinality or 0))
@@ -330,6 +333,7 @@ def _run_catboost_train_eval(
         "numeric_ratio": True,
         "sibling_context": False,
         "source_table": False,
+        "value_description": True,
     }
 
     print("  Preparing synthetic training data...")
@@ -695,13 +699,13 @@ def _write_parquet(results: list[dict], output: Path) -> None:
         ("ml_tag_label", pa.string()),
         ("ml_confidence", pa.float64()),
         ("ml_correct", pa.string()),
-        ("dst_belief", pa.float64()),
-        ("dst_plausibility", pa.float64()),
-        ("dst_uncertainty_gap", pa.float64()),
-        ("dst_conflict", pa.float64()),
-        ("dst_needs_clarification", pa.bool_()),
-        ("dst_evidence_sources", pa.string()),
-        ("dst_belief_path", pa.string()),
+        ("belief", pa.float64()),
+        ("plausibility", pa.float64()),
+        ("uncertainty_gap", pa.float64()),
+        ("conflict", pa.float64()),
+        ("needs_clarification", pa.bool_()),
+        ("evidence_sources", pa.string()),
+        ("belief_path", pa.string()),
     ]
 
     # feat_* columns (always string)
@@ -765,19 +769,18 @@ def _write_report_json(
         "accuracy_cosine": accuracy_metrics,
         "accuracy_ml": ml_accuracy_metrics,
         "sage": sage_dict,
-        "dst_enabled": getattr(args, "dst", False),
     }
 
-    # DST summary when enabled
-    if getattr(args, "dst", False) and results:
-        dst_gaps = [r["dst_uncertainty_gap"] for r in results if r.get("dst_belief", 0) > 0]
-        dst_conflicts = [r["dst_conflict"] for r in results if r.get("dst_belief", 0) > 0]
-        clarification_count = sum(1 for r in results if r.get("dst_needs_clarification", False))
-        report["dst_summary"] = {
-            "avg_uncertainty_gap": round(sum(dst_gaps) / len(dst_gaps), 4) if dst_gaps else 0.0,
-            "avg_conflict": round(sum(dst_conflicts) / len(dst_conflicts), 4) if dst_conflicts else 0.0,
+    # Uncertainty summary
+    if results:
+        gaps = [r["uncertainty_gap"] for r in results if r.get("belief", 0) > 0]
+        conflicts = [r["conflict"] for r in results if r.get("belief", 0) > 0]
+        clarification_count = sum(1 for r in results if r.get("needs_clarification", False))
+        report["uncertainty_summary"] = {
+            "avg_uncertainty_gap": round(sum(gaps) / len(gaps), 4) if gaps else 0.0,
+            "avg_conflict": round(sum(conflicts) / len(conflicts), 4) if conflicts else 0.0,
             "clarification_count": clarification_count,
-            "dst_columns_evaluated": len(dst_gaps),
+            "columns_evaluated": len(gaps),
         }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -855,11 +858,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Disable discrete feature concatenation (ablation: embedding-only CatBoost).",
     )
     p.add_argument(
-        "--dst",
-        action="store_true",
-        help="Enable Dempster-Shafer belief functions for hierarchical uncertainty.",
+        "--input-format",
+        choices=["csv", "parquet"],
+        default="csv",
+        help="Input data format (default: csv)",
     )
-
+    p.add_argument(
+        "--taxonomy-file",
+        default=None,
+        help="Path to custom taxonomy Python module (must define a function "
+        "returning HierarchicalCategorySet)",
+    )
     args = p.parse_args(argv)
     data_dir = Path(args.data_dir).expanduser()
     output = Path(args.output)
@@ -870,34 +879,31 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Build category set ───────────────────────────────────────────
     category_set = None
-    hierarchical_cs = None
-    frame = None
-    if args.taxonomy == "annotations":
+    if args.taxonomy_file:
+        # Load custom taxonomy from Python module
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("custom_taxonomy", args.taxonomy_file)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        # Look for a function that returns a HierarchicalCategorySet
+        for attr_name in dir(mod):
+            attr = getattr(mod, attr_name)
+            if callable(attr) and attr_name.endswith("_category_set"):
+                category_set = attr()
+                break
+        if category_set is None:
+            print(f"Error: no *_category_set() function found in {args.taxonomy_file}", file=sys.stderr)
+            return 1
+        print(f"Loaded custom taxonomy: {len(category_set.categories)} leaf categories")
+    elif args.taxonomy == "annotations":
         from sigint.category_set import annotation_category_set
 
         ann_path = data_dir / "annotations.csv"
         if not ann_path.exists():
             print(f"Error: {ann_path} not found", file=sys.stderr)
             return 1
-        category_set = annotation_category_set(ann_path, hierarchical=args.dst)
-        if args.dst:
-            hierarchical_cs = category_set
+        category_set = annotation_category_set(ann_path, hierarchical=True)
         print(f"Loaded annotation taxonomy: {len(category_set.categories)} leaf categories")
-
-    # ── DST setup ────────────────────────────────────────────────────
-    if args.dst:
-        from sigint.belief import FrameOfDiscernment
-        from sigint.category_set import sigdg_category_set
-        from sigint.confusable_pairs import get_confusable_pairs
-
-        if hierarchical_cs is None:
-            hierarchical_cs = sigdg_category_set(hierarchical=True)
-        pairs = get_confusable_pairs(args.taxonomy)
-        frame = FrameOfDiscernment(hierarchical_cs, confusable_pairs=pairs)
-        print(f"DST enabled: {len(frame.singletons)} singletons, "
-              f"{len(frame.internal_nodes)} internal nodes, "
-              f"{len(frame.confusables)} confusable pairs, "
-              f"{len(frame.all_focal_elements)} total focal elements")
 
     # ── Feature mask ─────────────────────────────────────────────────
     feature_mask = build_feature_mask(args.disable_features)
@@ -909,8 +915,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Disabled: {disabled}")
 
     # ── Stage 1: Load + Feature Extraction ───────────────────────────
-    print(f"Loading columns from {data_dir}...")
-    records = load_csv_columns(data_dir)
+    print(f"Loading columns from {data_dir} ({args.input_format} format)...")
+    if args.input_format == "parquet":
+        # For parquet, data_dir should point to the parquet file directly,
+        # or we look for *.parquet in the directory
+        data_path = Path(data_dir)
+        if data_path.is_file() and data_path.suffix == ".parquet":
+            records = load_parquet_columns(data_path)
+        else:
+            pq_files = sorted(data_path.glob("*_columns.parquet"))
+            if not pq_files:
+                pq_files = sorted(data_path.glob("*.parquet"))
+            if not pq_files:
+                print(f"Error: no parquet files found in {data_dir}", file=sys.stderr)
+                return 1
+            records = load_parquet_columns(pq_files[0])
+            print(f"  Using {pq_files[0].name}")
+    else:
+        records = load_csv_columns(data_dir)
     print(f"Found {len(records)} columns")
 
     from sigint.features import ColumnFeatures, extract_features
@@ -967,6 +989,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         sample_str = ", ".join(v[:80] for v in rec["sample_values"][:5])
 
+        # Extract belief interval from HierarchicalClassification
+        bel = 0.0
+        pl = 0.0
+        if classification is not None:
+            bel = classification.belief_at(classification.category.code)
+            pl = classification.plausibility_at(classification.category.code)
+
         row: dict = {
             "embedding_text": text,
             "source_table": rec["source_table"],
@@ -984,7 +1013,51 @@ def main(argv: list[str] | None = None) -> int:
             "ml_tag_label": "",
             "ml_confidence": 0.0,
             "ml_correct": "no_gt",
+            "belief": round(bel, 4),
+            "plausibility": round(pl, 4),
+            "uncertainty_gap": round(pl - bel, 4),
+            "conflict": classification.conflict if classification else 0.0,
+            "needs_clarification": classification.needs_clarification if classification else False,
         }
+
+        # Source evidence summary as JSON
+        if classification is not None:
+            src_summary = {}
+            for src_name, ba in classification.source_masses.items():
+                best_mass = 0.0
+                for fe, m in ba.masses.items():
+                    if len(fe.codes) == 1 and m > best_mass:
+                        best_mass = m
+                src_summary[src_name] = round(best_mass, 3)
+            row["evidence_sources"] = json.dumps(src_summary)
+        else:
+            row["evidence_sources"] = ""
+
+        # Belief path from leaf to root
+        hcs = clf._get_hierarchical_cs()
+        if classification is not None and hasattr(hcs, "ancestors"):
+            path = []
+            code = classification.category.code
+            cat_obj = hcs.all_by_code.get(code)
+            path.append({
+                "code": code,
+                "label": cat_obj.label if cat_obj else code,
+                "bel": round(bel, 3),
+                "pl": round(pl, 3),
+            })
+            for anc_code in hcs.ancestors(code):
+                anc_bel = classification.belief_at(anc_code)
+                anc_pl = classification.plausibility_at(anc_code)
+                anc_cat = hcs.all_by_code.get(anc_code)
+                path.append({
+                    "code": anc_code,
+                    "label": anc_cat.label if anc_cat else anc_code,
+                    "bel": round(anc_bel, 3),
+                    "pl": round(anc_pl, 3),
+                })
+            row["belief_path"] = json.dumps(path)
+        else:
+            row["belief_path"] = ""
 
         # feat_* columns — always present
         for fname in FEATURE_NAMES:
@@ -994,73 +1067,16 @@ def main(argv: list[str] | None = None) -> int:
         for fname in FEATURE_NAMES:
             row[f"sage_{fname}"] = 0.0
 
-        # DST columns — defaults when --dst is off
-        row["dst_belief"] = 0.0
-        row["dst_plausibility"] = 0.0
-        row["dst_uncertainty_gap"] = 0.0
-        row["dst_conflict"] = 0.0
-        row["dst_needs_clarification"] = False
-        row["dst_evidence_sources"] = ""
-        row["dst_belief_path"] = ""
-
-        # Run DST if enabled
-        if args.dst and frame is not None and hierarchical_cs is not None:
-            dst_result = clf.classify_dst(
-                sample, frame, hierarchical_cs,
-                features=features, feature_mask=feature_mask,
-            )
-            if dst_result is not None:
-                bel = dst_result.belief_at(dst_result.category.code)
-                pl = dst_result.plausibility_at(dst_result.category.code)
-                row["dst_belief"] = round(bel, 4)
-                row["dst_plausibility"] = round(pl, 4)
-                row["dst_uncertainty_gap"] = round(pl - bel, 4)
-                row["dst_conflict"] = dst_result.conflict
-                row["dst_needs_clarification"] = dst_result.needs_clarification
-
-                # Source evidence summary as JSON
-                src_summary = {}
-                for src_name, ba in dst_result.source_masses.items():
-                    best_mass = 0.0
-                    for fe, m in ba.masses.items():
-                        if len(fe.codes) == 1 and m > best_mass:
-                            best_mass = m
-                    src_summary[src_name] = round(best_mass, 3)
-                row["dst_evidence_sources"] = json.dumps(src_summary)
-
-                # Belief path from leaf to root
-                if hasattr(hierarchical_cs, "ancestors"):
-                    path = []
-                    code = dst_result.category.code
-                    cat_obj = hierarchical_cs.all_by_code.get(code)
-                    path.append({
-                        "code": code,
-                        "label": cat_obj.label if cat_obj else code,
-                        "bel": round(bel, 3),
-                        "pl": round(pl, 3),
-                    })
-                    for anc_code in hierarchical_cs.ancestors(code):
-                        anc_bel = dst_result.belief_at(anc_code)
-                        anc_pl = dst_result.plausibility_at(anc_code)
-                        anc_cat = hierarchical_cs.all_by_code.get(anc_code)
-                        path.append({
-                            "code": anc_code,
-                            "label": anc_cat.label if anc_cat else anc_code,
-                            "bel": round(anc_bel, 3),
-                            "pl": round(anc_pl, 3),
-                        })
-                    row["dst_belief_path"] = json.dumps(path)
-
         results.append(row)
 
         label = row["tag_label"]
         conf = row["confidence"]
         abbrev = row["tag_abbrev"]
         tag = f"{abbrev} ({label})" if abbrev else label
-        dst_info = ""
-        if args.dst and row["dst_belief"] > 0:
-            dst_info = f" [Bel={row['dst_belief']:.2f}, Pl={row['dst_plausibility']:.2f}]"
-        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({conf:.2f}){dst_info}")
+        bel_info = ""
+        if row["belief"] > 0:
+            bel_info = f" [Bel={row['belief']:.2f}, Pl={row['plausibility']:.2f}]"
+        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({conf:.2f}){bel_info}")
 
     # ── Stage 3: Accuracy vs LLM ground truth (when provided) ────────
     accuracy_metrics: dict | None = None

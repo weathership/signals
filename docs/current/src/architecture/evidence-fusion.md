@@ -217,6 +217,28 @@ Replaces the previous additive boost heuristic with a proper evidence source. Th
 
 This formalization means name matching no longer inflates confidence scores. Instead, its evidence is combined with other sources via Dempster's rule, where agreement reinforces and disagreement raises the conflict diagnostic.
 
+## Confidence-Gated Fusion
+
+Cross-benchmark experiments reveal that cosine similarity evidence is not uniformly helpful — it ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy). Rather than using a fixed cosine discount, confidence-gated fusion adapts the discount based on the cosine evidence's own confidence.
+
+### Three Regimes
+
+| Cosine Confidence | Regime | Fusion Strategy |
+|-------------------|--------|-----------------|
+| > 0.35 | High — cosine is reliable | Discount CatBoost; cosine evidence is near-certain |
+| 0.05 - 0.35 | Medium — both sources contribute | Standard Dempster combination |
+| < 0.05 | Low — cosine has no signal | Discount cosine; let CatBoost dominate |
+
+### Empirical Evidence
+
+On **GitTables** (2517 columns, all generic names): CatBoost standalone achieves 81.6%, but DST fusion with cosine drops to 71.4%. Mean Dempster conflict \\(K = 0.65\\), with 100% of columns exceeding \\(K > 0.5\\). Cosine evidence is near-random and creates systematic conflict.
+
+On the **meta-tagging dataset** (350 columns, mixed names): cosine achieves 99.4% on semantically named data columns but 8.0% on opaque annotation columns. CatBoost adds value precisely where cosine fails (29.7% on annotation columns). The union ceiling of both methods reaches 66.0% — 12 points above either alone.
+
+The confidence metric cleanly separates the regimes: data columns (cosine confidence > 0.35) are cosine-reliable; annotation columns (cosine confidence < 0.05) require CatBoost. This aligns with the source independence analysis in [R-01](../reference/research-roadmap.md) — cosine and CatBoost share the embedding space, but confidence gating prevents the shared representation from producing over-reinforcement or destructive interference.
+
+See [Heuristic Elucidation](./heuristic-elucidation.md#cross-benchmark-validation) for the full cross-benchmark analysis that motivated this pattern.
+
 ## Hierarchical Classification Output
 
 `classify_dst()` returns a `HierarchicalClassification` that provides belief intervals at every level of the taxonomy:

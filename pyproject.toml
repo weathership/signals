@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "signals"
 version = "0.1.0"
-description = "Add your description here"
+description = "Uncertainty-aware column classification for metadata governance"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

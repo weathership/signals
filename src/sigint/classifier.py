@@ -39,7 +39,7 @@ class Classifier(Protocol):
         self,
         sample: ColumnSample,
         siblings: list[ColumnSample] | None = None,
-    ) -> Classification | None: ...
+    ) -> Classification | HierarchicalClassification | None: ...
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from sigint.category_set import is_data_column
+from sigint.category_set import CategorySet, ReferenceCategory, is_data_column
+from sigint.classifier import HierarchicalClassification
 from sigint.embedding_classifier import (
     EmbeddingClassifier,
     EmbeddingClassifierConfig,
@@ -140,25 +141,24 @@ class TestHelpers:
         assert "SSN" in text
 
 
-# ── Zero-shot cosine classification ─────────────────────────────────
+# ── DST classification ───────────────────────────────────────────────
 
 
-class TestCosineClassification:
+class TestClassification:
     def _make_classifier_with_mock_model(self, dim=384):
-        """Create an EmbeddingClassifier with a mocked SentenceTransformer."""
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.3)
+        """Create an EmbeddingClassifier with a mocked SentenceTransformer.
+
+        Uses sigdg taxonomy (hierarchical=True by default).
+        """
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg)
 
         mock_model = MagicMock()
 
         # Pre-compute: category embeddings — one-hot style for predictability
-        leaves = _get_leaf_categories()
-        n_cats = len(leaves)
-        cat_embs = np.eye(n_cats, dim)  # each category gets a distinct direction
+        n_cats = len(clf._category_set.categories)
+        cat_embs = np.eye(n_cats, dim)
 
-        # When encode is called with category texts (list of n_cats strings),
-        # return cat_embs.  When called with a single-item list, return a
-        # vector that points toward the category we want to match.
         def mock_encode(texts, batch_size=32):
             if len(texts) == n_cats:
                 return cat_embs
@@ -169,48 +169,57 @@ class TestCosineClassification:
 
         mock_model.encode = mock_encode
         clf._model = mock_model
-        return clf, leaves
+        return clf
 
-    def test_returns_classification(self):
-        clf, leaves = self._make_classifier_with_mock_model()
+    def test_returns_hierarchical_classification(self):
+        clf = self._make_classifier_with_mock_model()
         sample = _make_sample("ssn", "STRING", ["123-45-6789"])
         result = clf.classify(sample)
 
         assert result is not None
-        assert result.category.code == leaves[0].code
-        assert result.confidence > 0.3
+        assert isinstance(result, HierarchicalClassification)
+        assert result.confidence > 0
 
-    def test_low_similarity_returns_none(self):
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.99)
-        clf = EmbeddingClassifier(cfg)
-
-        mock_model = MagicMock()
-        leaves = _get_leaf_categories()
-        n_cats = len(leaves)
-        dim = 384
-
-        # Category embeddings: identity matrix
-        cat_embs = np.eye(n_cats, dim)
-
-        def mock_encode(texts, batch_size=32):
-            if len(texts) == n_cats:
-                return cat_embs
-            # Return near-zero vector — low similarity to everything
-            vec = np.random.randn(1, dim) * 0.01
-            return vec
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
+    def test_result_has_dst_evidence(self):
+        clf = self._make_classifier_with_mock_model()
         result = clf.classify(_make_sample())
-        assert result is None
+        assert result is not None
+        assert "dst(" in result.evidence
+        assert "Bel=" in result.evidence
+        assert "Pl=" in result.evidence
+
+    def test_result_has_belief_assignment(self):
+        clf = self._make_classifier_with_mock_model()
+        result = clf.classify(_make_sample())
+        assert result is not None
+        assert result.belief_assignment is not None
+
+    def test_result_has_source_masses(self):
+        clf = self._make_classifier_with_mock_model()
+        result = clf.classify(_make_sample())
+        assert result is not None
+        assert "cosine" in result.source_masses
+        assert "name_match" in result.source_masses
+
+    def test_boost_always_zero(self):
+        """Name match is now a mass function, not a boost — boost field is 0."""
+        clf = self._make_classifier_with_mock_model()
+        result = clf.classify(_make_sample("date_of_birth", "STRING", ["1990-01-15"]))
+        assert result is not None
+        assert result.boost == 0.0
+
+    def test_name_match_in_evidence_sources(self):
+        """Name match evidence appears in source_masses."""
+        clf = self._make_classifier_with_mock_model()
+        result = clf.classify(_make_sample("email", "STRING", ["a@b.com"]))
+        assert result is not None
+        assert "name_match" in result.source_masses
 
     def test_category_embeddings_cached(self):
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.3)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg)
 
-        leaves = _get_leaf_categories()
-        n_cats = len(leaves)
+        n_cats = len(clf._category_set.categories)
         dim = 384
         cat_embs = np.eye(n_cats, dim)
 
@@ -239,101 +248,15 @@ class TestCosineClassification:
         # Only one extra call for the second sample, not categories again
         assert call_count_2 == call_count_1 + 1
 
-    def test_result_has_evidence(self):
-        clf, _ = self._make_classifier_with_mock_model()
-        result = clf.classify(_make_sample())
-        assert result is not None
-        assert "cosine=" in result.evidence
-
     def test_result_has_sensitivity(self):
-        clf, leaves = self._make_classifier_with_mock_model()
+        clf = self._make_classifier_with_mock_model()
         result = clf.classify(_make_sample())
         assert result is not None
         # The matched category should have a sensitivity code if defined
-        code = leaves[0].code
+        code = result.category.code
         from sigint.ontology import DEFAULT_SENSITIVITY
         expected = DEFAULT_SENSITIVITY.get(code)
         assert result.sensitivity_code == expected
-
-
-# ── CatBoost dispatch ────────────────────────────────────────────────
-
-
-class TestCatBoostDispatch:
-    def test_uses_catboost_when_model_exists(self, tmp_path):
-        """When model_path points to an existing file, CatBoost path is used."""
-        model_file = tmp_path / "model.cbm"
-        model_file.write_text("{}")  # placeholder
-        classes_file = tmp_path / "model.classes.json"
-        classes_file.write_text('["0085", "0076"]')
-
-        cfg = EmbeddingClassifierConfig(
-            model_path=str(model_file),
-            confidence_threshold=0.3,
-        )
-        clf = EmbeddingClassifier(cfg)
-
-        # Mock the sentence-transformers model
-        mock_st = MagicMock()
-        mock_st.encode.return_value = np.ones((1, 384))
-        clf._model = mock_st
-
-        # Mock CatBoostClassifier
-        mock_cb = MagicMock()
-        mock_cb.predict_proba.return_value = np.array([[0.85, 0.15]])
-        clf._cb_model = mock_cb
-        clf._cb_classes = ["0085", "0076"]
-
-        result = clf.classify(_make_sample("tax_id"))
-        assert result is not None
-        assert result.category.code == "0085"
-        assert "catboost" in result.evidence
-
-    def test_falls_back_to_cosine_without_model(self):
-        """Without model_path, falls back to cosine."""
-        cfg = EmbeddingClassifierConfig(model_path=None)
-        clf = EmbeddingClassifier(cfg)
-
-        # Mock ST model for cosine path
-        mock_model = MagicMock()
-        leaves = _get_leaf_categories()
-        n = len(leaves)
-        dim = 384
-        cat_embs = np.eye(n, dim)
-
-        def mock_encode(texts, batch_size=32):
-            if len(texts) == n:
-                return cat_embs
-            vec = np.zeros((1, dim))
-            vec[0, 0] = 1.0
-            return vec
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
-        result = clf.classify(_make_sample())
-        assert result is not None
-        assert "cosine=" in result.evidence
-
-    def test_cb_low_confidence_returns_none(self):
-        cfg = EmbeddingClassifierConfig(
-            model_path="/fake/path",
-            confidence_threshold=0.9,
-        )
-        clf = EmbeddingClassifier(cfg)
-
-        mock_st = MagicMock()
-        mock_st.encode.return_value = np.ones((1, 384))
-        clf._model = mock_st
-
-        mock_cb = MagicMock()
-        # All classes get low probability
-        mock_cb.predict_proba.return_value = np.array([[0.3, 0.3, 0.4]])
-        clf._cb_model = mock_cb
-        clf._cb_classes = ["0085", "0076", "0073"]
-
-        result = clf.classify(_make_sample())
-        assert result is None
 
 
 # ── CategorySet tests ───────────────────────────────────────────────
@@ -407,7 +330,6 @@ class TestCategorySet:
 
 class TestGroundTruth:
     def _make_category_set(self):
-        from sigint.category_set import CategorySet, ReferenceCategory
         return CategorySet(
             name="test",
             categories=[
@@ -467,13 +389,11 @@ class TestGroundTruth:
         assert truth["gender"] == "1.1.1.2.2"
 
 
-# ── CategorySet + EmbeddingClassifier integration ───────────────────
+# ── Custom CategorySet + DST classification ─────────────────────────
 
 
 class TestCategorySetClassifier:
     def test_classifier_with_custom_category_set(self):
-        from sigint.category_set import CategorySet, ReferenceCategory
-
         cats = [
             ReferenceCategory(
                 code="A", label="Email",
@@ -487,7 +407,7 @@ class TestCategorySetClassifier:
             ),
         ]
         cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg, category_set=cs)
 
         # Mock model
@@ -511,14 +431,13 @@ class TestCategorySetClassifier:
 
         result = clf.classify(_make_sample("user_email", "STRING", ["a@b.com"]))
         assert result is not None
+        assert isinstance(result, HierarchicalClassification)
         assert result.category.code == "A"
         assert result.category.label == "Email"
         assert result.sensitivity_code is None  # non-SIGDG taxonomy
 
     def test_cosine_only_path_when_name_does_not_match(self):
         """When column name doesn't match any category label, cosine alone decides."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
         cats = [
             ReferenceCategory(
                 code="A", label="Payment Card Number",
@@ -532,7 +451,7 @@ class TestCategorySetClassifier:
             ),
         ]
         cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg, category_set=cs)
 
         mock_model = MagicMock()
@@ -553,23 +472,19 @@ class TestCategorySetClassifier:
         mock_model.encode = mock_encode
         clf._model = mock_model
 
-        # Column name "cc_num" doesn't match "payment card number" — pure cosine
+        # Column name "cc_num" doesn't match "payment card number" — cosine evidence strongest
         result = clf.classify(_make_sample("cc_num", "STRING", ["4111111111111111"]))
         assert result is not None
         assert result.category.code == "A"  # PAN wins on cosine
-        # Evidence should show cosine-only (no boost)
-        assert "cosine=" in result.evidence
-        assert "name_boost" not in result.evidence
+        assert "dst(" in result.evidence
 
 
 # ── Generality / edge case tests ─────────────────────────────────
 
 
 class TestGenerality:
-    def test_name_boost_exact_match_evidence(self):
-        """When name matches exactly, evidence reports both cosine and boost."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
+    def test_name_match_evidence_in_sources(self):
+        """When name matches exactly, name_match appears in source_masses."""
         cats = [
             ReferenceCategory(
                 code="A", label="Date Of Birth",
@@ -578,7 +493,7 @@ class TestGenerality:
             ),
         ]
         cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg, category_set=cs)
 
         mock_model = MagicMock()
@@ -600,108 +515,9 @@ class TestGenerality:
         # Column name "date_of_birth" → humanized "date of birth" matches exactly
         result = clf.classify(_make_sample("date_of_birth", "STRING", ["1990-01-15"]))
         assert result is not None
-        assert "name_boost=0.25" in result.evidence
-        assert "cosine=" in result.evidence
-
-    def test_name_boost_abbrev_match(self):
-        """Abbreviation match gives boost."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
-        cats = [
-            ReferenceCategory(
-                code="A", label="Social Security Number",
-                embedding_text="social security number SSN",
-                abbrev="SSN", taxonomy="test",
-            ),
-        ]
-        cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
-        clf = EmbeddingClassifier(cfg, category_set=cs)
-
-        mock_model = MagicMock()
-        dim = 384
-
-        def mock_encode(texts, batch_size=32):
-            embs = np.zeros((len(texts), dim))
-            embs[0, 0] = 1.0
-            return embs
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
-        result = clf.classify(_make_sample("ssn", "STRING", ["123-45-6789"]))
-        assert result is not None
-        assert "name_boost=0.15" in result.evidence
-
-    def test_word_overlap_requires_all_words(self):
-        """Word-overlap boost only fires when ALL category words appear in col name."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
-        cats = [
-            ReferenceCategory(
-                code="A", label="First Name",
-                embedding_text="first name given name",
-                abbrev="FNAME", taxonomy="test",
-            ),
-        ]
-        cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
-        clf = EmbeddingClassifier(cfg, category_set=cs)
-
-        mock_model = MagicMock()
-        dim = 384
-
-        def mock_encode(texts, batch_size=32):
-            embs = np.zeros((len(texts), dim))
-            embs[0, 0] = 1.0
-            return embs
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
-        # "username" → humanized "username" — contains "name" but not "first"
-        # Old substring check would false-match; word-boundary check should not
-        result = clf.classify(_make_sample("username", "STRING", ["jdoe"]))
-        assert result is not None
-        assert "name_boost" not in result.evidence  # no boost
-
-        # "customer_first_name" → humanized "customer first name" — all cat words present
-        # but not an exact match (extra "customer" word)
-        result2 = clf.classify(_make_sample("customer_first_name", "STRING", ["John"]))
-        assert result2 is not None
-        assert "name_boost=0.10" in result2.evidence
-
-    def test_single_word_category_no_overlap_boost(self):
-        """Single-word categories don't get word-overlap boost (too ambiguous)."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
-        cats = [
-            ReferenceCategory(
-                code="A", label="Age",
-                embedding_text="age years old",
-                abbrev="AGE", taxonomy="test",
-            ),
-        ]
-        cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
-        clf = EmbeddingClassifier(cfg, category_set=cs)
-
-        mock_model = MagicMock()
-        dim = 384
-
-        def mock_encode(texts, batch_size=32):
-            embs = np.zeros((len(texts), dim))
-            embs[0, 0] = 1.0
-            return embs
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
-        # "storage_age_days" contains the word "age" but shouldn't get overlap boost
-        result = clf.classify(_make_sample("storage_age_days", "STRING", ["30"]))
-        assert result is not None
-        # Single-word cat "age" can only get exact or abbrev match, not overlap
-        assert "name_boost" not in result.evidence
+        assert "name_match" in result.source_masses
+        assert "dst(" in result.evidence
+        assert result.boost == 0.0  # boost is always 0 in DST mode
 
     def test_annotation_csv_missing_columns_raises(self, tmp_path):
         """annotation_category_set raises ValueError on wrong CSV format."""
@@ -716,9 +532,7 @@ class TestGenerality:
             assert "missing required columns" in str(e)
 
     def test_no_name_boost_ablation(self):
-        """With name_match_boost=False, boost is always 0."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
+        """With name_match_boost=False, name_match source is absent."""
         cats = [
             ReferenceCategory(
                 code="A", label="Date Of Birth",
@@ -728,7 +542,7 @@ class TestGenerality:
         ]
         cs = CategorySet(name="test", categories=cats)
         cfg = EmbeddingClassifierConfig(
-            confidence_threshold=0.1,
+            confidence_threshold=0.01,
             name_match_boost=False,
         )
         clf = EmbeddingClassifier(cfg, category_set=cs)
@@ -744,45 +558,11 @@ class TestGenerality:
         mock_model.encode = mock_encode
         clf._model = mock_model
 
-        # Column name matches exactly, but boost is disabled
+        # Column name matches exactly, but name_match is disabled
         result = clf.classify(_make_sample("date_of_birth", "STRING", ["1990-01-15"]))
         assert result is not None
         assert result.boost == 0.0
-        assert "name_boost" not in result.evidence
-
-    def test_boost_field_populated_when_boosted(self):
-        """Classification.boost reflects the actual boost applied."""
-        from sigint.category_set import CategorySet, ReferenceCategory
-
-        cats = [
-            ReferenceCategory(
-                code="A", label="Email",
-                embedding_text="email address",
-                abbrev="EMAIL", taxonomy="test",
-            ),
-        ]
-        cs = CategorySet(name="test", categories=cats)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
-        clf = EmbeddingClassifier(cfg, category_set=cs)
-
-        mock_model = MagicMock()
-        dim = 384
-
-        def mock_encode(texts, batch_size=32):
-            embs = np.zeros((len(texts), dim))
-            embs[0, 0] = 1.0
-            return embs
-
-        mock_model.encode = mock_encode
-        clf._model = mock_model
-
-        result = clf.classify(_make_sample("email", "STRING", ["a@b.com"]))
-        assert result is not None
-        assert result.boost == 0.25  # exact match
-
-        result2 = clf.classify(_make_sample("inbox", "STRING", ["a@b.com"]))
-        assert result2 is not None
-        assert result2.boost == 0.0  # no match
+        assert "name_match" not in result.source_masses
 
 
 class TestDetectDevice:
@@ -815,3 +595,60 @@ class TestDetectDevice:
         clf = EmbeddingClassifier(cfg)
         clf._get_model()
         assert cfg.batch_size == 256
+
+
+# ── Pattern evidence taxonomy map ────────────────────────────────
+
+
+class TestPatternEvidenceTaxonomyMap:
+    def test_pattern_evidence_uses_taxonomy_map(self):
+        """Classify with features should use taxonomy-specific pattern map."""
+        from sigint.features import ColumnFeatures
+
+        cats = [
+            ReferenceCategory(
+                code="date", label="date",
+                embedding_text="date | calendar date | values are YYYY-MM-DD",
+                taxonomy="gittables",
+            ),
+            ReferenceCategory(
+                code="id", label="id",
+                embedding_text="id | unique identifier | values are integers",
+                taxonomy="gittables",
+            ),
+        ]
+        cs = CategorySet(name="gittables", categories=cats)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
+        clf = EmbeddingClassifier(cfg, category_set=cs)
+
+        mock_model = MagicMock()
+        dim = 384
+
+        def mock_encode(texts, batch_size=32):
+            embs = np.zeros((len(texts), dim))
+            for i in range(len(texts)):
+                embs[i, 0] = 1.0
+            return embs
+
+        mock_model.encode = mock_encode
+        clf._model = mock_model
+
+        features = ColumnFeatures(
+            column_name_humanized="col0",
+            column_type=None,
+            sample_values_text="2024-01-15",
+            cardinality=1,
+            null_ratio=None,
+            value_entropy=0.0,
+            pattern_signals=["date_iso_pattern"],
+            is_generic_name=True,
+            value_description="column of date values in YYYY-MM-DD format",
+        )
+
+        result = clf.classify(
+            _make_sample("col0", "STRING", ["2024-01-15"]),
+            features=features,
+        )
+        assert result is not None
+        # Pattern evidence should be present since we have pattern_signals
+        assert "patterns" in result.source_masses

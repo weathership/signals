@@ -16,6 +16,7 @@
 - [Metadata Tagging](./architecture/meta-tagging.md)
 - [Context Engineering](./architecture/context-engineering.md)
 - [Classification Training](./architecture/classification-training.md)
+- [Heuristic Elucidation](./architecture/heuristic-elucidation.md)
 - [Evidence Fusion](./architecture/evidence-fusion.md)
 - [Deployment Modes](./architecture/deployment.md)
 

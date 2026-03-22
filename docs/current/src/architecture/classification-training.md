@@ -62,17 +62,17 @@ The `--train-dir` flag in `build_sigint_embeddings.py` activates train→eval mo
 
 ### Feature Vector
 
-Each column is represented by a 991-dimensional feature vector:
+Each column is represented by a 992-dimensional feature vector:
 
 ```
-[full_emb(384) | value_only_emb(384) | discrete(11) | cosine_sims(212)]
+[full_emb(384) | value_only_emb(384) | discrete(12) | cosine_sims(212)]
 ```
 
 | Component | Dimensions | Description |
 |-----------|-----------|-------------|
 | Full embedding | 384 | Sentence embedding of all features (name + values + table + siblings) |
 | Value-only embedding | 384 | Sentence embedding with name, table, and siblings stripped |
-| Discrete features | 11 | Cardinality, null ratio, entropy, 8 pattern flags — scaled by √(384/11) |
+| Discrete features | 12 | Cardinality, null ratio, entropy, 8 pattern flags, value description — scaled by \\(\sqrt{384/12}\\) |
 | Cosine similarities | 212 | Similarity between value-only embedding and each category reference |
 
 ### Dual Embedding
@@ -89,7 +89,7 @@ For each column, the pipeline computes cosine similarity between the column's va
 
 ### Discrete Feature Scaling
 
-The 11 discrete features (cardinality, null ratio, entropy, 8 pattern flags) are multiplied by √(384/11) ≈ 5.9 so their magnitude competes with the 384-dimensional embedding vectors. Without scaling, gradient boosting ignores the discrete features because individual embedding dimensions dominate split gain.
+The 12 discrete features (cardinality, null ratio, entropy, 8 pattern flags, value description) are multiplied by \\(\sqrt{384/12} \approx 5.7\\) so their magnitude competes with the 384-dimensional embedding vectors. Without scaling, gradient boosting ignores the discrete features because individual embedding dimensions dominate split gain.
 
 ### Paired Column Propagation
 
@@ -112,6 +112,12 @@ Accuracy progression on 350 GT-labeled columns, showing each technique's margina
 | + Paired propagation | 95.4% | 98.9% | 92.0% |
 
 The naive synthetic baseline (33.4%) is *worse* than k-fold CV because of domain shift between synthetic and real embeddings. Dual embedding and cosine similarity features provide the largest gains on annotation columns by reducing reliance on column names.
+
+## Discovery Methodology
+
+Each technique in the accuracy progression was discovered through benchmark observation, not designed a priori. Dual embedding emerged from observing that annotation columns fail because names are uninformative. Category reference augmentation emerged from the observation that 175 classes with 2 samples each is insufficient for gradient boosting. Paired column propagation emerged from noticing the data/annotation column pairing structure in the dataset.
+
+This pattern — observe a phenomenon, hypothesize a mechanism, implement it as a feature, and measure its contribution with SAGE — is the [heuristic elucidation](./heuristic-elucidation.md) methodology. SAGE Shapley values quantify each technique's marginal contribution, and cross-benchmark validation (against [GitTables CTA](./heuristic-elucidation.md#cross-benchmark-validation)) prevents overfitting to a single dataset.
 
 ## CatBoost Migration
 

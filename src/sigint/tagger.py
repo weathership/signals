@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sigint.atlas_client import AtlasClient
-from sigint.classifier import Classification, Classifier
+from sigint.classifier import Classification, Classifier, HierarchicalClassification
 from sigint.config import TaggingConfig
 from sigint.sampler import ColumnSample, ImpalaSampler, TableSample
 
@@ -53,7 +53,7 @@ class TagResult:
 
     table_fqn: str
     column_name: str
-    classification: Classification | None
+    classification: Classification | HierarchicalClassification | None
     applied: bool = False
     error: str | None = None
 

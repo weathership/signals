@@ -1,6 +1,6 @@
 # Context Engineering
 
-Context engineering is the discipline of deliberately constructing, measuring, and optimizing the input features fed to an embedding classifier. Rather than treating the text assembled from a column's metadata as an ad-hoc string, we decompose it into 11 discrete, ablatable features and use SAGE (Shapley Additive Global importancE) to quantify each feature's contribution to classification accuracy.
+Context engineering is the discipline of deliberately constructing, measuring, and optimizing the input features fed to an embedding classifier. Rather than treating the text assembled from a column's metadata as an ad-hoc string, we decompose it into 12 discrete, ablatable features and use SAGE (Shapley Additive Global importancE) to quantify each feature's contribution to classification accuracy.
 
 The goal: replace intuition about "what information helps the classifier" with measured Shapley values that show exactly which features drive predictions and which are noise.
 
@@ -17,7 +17,7 @@ To build a classifier that generalizes beyond known column names, we need to:
 
 ## Feature Decomposition
 
-Each column is represented by 11 named features extracted from its metadata:
+Each column is represented by 12 named features extracted from its metadata:
 
 | # | Feature | Source | Example |
 |---|---------|--------|---------|
@@ -32,8 +32,11 @@ Each column is represented by 11 named features extracted from its metadata:
 | 9 | `numeric_ratio` | Fraction parseable as number | `"numeric=0.95"` |
 | 10 | `sibling_context` | Humanized names of other columns in same table | `"siblings: first name, last name, email"` |
 | 11 | `source_table` | Table name | `"table=identity_data"` |
+| 12 | `value_description` | NL description of value patterns (substitutes for generic names) | `"column of date values in YYYY-MM-DD format"` |
 
-Features are composed into pipe-separated embedding text via `ColumnFeatures.to_embedding_text(mask)`, where the mask controls which features are included. With all features enabled, a column might produce:
+Features are composed into pipe-separated embedding text via `ColumnFeatures.to_embedding_text(mask)`, where the mask controls which features are included. When a column has a generic name (`col0`, `field_1`, `Unnamed`), the `value_description` feature substitutes for the uninformative name in the embedding text; otherwise it is appended as complementary information. See [Heuristic Elucidation](./heuristic-elucidation.md) for the methodology behind this feature.
+
+With all features enabled, a column might produce:
 
 ```
 payment card number | int | 4111111111111111, 5500000000000004 | cardinality=42 |
@@ -68,7 +71,7 @@ SAGE marginalizes each feature by substituting values from other samples in the 
 
 The implementation:
 
-1. **Feature index matrix**: `X` has shape `(N, 11)` where `X[i, j] = i` — each sample initially uses its own value for every feature.
+1. **Feature index matrix**: `X` has shape `(N, 12)` where `X[i, j] = i` — each sample initially uses its own value for every feature.
 
 2. **Value lookup tables**: For each feature `j`, a table maps sample index → feature text. When SAGE permutes `X[i, j]` to index `k`, the model uses sample `k`'s value for feature `j` instead.
 
@@ -76,7 +79,7 @@ The implementation:
 
 4. **SAGE estimation**: `MarginalImputer` + `PermutationEstimator` with cross-entropy loss estimates each feature's Shapley value across `n_permutations` (default 512) random orderings.
 
-The result is a vector of 11 importance values with standard deviations — a quantitative answer to "which features matter?"
+The result is a vector of 12 importance values with standard deviations — a quantitative answer to "which features matter?"
 
 ## Pipeline
 
@@ -190,8 +193,8 @@ Each run produces a parquet (38 columns) and companion report JSON:
 | Cosine | `tag_code`, `tag_label`, `tag_abbrev`, `confidence`, `boost` | Zero-shot cosine predictions |
 | Ground Truth | `gt_code`, `correct` | LLM GT evaluation (when provided) |
 | CatBoost CV | `ml_tag_code`, `ml_tag_label`, `ml_confidence`, `ml_correct` | Cross-validated ML predictions |
-| Features | `feat_column_name` ... `feat_source_table` (×11) | Transparency: input features as strings |
-| SAGE | `sage_column_name` ... `sage_source_table` (×11) | Global feature importance values |
+| Features | `feat_column_name` ... `feat_value_description` (×12) | Transparency: input features as strings |
+| SAGE | `sage_column_name` ... `sage_value_description` (×12) | Global feature importance values |
 
 ## Current Status
 

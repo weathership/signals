@@ -114,7 +114,7 @@ class TestFeatureMaskModel:
 
         model = FeatureMaskModel(features, clf, cs)
         # X[i, j] = i → each sample uses its own features
-        X = np.array([[0] * 11, [1] * 11])
+        X = np.array([[0] * 12, [1] * 12])
         probs = model(X)
 
         assert probs.shape == (2, 2)
@@ -127,7 +127,7 @@ class TestFeatureMaskModel:
         clf = _make_mock_classifier(n_cats=2)
 
         model = FeatureMaskModel(features, clf, cs)
-        X = np.array([[0] * 11])
+        X = np.array([[0] * 12])
         probs = model(X)
         assert (probs >= 0).all()
 
@@ -140,7 +140,7 @@ class TestFeatureMaskModel:
         mask["column_name"] = True  # only column name enabled
 
         model = FeatureMaskModel(features, clf, cs, feature_mask=mask)
-        X = np.array([[0] * 11])
+        X = np.array([[0] * 12])
         probs = model(X)
         assert probs.shape == (1, 2)
         assert probs.sum() > 0
@@ -155,7 +155,7 @@ class TestFeatureMaskModel:
 
         model = FeatureMaskModel(features, clf, cs)
         # column_name is index 0 in FEATURE_NAMES
-        assert len(model.feature_values) == 11
+        assert len(model.feature_values) == 12
         # First feature (column_name): values for 2 samples
         assert len(model.feature_values[0]) == 2
 
@@ -171,7 +171,7 @@ class TestEmbeddingCache:
         clf = _make_mock_classifier(n_cats=2)
 
         model = FeatureMaskModel(features, clf, cs)
-        X = np.array([[0] * 11, [0] * 11])  # same indices → same text
+        X = np.array([[0] * 12, [0] * 12])  # same indices → same text
         model(X)
 
         # First call: both texts identical, but first is a miss, second is a hit
@@ -185,7 +185,7 @@ class TestEmbeddingCache:
         clf = _make_mock_classifier(n_cats=2)
 
         model = FeatureMaskModel(features, clf, cs)
-        X = np.array([[0] * 11, [1] * 11])  # different indices → different text
+        X = np.array([[0] * 12, [1] * 12])  # different indices → different text
         model(X)
 
         assert model.cache_hits == 0
@@ -198,8 +198,8 @@ class TestEmbeddingCache:
         clf = _make_mock_classifier(n_cats=2)
 
         model = FeatureMaskModel(features, clf, cs)
-        X0 = np.array([[0] * 11])
-        X1 = np.array([[0] * 11])  # same text as X0
+        X0 = np.array([[0] * 12])
+        X1 = np.array([[0] * 12])  # same text as X0
 
         model(X0)
         assert model.cache_misses == 1
@@ -216,7 +216,7 @@ class TestEmbeddingCache:
         clf = _make_mock_classifier(n_cats=2)
 
         model = FeatureMaskModel(features, clf, cs, cache_size=2)
-        X = np.array([[i] * 11 for i in range(5)])
+        X = np.array([[i] * 12 for i in range(5)])
         model(X)
 
         assert len(model._cache) == 2  # only 2 entries stored
@@ -247,9 +247,9 @@ class TestRunSageAnalysis:
         )
 
         assert isinstance(result, SageResult)
-        assert len(result.feature_names) == 11
-        assert len(result.importance_values) == 11
-        assert len(result.importance_std) == 11
+        assert len(result.feature_names) == 12
+        assert len(result.importance_values) == 12
+        assert len(result.importance_std) == 12
         assert result.method == "cosine"
         assert result.n_samples == 3
         assert result.elapsed_seconds > 0

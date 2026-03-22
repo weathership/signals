@@ -1,8 +1,9 @@
 """Embedding-based column classifier using sentence-transformers.
 
-Zero-shot mode: cosine similarity of column embedding vs SIGDG category
-reference embeddings.  CatBoost mode: when a trained model file exists,
-uses CatBoostClassifier.predict_proba() on the embedding vector instead.
+Uses Dempster-Shafer evidence fusion to combine cosine similarity,
+CatBoost probabilities, pattern signals, and name-match evidence
+into belief intervals.  Returns ``HierarchicalClassification`` with
+uncertainty-aware belief/plausibility metrics.
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from sigint.category_set import CategorySet, sigdg_category_set
-from sigint.classifier import Classification
+from sigint.category_set import CategorySet, HierarchicalCategorySet, sigdg_category_set
+from sigint.classifier import HierarchicalClassification
 from sigint.features import ColumnFeatures
 from sigint.ontology import CATEGORIES, DEFAULT_SENSITIVITY
 from sigint.sampler import ColumnSample
@@ -101,7 +102,7 @@ def _get_leaf_categories() -> list:
 
 
 class EmbeddingClassifier:
-    """Classify columns via embedding similarity or CatBoost.
+    """Classify columns via Dempster-Shafer evidence fusion.
 
     Satisfies the ``Classifier`` protocol.
     """
@@ -113,7 +114,7 @@ class EmbeddingClassifier:
     ) -> None:
         self._config = config
         self._model = None
-        self._category_set = category_set or sigdg_category_set()
+        self._category_set = category_set or sigdg_category_set(hierarchical=True)
         # Legacy view for backward-compat with tests that poke _leaf_categories
         self._leaf_categories = (
             _get_leaf_categories()
@@ -123,6 +124,8 @@ class EmbeddingClassifier:
         self._category_embeddings = None  # (N, dim) ndarray
         self._cb_model = None
         self._cb_classes = None
+        self._hierarchical_cs: CategorySet | None = None
+        self._frame = None  # FrameOfDiscernment, lazily built
 
     # ── Lazy loading ─────────────────────────────────────────────────
 
@@ -211,6 +214,42 @@ class EmbeddingClassifier:
 
         return self._cb_model, self._cb_classes
 
+    # ── Lazy DST infrastructure ────────────────────────────────────
+
+    def _get_hierarchical_cs(self) -> CategorySet:
+        """Return or build a HierarchicalCategorySet from the current category set."""
+        if self._hierarchical_cs is not None:
+            return self._hierarchical_cs
+
+        if isinstance(self._category_set, HierarchicalCategorySet):
+            self._hierarchical_cs = self._category_set
+        elif self._category_set.name == "sigdg":
+            self._hierarchical_cs = sigdg_category_set(hierarchical=True)
+        elif self._category_set.name == "annotations":
+            # Already built hierarchically at construction time
+            self._hierarchical_cs = self._category_set
+        else:
+            # Generic category set — wrap as flat hierarchy (all leaves, no parents)
+            self._hierarchical_cs = HierarchicalCategorySet(
+                name=self._category_set.name,
+                categories=self._category_set.categories,
+                all_categories=self._category_set.categories,
+            )
+        return self._hierarchical_cs
+
+    def _get_frame(self):
+        """Lazily build the FrameOfDiscernment."""
+        if self._frame is not None:
+            return self._frame
+
+        from sigint.belief import FrameOfDiscernment
+        from sigint.confusable_pairs import get_confusable_pairs
+
+        hcs = self._get_hierarchical_cs()
+        pairs = get_confusable_pairs(self._category_set.name)
+        self._frame = FrameOfDiscernment(hcs, confusable_pairs=pairs)
+        return self._frame
+
     # ── Classification ───────────────────────────────────────────────
 
     def classify(
@@ -220,179 +259,34 @@ class EmbeddingClassifier:
         *,
         features: ColumnFeatures | None = None,
         feature_mask: dict[str, bool] | None = None,
-    ) -> Classification | None:
-        """Classify a column sample against SIGDG categories.
-
-        When *features* is provided, the embedding text is built from the
-        discrete feature set instead of the raw sample.
-        """
-        cb, classes = self._get_cb_model()
-        if cb is not None:
-            return self._classify_catboost(sample, cb, classes)
-        return self._classify_cosine(sample, features=features, feature_mask=feature_mask)
-
-    def _classify_cosine(
-        self,
-        sample: ColumnSample,
-        *,
-        features: ColumnFeatures | None = None,
-        feature_mask: dict[str, bool] | None = None,
-    ) -> Classification | None:
-        """Zero-shot classification via cosine similarity.
-
-        Applies a name-match boost: when the humanized column name exactly
-        matches or closely matches a category label, the cosine similarity
-        score is boosted to break ties between semantically similar
-        categories.
-        """
-        import numpy as np
-
-        model = self._get_model()
-        text = build_embedding_text(
-            sample,
-            include_values=self._config.include_values,
-            max_values=self._config.max_values,
-            features=features,
-            feature_mask=feature_mask,
-        )
-        vec = model.encode([text], batch_size=1)[0]
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-
-        cat_embs = self._get_category_embeddings()
-        sims = cat_embs @ vec  # dot product on unit vectors = cosine similarity
-
-        # Name-match boost: compare column name against category labels.
-        # This is a tie-breaker — cosine similarity is the primary signal.
-        # Disable via config.name_match_boost=False for ablation studies.
-        cats = self._category_set.categories
-        boosts = np.zeros(len(cats))
-        if self._config.name_match_boost:
-            col_words = sample.column_name.replace("_", " ").lower().strip()
-            col_word_set = set(col_words.split())
-            for i, cat in enumerate(cats):
-                cat_words = cat.label.lower().replace("(", "").replace(")", "").strip()
-                cat_abbrev = cat.abbrev.lower().strip()
-                # Exact match: column name == category label (humanized)
-                if col_words == cat_words:
-                    boosts[i] = 0.25
-                # Abbrev match: column name words match abbreviation
-                elif col_words.replace(" ", "") == cat_abbrev:
-                    boosts[i] = 0.15
-                # Word overlap: all category words appear as whole words in col name
-                # (avoids false matches like "name" in "username" or "line" in "offline")
-                else:
-                    cat_word_set = set(cat_words.split())
-                    if len(cat_word_set) > 1 and cat_word_set.issubset(col_word_set):
-                        boosts[i] = 0.10
-
-        combined = sims + boosts
-        best_idx = int(np.argmax(combined))
-        best_cosine = float(sims[best_idx])
-        best_boost = float(boosts[best_idx])
-        best_combined = float(combined[best_idx])
-
-        if best_combined < self._config.confidence_threshold:
-            return None
-
-        cat = cats[best_idx]
-
-        # Sensitivity: SIGDG uses DEFAULT_SENSITIVITY, others use None
-        sensitivity = (
-            DEFAULT_SENSITIVITY.get(cat.code)
-            if self._category_set.name == "sigdg"
-            else None
-        )
-
-        # Evidence reports raw cosine and any name-match boost separately
-        if best_boost > 0:
-            evidence = (
-                f"cosine={best_cosine:.3f} + name_boost={best_boost:.2f} "
-                f"→ {best_combined:.3f} to {cat.label}"
-            )
-        else:
-            evidence = f"cosine={best_cosine:.3f} to {cat.label}"
-
-        return Classification(
-            category=cat,
-            confidence=round(best_combined, 3),
-            evidence=evidence,
-            sensitivity_code=sensitivity,
-            boost=round(best_boost, 3),
-        )
-
-    def _classify_catboost(
-        self, sample: ColumnSample, cb, classes: list[str] | None
-    ) -> Classification | None:
-        """Classification via trained CatBoost model."""
-        import numpy as np
-
-        model = self._get_model()
-        text = build_embedding_text(
-            sample,
-            include_values=self._config.include_values,
-            max_values=self._config.max_values,
-        )
-        vec = model.encode([text], batch_size=1)
-
-        proba = cb.predict_proba(vec)[0]
-        best_idx = int(np.argmax(proba))
-        confidence = float(proba[best_idx])
-
-        if confidence < self._config.confidence_threshold:
-            return None
-
-        if classes:
-            code = classes[best_idx]
-        else:
-            code = str(best_idx)
-
-        by_code = self._category_set.by_code
-        if code not in by_code:
-            return None
-
-        cat = by_code[code]
-        sensitivity = (
-            DEFAULT_SENSITIVITY.get(cat.code)
-            if self._category_set.name == "sigdg"
-            else None
-        )
-        return Classification(
-            category=cat,
-            confidence=round(confidence, 3),
-            evidence=f"catboost confidence {confidence:.3f} for {cat.label}",
-            sensitivity_code=sensitivity,
-        )
-
-    def classify_dst(
-        self,
-        sample: ColumnSample,
-        frame,  # FrameOfDiscernment
-        hierarchical_category_set,  # HierarchicalCategorySet
-        *,
-        features: ColumnFeatures | None = None,
-        feature_mask: dict[str, bool] | None = None,
-    ):
-        """Classify with Dempster-Shafer belief intervals.
+        catboost_proba: dict[str, float] | None = None,
+    ) -> HierarchicalClassification | None:
+        """Classify a column sample via Dempster-Shafer evidence fusion.
 
         Combines up to 4 evidence sources:
         1. Cosine similarities → mass function
-        2. CatBoost probabilities → mass function (if model loaded)
+        2. CatBoost probabilities → mass function (if model loaded or proba provided)
         3. Pattern signals → mass function (if features provided)
         4. Name match → mass function (if enabled)
+
+        Args:
+            catboost_proba: External CatBoost probabilities {code: prob} from
+                e.g. k-fold CV.  When provided, used instead of the loaded model.
 
         Returns a HierarchicalClassification with belief intervals.
         """
         import numpy as np
 
-        from sigint.classifier import HierarchicalClassification
         from sigint.mass_functions import (
             catboost_to_mass,
             cosine_to_mass,
+            get_pattern_category_map,
             name_match_to_mass,
             pattern_to_mass,
         )
+
+        frame = self._get_frame()
+        hierarchical_cs = self._get_hierarchical_cs()
 
         model = self._get_model()
         text = build_embedding_text(
@@ -419,21 +313,26 @@ class EmbeddingClassifier:
         # 1. Cosine evidence
         source_masses["cosine"] = cosine_to_mass(sim_dict, frame, discount=0.3)
 
-        # 2. CatBoost evidence (if model loaded)
-        cb, classes = self._get_cb_model()
-        if cb is not None:
-            vec_2d = model.encode([text], batch_size=1)
-            proba = cb.predict_proba(vec_2d)[0]
-            proba_dict = {}
-            for i, prob in enumerate(proba):
-                if classes and i < len(classes):
-                    proba_dict[classes[i]] = float(prob)
-            source_masses["catboost"] = catboost_to_mass(proba_dict, frame)
+        # 2. CatBoost evidence (external proba or loaded model)
+        if catboost_proba is not None:
+            source_masses["catboost"] = catboost_to_mass(catboost_proba, frame)
+        else:
+            cb, classes = self._get_cb_model()
+            if cb is not None:
+                vec_2d = model.encode([text], batch_size=1)
+                proba = cb.predict_proba(vec_2d)[0]
+                proba_dict = {}
+                for i, prob in enumerate(proba):
+                    if classes and i < len(classes):
+                        proba_dict[classes[i]] = float(prob)
+                source_masses["catboost"] = catboost_to_mass(proba_dict, frame)
 
         # 3. Pattern evidence (if features provided)
         if features is not None and features.pattern_signals:
+            pattern_map = get_pattern_category_map(self._category_set.name)
             source_masses["patterns"] = pattern_to_mass(
-                features.pattern_signals, frame
+                features.pattern_signals, frame,
+                pattern_category_map=pattern_map,
             )
 
         # 4. Name match evidence (if enabled)
@@ -442,23 +341,16 @@ class EmbeddingClassifier:
                 sample.column_name, frame, self._category_set
             )
 
-        # Sensitivity
-        sensitivity = None
-        if self._category_set.name == "sigdg":
-            # Will be set based on best category from combination
-            pass
-
         result = HierarchicalClassification.from_combined_evidence(
             source_masses=source_masses,
             frame=frame,
-            category_set=hierarchical_category_set,
+            category_set=hierarchical_cs,
             sensitivity_code=None,
         )
 
         # Set sensitivity based on the chosen category
         if self._category_set.name == "sigdg":
             sensitivity = DEFAULT_SENSITIVITY.get(result.category.code)
-            # Re-create with correct sensitivity (frozen dataclass)
             from dataclasses import replace
             result = replace(result, sensitivity_code=sensitivity)
 

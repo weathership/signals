@@ -63,6 +63,60 @@ def load_csv_columns(data_dir: Path) -> list[dict]:
     return records
 
 
+def load_parquet_columns(path: Path) -> list[dict]:
+    """Load column records from a parquet file.
+
+    Returns same shape as load_csv_columns():
+    {source_table, column_name, column_type, sample_values, headers}
+
+    Expects parquet columns: source_table, column_name, column_type,
+    sample_values (JSON list), sibling_columns (JSON list).
+    """
+    import json as _json
+
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(str(path))
+    records: list[dict] = []
+
+    for i in range(table.num_rows):
+        source_table = str(table.column("source_table")[i].as_py())
+        column_name = str(table.column("column_name")[i].as_py())
+        column_type = str(table.column("column_type")[i].as_py())
+
+        sample_raw = table.column("sample_values")[i].as_py()
+        if isinstance(sample_raw, str):
+            try:
+                sample_values = _json.loads(sample_raw)
+            except (ValueError, TypeError):
+                sample_values = [sample_raw] if sample_raw else []
+        elif isinstance(sample_raw, list):
+            sample_values = sample_raw
+        else:
+            sample_values = []
+
+        sibling_raw = table.column("sibling_columns")[i].as_py()
+        if isinstance(sibling_raw, str):
+            try:
+                headers = _json.loads(sibling_raw)
+            except (ValueError, TypeError):
+                headers = []
+        elif isinstance(sibling_raw, list):
+            headers = sibling_raw
+        else:
+            headers = []
+
+        records.append({
+            "source_table": source_table,
+            "column_name": column_name,
+            "column_type": column_type,
+            "sample_values": [str(v) for v in sample_values],
+            "headers": [column_name] + [h for h in headers if h != column_name],
+        })
+
+    return records
+
+
 def build_feature_mask(
     disabled_features: list[str] | None,
 ) -> dict[str, bool] | None:

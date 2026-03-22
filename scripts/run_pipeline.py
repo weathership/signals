@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         if not ann_path.exists():
             print(f"Error: {ann_path} not found", file=sys.stderr)
             return 1
-        category_set = annotation_category_set(ann_path)
+        category_set = annotation_category_set(ann_path, hierarchical=True)
         print(f"Loaded annotation taxonomy: {len(category_set.categories)} leaf categories")
 
     # ── Stage 1: Load + Feature Extraction ───────────────────────────
@@ -176,6 +176,13 @@ def main(argv: list[str] | None = None) -> int:
             sample, features=features, feature_mask=feature_mask
         )
 
+        # Extract belief interval from HierarchicalClassification
+        bel = 0.0
+        pl = 0.0
+        if classification is not None and hasattr(classification, "belief_at"):
+            bel = classification.belief_at(classification.category.code)
+            pl = classification.plausibility_at(classification.category.code)
+
         cr = ColumnResult(
             source_table=rec["source_table"],
             column_name=rec["column_name"],
@@ -187,6 +194,11 @@ def main(argv: list[str] | None = None) -> int:
             confidence=classification.confidence if classification else 0.0,
             boost=classification.boost if classification else 0.0,
             evidence=classification.evidence if classification else "",
+            belief=round(bel, 4),
+            plausibility=round(pl, 4),
+            uncertainty_gap=round(pl - bel, 4),
+            conflict=classification.conflict if classification and hasattr(classification, "conflict") else 0.0,
+            needs_clarification=classification.needs_clarification if classification and hasattr(classification, "needs_clarification") else False,
         )
         column_results.append(cr)
 
@@ -194,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         abbrev = getattr(classification.category, "abbrev", "") if classification else ""
         if abbrev:
             tag = f"{abbrev} ({tag})"
-        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({cr.confidence:.2f})")
+        bel_info = ""
+        if bel > 0:
+            bel_info = f" [Bel={bel:.2f}, Pl={pl:.2f}]"
+        print(f"  [{i}/{total}] {rec['source_table']}.{rec['column_name']} -> {tag} ({cr.confidence:.2f}){bel_info}")
 
     # ── Ground truth evaluation ──────────────────────────────────────
     from sigint.run_report import AccuracyMetrics

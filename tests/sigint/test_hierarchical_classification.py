@@ -1,4 +1,4 @@
-"""Tests for HierarchicalClassification and classify_dst()."""
+"""Tests for HierarchicalClassification and classify()."""
 
 from __future__ import annotations
 
@@ -229,16 +229,14 @@ class TestFromCombinedEvidence:
         assert "Pl=" in hc.evidence
 
 
-class TestClassifyDst:
+class TestClassify:
     def _make_classifier_with_mock(self, dim=384):
         cs = sigdg_category_set(hierarchical=True)
-        frame = FrameOfDiscernment(cs)
-        cfg = EmbeddingClassifierConfig(confidence_threshold=0.1)
+        cfg = EmbeddingClassifierConfig(confidence_threshold=0.01)
         clf = EmbeddingClassifier(cfg, category_set=cs)
 
         mock_model = MagicMock()
-        leaves = _get_leaf_categories()
-        n_cats = len(leaves)
+        n_cats = len(cs.categories)
         cat_embs = np.eye(n_cats, dim)
 
         def mock_encode(texts, batch_size=32):
@@ -250,35 +248,23 @@ class TestClassifyDst:
 
         mock_model.encode = mock_encode
         clf._model = mock_model
-        return clf, frame, cs
+        return clf
 
-    def test_classify_dst_returns_hierarchical(self):
-        """classify_dst returns HierarchicalClassification."""
-        clf, frame, cs = self._make_classifier_with_mock()
+    def test_classify_returns_hierarchical(self):
+        """classify returns HierarchicalClassification."""
+        clf = self._make_classifier_with_mock()
         sample = _make_sample("tax_identifier", "STRING", ["123-45-6789"])
 
-        result = clf.classify_dst(sample, frame, cs)
+        result = clf.classify(sample)
         assert isinstance(result, HierarchicalClassification)
         assert result.belief_assignment is not None
         assert result.confidence > 0
 
-    def test_classify_dst_has_source_masses(self):
+    def test_classify_has_source_masses(self):
         """Source masses include at least cosine and name_match."""
-        clf, frame, cs = self._make_classifier_with_mock()
+        clf = self._make_classifier_with_mock()
         sample = _make_sample("email_address", "STRING", ["a@b.com"])
 
-        result = clf.classify_dst(sample, frame, cs)
+        result = clf.classify(sample)
         assert "cosine" in result.source_masses
         assert "name_match" in result.source_masses
-
-    def test_classify_dst_agrees_with_classify(self):
-        """classify_dst picks the same best category as classify (mocked)."""
-        clf, frame, cs = self._make_classifier_with_mock()
-        sample = _make_sample("ssn", "STRING", ["123-45-6789"])
-
-        classic = clf.classify(sample)
-        dst = clf.classify_dst(sample, frame, cs)
-
-        # Both should classify to the same category (first leaf, index 0)
-        assert classic is not None
-        assert classic.category.code == dst.category.code

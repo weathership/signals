@@ -33,4 +33,7 @@ def get_confusable_pairs(taxonomy: str) -> list[tuple[str, str]]:
         return ANNOTATION_CONFUSABLE_PAIRS
     elif taxonomy == "sigdg":
         return SIGDG_CONFUSABLE_PAIRS
+    elif taxonomy == "gittables":
+        from config.sigint.gittables_taxonomy import GITTABLES_CONFUSABLE_PAIRS
+        return GITTABLES_CONFUSABLE_PAIRS
     return []

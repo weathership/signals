@@ -1,6 +1,6 @@
 """Feature extraction for column classification.
 
-Extracts 11 discrete, ablatable features from a ColumnSample to support
+Extracts 12 discrete, ablatable features from a ColumnSample to support
 SAGE feature importance analysis and multi-method classification.
 """
 
@@ -54,7 +54,79 @@ FEATURE_NAMES: list[str] = [
     "numeric_ratio",
     "sibling_context",
     "source_table",
+    "value_description",
 ]
+
+
+# ── Generic name detection ──────────────────────────────────────────
+
+_GENERIC_NAME_RE = re.compile(
+    r"^(col\d*|column\d*|field\d*|var\d*|unnamed.*|\d+|_|)$",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_name(name: str) -> bool:
+    """Detect positional/placeholder column names that carry no semantic signal."""
+    return bool(_GENERIC_NAME_RE.match(name.strip()))
+
+
+def _generate_value_description(
+    values: list[str],
+    col_type: str | None,
+    patterns: list[str],
+) -> str:
+    """Generate a natural-language description based on value shape.
+
+    Used to substitute for useless positional column names (col0, Unnamed, etc.)
+    so the embedding text carries actual semantic content.
+    """
+    if not values:
+        return ""
+
+    # Pattern-based descriptions (highest confidence)
+    if "date_iso_pattern" in patterns:
+        return "column of date values in YYYY-MM-DD format"
+    if "email_pattern" in patterns:
+        return "column of email addresses"
+    if "url_pattern" in patterns:
+        return "column of URLs or web links"
+    if "uuid_pattern" in patterns:
+        return "column of UUID identifiers"
+
+    # Numeric analysis
+    num_ratio = _numeric_ratio(values)
+    if num_ratio > 0.8:
+        # Check for sequential integers
+        try:
+            nums = [float(v.strip().replace(",", "")) for v in values
+                    if v.strip()]
+            if all(n == int(n) for n in nums) and len(nums) >= 3:
+                diffs = [nums[i+1] - nums[i] for i in range(len(nums)-1)]
+                if all(abs(d - diffs[0]) < 0.01 for d in diffs):
+                    return "column of sequential integers, likely identifiers or index"
+        except (ValueError, OverflowError):
+            pass
+        # Check for decimals
+        if any("." in v for v in values):
+            return "column of decimal numeric measurements"
+        return "column of integer values"
+
+    # Text analysis
+    avg_len = sum(len(v) for v in values) / len(values) if values else 0
+    distinct = len(set(values))
+    distinct_ratio = distinct / len(values) if values else 1.0
+
+    if avg_len > 100:
+        return "column of long text content, descriptions or comments"
+    if avg_len > 40:
+        return "column of text phrases or sentences"
+    if distinct_ratio < 0.5 and avg_len < 20:
+        return "column of categorical labels or codes"
+    if avg_len < 20 and num_ratio < 0.2:
+        return "column of short text labels or names"
+
+    return "column of text values"
 
 
 def detect_patterns(values: list[str]) -> list[str]:
@@ -106,7 +178,7 @@ def _numeric_ratio(values: list[str]) -> float:
 class ColumnFeatures:
     """Discrete, ablatable features extracted from a column sample.
 
-    Each of the 11 features can be independently masked for SAGE analysis.
+    Each of the 12 features can be independently masked for SAGE analysis.
     """
 
     column_name_humanized: str
@@ -120,10 +192,12 @@ class ColumnFeatures:
     numeric_ratio: float | None = None
     sibling_names: list[str] = field(default_factory=list)
     source_table: str | None = None
+    value_description: str = ""
+    is_generic_name: bool = False
 
     @property
     def feature_names(self) -> list[str]:
-        """Ordered list of 11 feature names."""
+        """Ordered list of 12 feature names."""
         return list(FEATURE_NAMES)
 
     def to_embedding_text(self, mask: dict[str, bool] | None = None) -> str:
@@ -144,8 +218,12 @@ class ColumnFeatures:
 
         parts: list[str] = []
 
-        if _enabled("column_name") and self.column_name_humanized:
-            parts.append(self.column_name_humanized)
+        if _enabled("column_name"):
+            if self.is_generic_name and self.value_description:
+                # Generic name: substitute value description in the name slot
+                parts.append(self.value_description)
+            elif self.column_name_humanized:
+                parts.append(self.column_name_humanized)
 
         if _enabled("column_type") and self.column_type:
             parts.append(self.column_type)
@@ -176,6 +254,10 @@ class ColumnFeatures:
 
         if _enabled("source_table") and self.source_table:
             parts.append(f"table={self.source_table}")
+
+        # Value description: for non-generic names, append as complementary info
+        if _enabled("value_description") and self.value_description and not self.is_generic_name:
+            parts.append(self.value_description)
 
         return " | ".join(parts) if parts else ""
 
@@ -250,6 +332,10 @@ def extract_features(
             if s.column_name != sample.column_name
         ]
 
+    # Generic name detection and value description
+    generic = _is_generic_name(sample.column_name)
+    val_desc = _generate_value_description(values, col_type, patterns)
+
     return ColumnFeatures(
         column_name_humanized=name_humanized,
         column_type=col_type,
@@ -262,4 +348,6 @@ def extract_features(
         numeric_ratio=num_ratio,
         sibling_names=sibling_names,
         source_table=source_table,
+        value_description=val_desc,
+        is_generic_name=generic,
     )
