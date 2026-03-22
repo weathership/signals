@@ -21,7 +21,7 @@ Atlas with the AGE backend is running and the catalog bridge is validated:
 - **Catalog bridge** — Python function registers Impala-managed Kudu tables in Atlas via REST API
 - **Entity CRUD** — `hive_table`, `hive_column`, `hive_db` entities (interim types from Atlas bootstrap)
 - **Classification CRUD** — custom classification types, table/column tagging, search by classification
-- **BDD coverage** — 18 scenarios across 6 features (10 tier-0 + 8 tier-1), all passing
+- **BDD coverage** — 74 scenarios across 16 features (40 tier-0 classification + 22 tier-1 health + 12 tier-1 integration), all passing
 
 ### Infrastructure (complete)
 
@@ -29,7 +29,8 @@ Atlas with the AGE backend is running and the catalog bridge is validated:
 - HMS, Polaris, Kudu processes defined in devenv.nix
 - Atlas with AGE backend (replacing JanusGraph/HBase/Solr)
 - 7 ASF component submodules on `rch/signals` branches
-- BDD feature specifications across 6 features with tier-0 and tier-1 coverage
+- BDD feature specifications across 16 features with tier-0 and tier-1 coverage
+- Air-gap isolation (`HF_HUB_OFFLINE=1`, model cache, zero external network calls)
 - CI workflow for catalog unit + integration tests
 - mdbook documentation with GitHub Pages deployment
 
@@ -53,7 +54,7 @@ The tier-1 BDD tests currently use `hive_table`, `hive_column`, and `hive_db` en
 
 | Phase | Entity Types | Status |
 |-------|-------------|--------|
-| Phase 1 (current) | `hive_table`, `hive_column`, `hive_db` | Working — Atlas bootstrap types, validated by 18 BDD scenarios |
+| Phase 1 (current) | `hive_table`, `hive_column`, `hive_db` | Working — Atlas bootstrap types, validated by 74 BDD scenarios |
 | Phase 2 | `impala_table`, `impala_column`, `impala_db` | Planned — custom type model in `addons/models/`, superType DataSet |
 | Phase 3 | `kudu_table`, `iceberg_table` alongside `impala_table` | Future — storage-tier-aware types for lineage across hot/warm |
 
@@ -77,12 +78,15 @@ Automatic classification of table and column names using the SIGDG ontology (BFO
 - [x] Classification model trained on the SIGDG information entity hierarchy (SIGDG:0010–0060)
 - [x] Training data: 6 categories (identity, personal, business, system, transaction, metadata)
 - [x] Sensitivity levels assigned as BFO qualities (Public → Internal → Confidential → Restricted)
-- [x] Context engineering pipeline with 11 ablatable features and SAGE importance analysis
+- [x] Context engineering pipeline with 12 ablatable features and SAGE importance analysis
 - [x] Multi-stage pipeline (feature extraction → classification → run report + SAGE)
 - [x] Structured run reports (JSON + parquet) for method/feature comparison
-- [ ] Tagging service prototype (Python) that watches Atlas for new entities
-- [ ] Write classifications back to Atlas as SIGDG tags
+- [x] Tagging service prototype (Python) — `Tagger` class orchestrates sample → classify → tag
+- [x] Write classifications back to Atlas as SIGDG tags (via `AtlasClient.apply_classification()`)
+- [x] Air-gap isolation — local model cache, `HF_HUB_OFFLINE=1`, zero external calls
+- [x] BDD validation — 6 meta-tagging + 2 pipeline scenarios, all passing
 - [ ] OWL formalization of SIGDG with BFO 2020 imports
+- [ ] Event-driven tagging — watch Atlas for new entities (replace manual invocation)
 
 See [Metadata Tagging](../architecture/meta-tagging.md) for the architecture and [Context Engineering](../architecture/context-engineering.md) for the SAGE-based feature evaluation methodology. The [SIGDG Ontology](./sigdg-ontology.md) reference documents the full BFO-grounded vocabulary.
 
@@ -118,3 +122,25 @@ The following components are intentionally excluded from the stack:
 | Solr | PostgreSQL full-text search | Atlas search simplified |
 | ZooKeeper | Kudu's built-in Raft consensus | No external coordination service |
 | Trino | Impala | Kudu connector removed from Trino 473 |
+
+## Backlog
+
+The following capabilities are documented as BDD feature specifications in `features_archive/` and will be revisited once the core platform is fully validated.
+
+### Agent + Visualization (S01–S03)
+
+- **S01: Agent-Mediated Visualization** — Interactive data exploration through a WASM terminal with resolution autoscaling and multi-persona views. Requires the gRPC engine, Dask distributed compute, and HoloViews/Datashader rendering.
+- **S02: Algorithm Extension** — Package, deploy, and invoke custom analysis code as platform extensions through the agent engine.
+- **S03: Agent Self-Improvement** — Define performance objectives and iterate toward quantitative improvements via self-directed evaluation cycles.
+
+### Analytics (S04–S06)
+
+- **S04: OTel Root Cause Analysis** — Correlate degradation signals with infrastructure changes for evidence-backed root cause analysis using OpenTelemetry data.
+- **S05: Cybersecurity Investigation** — Investigate malicious behavior using correlated log sources and detection logic.
+- **S06: Streaming Ontology** — Ontology-grounded feature discovery from high-velocity streams with human-in-the-loop direction.
+
+### gRPC Engine
+
+- gRPC engine health checks, instruction echo, extension registry. Archived from `features/platform/grpc_engine.feature`.
+
+These remain valid specifications. When the gRPC engine or streaming pipeline is implemented, features move from `features_archive/` back to `features/` and are connected to step definitions. See [Scenarios Overview](../scenarios/overview.md) for the full backlog listing

@@ -23,13 +23,14 @@
 # Scenarios
 
 - [Scenarios Overview](./scenarios/overview.md)
+- [Test Infrastructure](./scenarios/testing.md)
+- [Backlog]()
     - [S01: Agent-Mediated Visualization](./scenarios/s01-visualization.md)
     - [S02: Algorithm Extension](./scenarios/s02-extension.md)
     - [S03: Agent Self-Improvement](./scenarios/s03-evolution.md)
     - [S04: OTel Root Cause Analysis](./scenarios/s04-otel-rca.md)
     - [S05: Cybersecurity Investigation](./scenarios/s05-cybersec.md)
     - [S06: Streaming Ontology](./scenarios/s06-streaming.md)
-- [Test Infrastructure](./scenarios/testing.md)
 
 # Infrastructure
 

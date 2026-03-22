@@ -67,11 +67,39 @@ Once entities are tagged in Atlas:
 2. Impala enforces Ranger policies at query time
 3. The result: automated column masking, row filtering, and access control driven by ontology-grounded metadata tags
 
-## Near-Term Plan
+## Validated Pipeline
 
-1. **Atlas catalog bridge** (interim; hook/event-driven in future): Register Impala tables in Atlas when created via HMS-free DDL
-2. **Tagging service prototype**: Python service that reads Atlas entities and classifies against SIGDG ontology
-3. **Evidence fusion calibration**: Calibrate DST discount factors and mass constants against held-out data; resolve source independence assumption (see [Research Roadmap](../reference/research-roadmap.md))
-4. **OWL formalization**: Publish SIGDG as OWL ontology with BFO imports, verify via RASE 5-gate pipeline
-5. **Ranger tag-based policies**: Column masking and access control driven by Atlas SIGDG classifications
-6. **Feedback loop**: Analyst corrections to classifications improve the model over time
+The end-to-end tagging pipeline has been implemented and validated with 8 BDD scenarios (6 meta-tagging + 2 pipeline tagging):
+
+1. **Atlas catalog bridge** — Python function registers Impala-managed Kudu tables in Atlas via REST API. Validated by 4 catalog sync scenarios.
+2. **Tagger service** — `Tagger` class (`src/sigint/tagger.py`) orchestrates sample → classify → tag:
+   - `ImpalaSampler` reads column names, types, and sample values from Impala
+   - `EmbeddingClassifier` classifies against the SIGDG taxonomy using sentence-transformer embeddings
+   - `AtlasClient` writes classifications back as SIGDG tags with confidence scores and evidence
+3. **Air-gap isolation** — Local model cache (`build/models/`), `HF_HUB_OFFLINE=1`, zero external network calls. See [Air-Gap (Zarf)](../infrastructure/zarf.md#ml-model-artifacts).
+4. **HOCON config** — Single source of truth (`config/base.conf`) drives both application code and BDD test helpers. All connection parameters (Impala host/port, Atlas URL/credentials, model cache) flow from config.
+
+### Running the Pipeline
+
+```bash
+# Pre-cache model (once)
+just cache-models
+
+# Dry-run: classify without writing to Atlas
+just tag-dry-run default.my_table
+
+# Live: classify and write SIGDG tags to Atlas
+just tag default.my_table
+
+# Or via Python module
+uv run python -m sigint --tables default.my_table --dry-run
+```
+
+## Next Steps
+
+1. **Event-driven tagging**: Watch Atlas for new entities and trigger classification automatically (replace manual `just tag` invocation)
+2. **Evidence fusion calibration**: Calibrate DST discount factors and mass constants against held-out data; resolve source independence assumption (see [Research Roadmap](../reference/research-roadmap.md))
+3. **OWL formalization**: Publish SIGDG as OWL ontology with BFO imports, verify via RASE 5-gate pipeline
+4. **Ranger tag-based policies**: Column masking and access control driven by Atlas SIGDG classifications
+5. **Feedback loop**: Analyst corrections to classifications improve the model over time
+6. **Data lifecycle integration**: Preserve classifications across Kudu→Iceberg CTAS migrations
