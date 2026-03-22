@@ -12,20 +12,42 @@ Classifications feed into Apache Atlas for governance tagging and Apache Ranger 
 # Enter the development environment
 devenv shell
 
-# Run tests (363 tests)
-uv run pytest tests/sigint/ -v
+# Resolve config (materializes build/config/sigint.env from HOCON + .env)
+just resolve-config
+
+# Run tests (includes preflight config validation)
+just test
 
 # Classify columns with DST belief intervals
-uv run python scripts/build_sigint_embeddings.py \
+just build-embeddings \
     --data-dir <data-dir> \
-    --taxonomy <taxonomy> --threshold 0.25 \
-    --ground-truth <ground-truth.json> \
-    --dst \
-    --output build/sigint_dst.parquet
-
-# Build and serve documentation
-devenv tasks run docs:serve
+    --taxonomy sigdg --threshold 0.25 \
+    --output build/sigint_embeddings.parquet
 ```
+
+## Configuration
+
+All pipeline configuration flows through [HOCON](https://github.com/lightbend/config/blob/main/HOCON.md) (`config/base.conf`). Environment variables are captured by HOCON via `${?VAR}` substitution — application code never reads `os.environ` directly.
+
+```
+.env (user overrides)  ─┐
+                        ├─> HOCON resolves ${?VAR} ─> PipelineConfig ─> application code
+config/base.conf ───────┘                                  │
+                                                   materialize_config()
+                                                           │
+                                                build/config/sigint.env
+                                             (flat key=value for shell/just)
+```
+
+**Setup:**
+
+1. Copy `.env.example` to `.env` and uncomment values to override defaults
+2. Run `just resolve-config` to materialize the resolved config
+3. Run `just preflight` to validate all required keys are present
+
+The materialized `build/config/sigint.env` is the serialized, fully-resolved config. It is consumed by `just` recipes and can be sourced by shell scripts after `env -i`. Tests automatically validate it via a conftest preflight check.
+
+**Precedence:** CLI args > `.env` / env vars > `config/base.conf` defaults
 
 ## Architecture
 
@@ -44,13 +66,17 @@ Two operational modes drive development:
 ## Project Structure
 
 ```
+config/base.conf          HOCON config — single source of truth
+.env.example              Template for user overrides
+build/config/sigint.env   Materialized resolved config (gitignored)
+Justfile                  Pipeline recipes (just resolve-config, just test, ...)
 src/sigint/               20 Python modules — classification pipeline
-scripts/                   Pipeline runners, benchmarks, data generation
-tests/sigint/              363 tests across 16 test files
-config/sigint/             Taxonomy definitions and ground truth
-docs/current/src/          mdbook documentation (d2 diagrams, KaTeX math)
-docs/scratch/              Dated work notes with experimental results
-components/                ASF submodules (Atlas, Ranger, Kudu, Impala, Iceberg)
+scripts/                  Pipeline runners, benchmarks, data generation
+tests/                    363 tests + conftest preflight validation
+config/sigint/            Taxonomy definitions and ground truth
+docs/current/src/         mdbook documentation (d2 diagrams, KaTeX math)
+docs/scratch/             Dated work notes with experimental results
+components/               ASF submodules (Atlas, Ranger, Kudu, Impala, Iceberg)
 ```
 
 ## License

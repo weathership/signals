@@ -1,4 +1,8 @@
-"""Shared helpers for BDD step implementations."""
+"""Shared helpers for BDD step implementations.
+
+Connection parameters are loaded from config/base.conf via load_config()
+so the BDD framework and the application share a single source of truth.
+"""
 
 import os
 import subprocess
@@ -13,11 +17,16 @@ import psycopg
 import requests
 from impala.dbapi import connect as impala_connect
 
+from sigint.config import load_config
+
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-CLUSTER_NAME = "signals"
+# Load resolved config once — HOCON base.conf + env var overrides.
+_CFG = load_config()
+
+CLUSTER_NAME = _CFG.cluster_name
 
 
 def table_qualified_name(table_fqn):
@@ -37,12 +46,14 @@ def db_qualified_name(db):
 
 def pg_conn(dbname="signals"):
     """Connect to a local PostgreSQL database."""
-    return psycopg.connect(host="localhost", port=5455, dbname=dbname, autocommit=True)
+    return psycopg.connect(host="127.0.0.1", port=5455, dbname=dbname, autocommit=True)
 
 
 def impala_conn():
     """Connect to Impala via HiveServer2 (no auth)."""
-    return impala_connect(host="localhost", port=21050, auth_mechanism="NOSASL")
+    return impala_connect(
+        host=_CFG.impala_host, port=_CFG.impala_port, auth_mechanism="NOSASL",
+    )
 
 
 def impala_execute(sql, fetch=False):
@@ -66,14 +77,16 @@ def impala_scalar(sql):
 
 def atlas_api(path, method="GET", **kwargs):
     """Call the Atlas v2 REST API."""
-    url = f"http://localhost:21000/api/atlas/v2{path}"
-    return requests.request(method, url, auth=("admin", "admin"), timeout=60, **kwargs)
+    url = f"{_CFG.atlas_url}/api/atlas/v2{path}"
+    auth = (_CFG.atlas_user, _CFG.atlas_password)
+    return requests.request(method, url, auth=auth, timeout=60, **kwargs)
 
 
 def atlas_admin_api(path, method="GET", **kwargs):
     """Call the Atlas admin REST API."""
-    url = f"http://localhost:21000/api/atlas{path}"
-    return requests.request(method, url, auth=("admin", "admin"), timeout=60, **kwargs)
+    url = f"{_CFG.atlas_url}/api/atlas{path}"
+    auth = (_CFG.atlas_user, _CFG.atlas_password)
+    return requests.request(method, url, auth=auth, timeout=60, **kwargs)
 
 
 def atlas_api_json(path, method="GET", **kwargs):
@@ -85,7 +98,7 @@ def atlas_api_json(path, method="GET", **kwargs):
 
 def kudu_master_api(path):
     """Call the Kudu master HTTP API."""
-    return requests.get(f"http://localhost:8051{path}", timeout=10)
+    return requests.get(f"http://127.0.0.1:8051{path}", timeout=10)
 
 
 def run_cmd(cmd, **kwargs):

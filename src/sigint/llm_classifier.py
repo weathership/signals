@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,11 +47,11 @@ class LLMClassifier:
                 "Install with: pip install anthropic"
             )
 
-        api_key = self._config.api_key or os.getenv("ANTHROPIC_API_KEY")
+        api_key = self._config.api_key
         if not api_key:
             raise ValueError(
-                "Anthropic API key required. Set ANTHROPIC_API_KEY env var "
-                "or pass --api-key."
+                "Anthropic API key required. Set ANTHROPIC_API_KEY in .env "
+                "or config/base.conf, or pass --api-key."
             )
 
         self._client = anthropic.Anthropic(api_key=api_key)

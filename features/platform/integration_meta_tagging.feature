@@ -28,3 +28,22 @@ Feature: Atlas classifications on Impala tables and columns
     Given multiple tables have classification "PII"
     When I search Atlas for entities with classification "PII"
     Then the results include all tagged tables
+
+  # ── Tagger-based scenarios ──────────────────────────────────────────
+
+  @tier-1 @tagger
+  Scenario: Tagger sets up SIGDG classification types in Atlas
+    When I run Tagger setup_types with the default config
+    Then the setup result reports types created or existing
+
+  @tier-1 @tagger
+  Scenario: Tagger dry-run classifies without writing tags
+    Given Kudu table "integration_test.tagger_dry" with typed columns:
+      | column       | type    |
+      | id           | BIGINT  |
+      | email        | STRING  |
+      | ssn          | STRING  |
+    And the table has representative data inserted
+    When I run the Tagger in dry-run mode on "integration_test.tagger_dry"
+    Then the TagReport shows columns_classified >= 1
+    And the TagReport shows columns_tagged = 0

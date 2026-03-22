@@ -175,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="Evaluate DST classification on GitTables CTA benchmark",
     )
+    # None defaults = fall through to HOCON config (config/base.conf)
     p.add_argument(
         "--data-dir", required=True,
         help="Directory containing gittables_columns.parquet and gittables_gt.json",
@@ -185,15 +186,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Output parquet file path",
     )
     p.add_argument(
-        "--embedding-model",
-        default="all-MiniLM-L6-v2",
-        help="SentenceTransformer model (default: all-MiniLM-L6-v2)",
+        "--embedding-model", default=None,
+        help="SentenceTransformer model (from config)",
     )
     p.add_argument(
-        "--threshold",
-        type=float,
-        default=0.3,
-        help="Minimum confidence threshold (default: 0.3)",
+        "--threshold", type=float, default=None,
+        help="Minimum confidence threshold (from config)",
     )
     p.add_argument(
         "--no-name-boost",
@@ -213,7 +211,34 @@ def main(argv: list[str] | None = None) -> int:
         help="CatBoost k-fold CV folds (default: 0 = skip). "
              "Trains CatBoost on GT labels and adds as DST evidence.",
     )
+    p.add_argument(
+        "--taxonomy-file", default=None,
+        help="Path to custom taxonomy Python module",
+    )
     args = p.parse_args(argv)
+
+    # ── Load config (HOCON + env vars), then overlay CLI args ────────
+    from sigint.config import load_config
+
+    overrides: dict = {
+        "data_dir": args.data_dir,
+        # Default to gittables taxonomy for this script
+        "taxonomy_file": args.taxonomy_file or str(
+            Path(__file__).resolve().parent.parent / "config" / "sigint" / "gittables_taxonomy.py"
+        ),
+    }
+    if args.embedding_model is not None:
+        overrides["embedding_model"] = args.embedding_model
+    if args.threshold is not None:
+        overrides["confidence_threshold"] = args.threshold
+    if args.no_name_boost:
+        overrides["name_match_boost"] = False
+
+    cfg = load_config(overrides=overrides)
+
+    # Backfill args from resolved config
+    args.embedding_model = cfg.embedding_model
+    args.threshold = cfg.confidence_threshold
 
     data_dir = Path(args.data_dir).expanduser()
     output = Path(args.output)
@@ -238,11 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {len(gt)} ground truth mappings")
 
     # ── Build taxonomy ──────────────────────────────────────────────
-    # Import from config module (project root must be on sys.path)
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from config.sigint.gittables_taxonomy import gittables_category_set
-
-    category_set = gittables_category_set()
+    category_set = cfg.build_category_set(hierarchical=True)
     print(f"  Taxonomy: {len(category_set.categories)} leaves, "
           f"{len(category_set.all_categories)} total nodes")
 

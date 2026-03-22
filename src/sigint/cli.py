@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from sigint.config import TaggingConfig
+from sigint.config import load_config
 from sigint.tagger import Tagger
 
 
@@ -24,6 +24,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--dry-run",
         action="store_true",
+        default=None,
         help="Classify but don't write tags to Atlas",
     )
     p.add_argument(
@@ -31,31 +32,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Create SIGDG classification types in Atlas and exit",
     )
-    p.add_argument("--impala-host", default="localhost")
-    p.add_argument("--impala-port", type=int, default=21050)
-    p.add_argument("--atlas-url", default="http://localhost:21000")
+    # None defaults = fall through to HOCON config
+    p.add_argument("--impala-host", default=None, help="Impala host (from config)")
+    p.add_argument("--impala-port", type=int, default=None, help="Impala port (from config)")
+    p.add_argument("--atlas-url", default=None, help="Atlas URL (from config)")
     p.add_argument(
-        "--sample-size", type=int, default=50, help="Values to sample per column"
+        "--sample-size", type=int, default=None, help="Values to sample per column (from config)"
     )
     p.add_argument(
         "--sample-strategy",
         choices=["head", "random", "frequent"],
-        default="head",
+        default=None,
     )
     p.add_argument(
         "--threshold",
         type=float,
-        default=0.5,
-        help="Minimum confidence threshold",
+        default=None,
+        help="Minimum confidence threshold (from config)",
     )
-    # Classifier selection
     p.add_argument(
         "--classifier-type",
         choices=["llm", "embedding"],
-        default="llm",
-        help="Classification method (default: llm)",
+        default=None,
+        help="Classification method (from config)",
     )
-    # LLM classifier options
     p.add_argument(
         "--api-key",
         default=None,
@@ -63,19 +63,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        default="claude-opus-4-6",
-        help="Anthropic model for classification",
+        default=None,
+        help="Anthropic model for classification (from config)",
     )
     p.add_argument(
         "--annotations",
         default=None,
         help="Path to vocabulary CSV (annotations.csv) for domain context",
     )
-    # Embedding classifier options
     p.add_argument(
         "--embedding-model",
-        default="all-MiniLM-L6-v2",
-        help="SentenceTransformer model name (default: all-MiniLM-L6-v2)",
+        default=None,
+        help="SentenceTransformer model name (from config)",
     )
     p.add_argument(
         "--model-path",
@@ -88,24 +87,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    cfg = TaggingConfig(
-        impala_host=args.impala_host,
-        impala_port=args.impala_port,
-        atlas_url=args.atlas_url,
-        sample_size=args.sample_size,
-        sample_strategy=args.sample_strategy,
-        confidence_threshold=args.threshold,
-        classifier_type=args.classifier_type,
-        dry_run=args.dry_run,
-        tables=args.tables,
-        anthropic_api_key=args.api_key,
-        anthropic_model=args.model,
-        annotations_path=args.annotations,
-        embedding_model=args.embedding_model,
-        model_path=args.model_path,
-    )
+    # Build overrides from explicitly-provided CLI args
+    overrides: dict = {}
+    if args.impala_host is not None:
+        overrides["impala_host"] = args.impala_host
+    if args.impala_port is not None:
+        overrides["impala_port"] = args.impala_port
+    if args.atlas_url is not None:
+        overrides["atlas_url"] = args.atlas_url
+    if args.sample_size is not None:
+        overrides["sample_size"] = args.sample_size
+    if args.sample_strategy is not None:
+        overrides["sample_strategy"] = args.sample_strategy
+    if args.threshold is not None:
+        overrides["confidence_threshold"] = args.threshold
+    if args.classifier_type is not None:
+        overrides["classifier_type"] = args.classifier_type
+    if args.api_key is not None:
+        overrides["anthropic_api_key"] = args.api_key
+    if args.model is not None:
+        overrides["anthropic_model"] = args.model
+    if args.annotations is not None:
+        overrides["annotations_path"] = args.annotations
+    if args.embedding_model is not None:
+        overrides["embedding_model"] = args.embedding_model
+    if args.model_path is not None:
+        overrides["model_path"] = args.model_path
+    if args.dry_run is not None:
+        overrides["dry_run"] = args.dry_run
+    if args.tables:
+        overrides["tables"] = args.tables
 
-    tagger = Tagger(cfg)
+    cfg = load_config(overrides=overrides)
+    tc = cfg.to_tagging_config()
+    tagger = Tagger(tc)
 
     try:
         if args.setup_types:

@@ -26,6 +26,7 @@ in
     git
     gh
     jq
+    just
 
     # Kerberos / Security
     krb5
@@ -480,6 +481,25 @@ in
       description = "Reset KDC database (destroys all principals and keytabs)";
     };
 
+    "sigint:resolve-config" = {
+      exec = ''
+        uv run python -c "from sigint.config import load_config, materialize_config; materialize_config(load_config(), 'build/config/sigint.env')"
+        echo "Resolved config -> build/config/sigint.env"
+      '';
+      description = "Resolve HOCON config + env vars to build/config/sigint.env";
+    };
+
+    "sigint:cache-models" = {
+      exec = ''
+        mkdir -p build/models
+        echo "Downloading sentence-transformers model to build/models/ ..."
+        HF_HUB_OFFLINE=0 SENTENCE_TRANSFORMERS_HOME="$PWD/build/models" \
+          uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+        echo "Model cached. Pipeline will run offline (HF_HUB_OFFLINE=1)."
+      '';
+      description = "Pre-download embedding model for air-gap operation";
+    };
+
     "signals:catalog-init" = {
       exec = ''
         psql -p 5455 -d signals_catalog -f config/impala/catalog_schema.sql
@@ -680,6 +700,10 @@ in
     # Kudu build location
     export KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
 
+    # Air-gap safe: use local model cache, no HuggingFace phone-home
+    export HF_HUB_OFFLINE=1
+    export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
+
     # OpenTofu alias
     alias tf=tofu
 
@@ -707,6 +731,8 @@ in
     echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
     echo ""
     echo "Utility tasks:"
+    echo "  devenv tasks run sigint:resolve-config — Resolve config to build/config/sigint.env"
+    echo "  devenv tasks run sigint:cache-models   — Pre-download models for offline use"
     echo "  devenv tasks run signals:kdc-init     — Initialize KDC"
     echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
     echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"

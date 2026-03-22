@@ -793,29 +793,23 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="Build SAGE-enhanced classified parquet for embedding-atlas",
     )
-    p.add_argument("--data-dir", required=True, help="Path to meta-tagging CSV directory")
-    p.add_argument(
-        "--output",
-        default="build/sigint_embeddings.parquet",
-        help="Output parquet file path",
-    )
+    # None defaults = fall through to HOCON config (config/base.conf)
+    p.add_argument("--data-dir", required=True, help="Path to data directory")
+    p.add_argument("--output", default=None, help="Output parquet file path (from config)")
     p.add_argument(
         "--taxonomy",
         choices=["sigdg", "annotations"],
-        default="sigdg",
-        help="Taxonomy to classify against (default: sigdg)",
+        default=None,
+        help="Taxonomy to classify against (from config)",
     )
     p.add_argument(
-        "--embedding-model",
-        default="all-MiniLM-L6-v2",
-        help="SentenceTransformer model (default: all-MiniLM-L6-v2)",
+        "--embedding-model", default=None,
+        help="SentenceTransformer model (from config)",
     )
     p.add_argument("--model-path", default=None, help="Path to trained CatBoost model (.cbm)")
     p.add_argument(
-        "--threshold",
-        type=float,
-        default=0.3,
-        help="Minimum confidence threshold (default: 0.3)",
+        "--threshold", type=float, default=None,
+        help="Minimum confidence threshold (from config)",
     )
     p.add_argument(
         "--no-name-boost",
@@ -829,26 +823,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Feature names to disable for ablation",
     )
     p.add_argument(
-        "--sage-permutations",
-        type=int,
-        default=512,
-        help="SAGE permutation count (default: 512)",
+        "--sage-permutations", type=int, default=None,
+        help="SAGE permutation count (from config)",
     )
     p.add_argument(
-        "--ground-truth",
-        default=None,
+        "--ground-truth", default=None,
         help="Path to LLM ground truth JSON (column→code mappings)",
     )
     p.add_argument(
-        "--ml-folds",
-        type=int,
-        default=5,
-        help="Number of CatBoost CV folds (default: 5)",
+        "--ml-folds", type=int, default=None,
+        help="Number of CatBoost CV folds (from config)",
     )
     p.add_argument(
-        "--train-dir",
-        default=None,
-        help="Path to synthetic training data directory (from generate_meta_tagging_train.py). "
+        "--train-dir", default=None,
+        help="Path to synthetic training data directory. "
         "When provided, trains CatBoost on synthetic data and evaluates on real data "
         "instead of running k-fold CV.",
     )
@@ -860,16 +848,61 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--input-format",
         choices=["csv", "parquet"],
-        default="csv",
-        help="Input data format (default: csv)",
+        default=None,
+        help="Input data format (from config)",
     )
     p.add_argument(
-        "--taxonomy-file",
-        default=None,
-        help="Path to custom taxonomy Python module (must define a function "
-        "returning HierarchicalCategorySet)",
+        "--taxonomy-file", default=None,
+        help="Path to custom taxonomy Python module",
     )
     args = p.parse_args(argv)
+
+    # ── Load config (HOCON + env vars), then overlay CLI args ────────
+    from sigint.config import load_config
+
+    overrides: dict = {"data_dir": args.data_dir}
+    if args.output is not None:
+        overrides["output"] = args.output
+    if args.taxonomy is not None:
+        overrides["taxonomy_name"] = args.taxonomy
+    if args.embedding_model is not None:
+        overrides["embedding_model"] = args.embedding_model
+    if args.model_path is not None:
+        overrides["model_path"] = args.model_path
+    if args.threshold is not None:
+        overrides["confidence_threshold"] = args.threshold
+    if args.no_name_boost:
+        overrides["name_match_boost"] = False
+    if args.sage_permutations is not None:
+        overrides["sage_permutations"] = args.sage_permutations
+    if args.ground_truth is not None:
+        overrides["ground_truth"] = args.ground_truth
+    if args.ml_folds is not None:
+        overrides["ml_folds"] = args.ml_folds
+    if args.train_dir is not None:
+        overrides["train_dir"] = args.train_dir
+    if args.input_format is not None:
+        overrides["input_format"] = args.input_format
+    if args.taxonomy_file is not None:
+        overrides["taxonomy_file"] = args.taxonomy_file
+    if args.no_concat_features:
+        overrides["concat_features"] = False
+
+    cfg = load_config(overrides=overrides)
+
+    # Backfill args from resolved config so downstream code works unchanged
+    args.taxonomy = cfg.taxonomy_name
+    args.embedding_model = cfg.embedding_model
+    args.threshold = cfg.confidence_threshold
+    args.sage_permutations = cfg.sage_permutations
+    args.ml_folds = cfg.ml_folds
+    args.output = cfg.output
+    args.input_format = cfg.input_format
+    if args.ground_truth is None and cfg.ground_truth:
+        args.ground_truth = cfg.ground_truth
+    if args.train_dir is None and cfg.train_dir:
+        args.train_dir = cfg.train_dir
+
     data_dir = Path(args.data_dir).expanduser()
     output = Path(args.output)
 
@@ -878,32 +911,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # ── Build category set ───────────────────────────────────────────
-    category_set = None
-    if args.taxonomy_file:
-        # Load custom taxonomy from Python module
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("custom_taxonomy", args.taxonomy_file)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        # Look for a function that returns a HierarchicalCategorySet
-        for attr_name in dir(mod):
-            attr = getattr(mod, attr_name)
-            if callable(attr) and attr_name.endswith("_category_set"):
-                category_set = attr()
-                break
-        if category_set is None:
-            print(f"Error: no *_category_set() function found in {args.taxonomy_file}", file=sys.stderr)
-            return 1
-        print(f"Loaded custom taxonomy: {len(category_set.categories)} leaf categories")
-    elif args.taxonomy == "annotations":
-        from sigint.category_set import annotation_category_set
-
+    # For annotations taxonomy, auto-detect CSV path from data-dir if not configured
+    if cfg.taxonomy_name == "annotations" and not cfg.annotations_path:
         ann_path = data_dir / "annotations.csv"
-        if not ann_path.exists():
-            print(f"Error: {ann_path} not found", file=sys.stderr)
-            return 1
-        category_set = annotation_category_set(ann_path, hierarchical=True)
-        print(f"Loaded annotation taxonomy: {len(category_set.categories)} leaf categories")
+        if ann_path.exists():
+            cfg = load_config(overrides={**overrides, "annotations_path": str(ann_path)})
+
+    try:
+        category_set = cfg.build_category_set(hierarchical=True)
+        print(f"Loaded {cfg.taxonomy_name} taxonomy: {len(category_set.categories)} leaf categories")
+    except ValueError:
+        category_set = None
 
     # ── Feature mask ─────────────────────────────────────────────────
     feature_mask = build_feature_mask(args.disable_features)

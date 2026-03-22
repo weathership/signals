@@ -35,6 +35,7 @@ class EmbeddingClassifierConfig:
 
     model_name: str = "all-MiniLM-L6-v2"
     model_path: str | None = None
+    cache_dir: str | None = None  # local model cache (air-gap safe)
     confidence_threshold: float = 0.3
     include_values: bool = True
     max_values: int = 5
@@ -151,7 +152,10 @@ class EmbeddingClassifier:
         if device == "auto":
             device = _detect_device()
 
-        self._model = SentenceTransformer(self._config.model_name, device=device)
+        kwargs = {"device": device}
+        if self._config.cache_dir:
+            kwargs["cache_folder"] = str(self._config.cache_dir)
+        self._model = SentenceTransformer(self._config.model_name, **kwargs)
 
         # Scale batch size for GPU — small models like MiniLM-L6 can easily
         # handle 256+ on a modern GPU

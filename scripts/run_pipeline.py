@@ -47,13 +47,14 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="Multi-stage classification pipeline with SAGE feature importance",
     )
-    p.add_argument("--data-dir", required=True, help="Path to meta-tagging CSV directory")
+    # None defaults = fall through to HOCON config (config/base.conf)
+    p.add_argument("--data-dir", required=True, help="Path to data directory")
     p.add_argument("--output", default="build/runs/", help="Output directory for run reports")
     p.add_argument(
         "--taxonomy",
         choices=["sigdg", "annotations"],
-        default="sigdg",
-        help="Taxonomy to classify against",
+        default=None,
+        help="Taxonomy to classify against (from config)",
     )
     p.add_argument(
         "--method",
@@ -61,9 +62,9 @@ def main(argv: list[str] | None = None) -> int:
         default="cosine",
         help="Classification method",
     )
-    p.add_argument("--embedding-model", default="all-MiniLM-L6-v2", help="SentenceTransformer model")
+    p.add_argument("--embedding-model", default=None, help="SentenceTransformer model (from config)")
     p.add_argument("--model-path", default=None, help="Path to trained CatBoost model (.cbm)")
-    p.add_argument("--threshold", type=float, default=0.3, help="Confidence threshold")
+    p.add_argument("--threshold", type=float, default=None, help="Confidence threshold (from config)")
     p.add_argument("--no-name-boost", action="store_true", help="Disable name-match boost")
     p.add_argument(
         "--disable-features",
@@ -72,9 +73,35 @@ def main(argv: list[str] | None = None) -> int:
         help="Feature names to disable for ablation",
     )
     p.add_argument("--sage", action="store_true", help="Run SAGE feature importance analysis")
-    p.add_argument("--sage-permutations", type=int, default=512, help="SAGE permutation count")
+    p.add_argument("--sage-permutations", type=int, default=None, help="SAGE permutation count (from config)")
 
     args = p.parse_args(argv)
+
+    # ── Load config (HOCON + env vars), then overlay CLI args ────────
+    from sigint.config import load_config
+
+    overrides: dict = {"data_dir": args.data_dir}
+    if args.taxonomy is not None:
+        overrides["taxonomy_name"] = args.taxonomy
+    if args.embedding_model is not None:
+        overrides["embedding_model"] = args.embedding_model
+    if args.model_path is not None:
+        overrides["model_path"] = args.model_path
+    if args.threshold is not None:
+        overrides["confidence_threshold"] = args.threshold
+    if args.no_name_boost:
+        overrides["name_match_boost"] = False
+    if args.sage_permutations is not None:
+        overrides["sage_permutations"] = args.sage_permutations
+
+    cfg = load_config(overrides=overrides)
+
+    # Backfill args from resolved config
+    args.taxonomy = cfg.taxonomy_name
+    args.embedding_model = cfg.embedding_model
+    args.threshold = cfg.confidence_threshold
+    args.sage_permutations = cfg.sage_permutations
+
     data_dir = Path(args.data_dir).expanduser()
     output_dir = Path(args.output).expanduser()
 
@@ -83,16 +110,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # ── Build category set ───────────────────────────────────────────
-    category_set = None
-    if args.taxonomy == "annotations":
-        from sigint.category_set import annotation_category_set
-
+    if cfg.taxonomy_name == "annotations" and not cfg.annotations_path:
         ann_path = data_dir / "annotations.csv"
-        if not ann_path.exists():
-            print(f"Error: {ann_path} not found", file=sys.stderr)
-            return 1
-        category_set = annotation_category_set(ann_path, hierarchical=True)
-        print(f"Loaded annotation taxonomy: {len(category_set.categories)} leaf categories")
+        if ann_path.exists():
+            cfg = load_config(overrides={**overrides, "annotations_path": str(ann_path)})
+
+    try:
+        category_set = cfg.build_category_set(hierarchical=True)
+        print(f"Loaded {cfg.taxonomy_name} taxonomy: {len(category_set.categories)} leaf categories")
+    except ValueError:
+        category_set = None
 
     # ── Stage 1: Load + Feature Extraction ───────────────────────────
     print(f"Loading columns from {data_dir}...")

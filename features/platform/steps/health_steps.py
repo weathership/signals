@@ -246,6 +246,12 @@ def step_search_results_contain(context, qn):
 
 @when('I create Atlas entity type "{name}" with attributes:')
 def step_create_entity_type(context, name):
+    # Check if already exists (idempotent for repeated test runs)
+    existing = atlas_api(f"/types/entitydef/name/{name}")
+    if existing.status_code == 200:
+        context.atlas_response = existing
+        return
+
     attr_defs = []
     for row in context.table:
         attr_defs.append({
@@ -397,6 +403,12 @@ def step_ensure_entity(context, qn, type_name):
 
 @when('I create Atlas classification type "{name}"')
 def step_create_classification_type(context, name):
+    # Check if already exists (idempotent for repeated test runs)
+    existing = atlas_api(f"/types/classificationdef/name/{name}")
+    if existing.status_code == 200:
+        context.atlas_response = existing
+        return
+
     body = {
         "classificationDefs": [{
             "name": name,
@@ -474,11 +486,25 @@ def step_suggestions_include(context, text):
 @when('I create an Atlas glossary "{name}"')
 def step_create_glossary(context, name):
     body = {"name": name, "shortDescription": f"BDD test glossary: {name}"}
-    context.atlas_response = atlas_api("/glossary", method="POST", json=body)
+    resp = atlas_api("/glossary", method="POST", json=body)
+    if resp.status_code == 409:
+        # Glossary already exists — find it by listing all glossaries
+        list_resp = atlas_api("/glossary")
+        if list_resp.status_code == 200:
+            for g in list_resp.json():
+                if g.get("name") == name:
+                    context.atlas_response = list_resp
+                    context.atlas_glossary_guid = g["guid"]
+                    context.atlas_glossary_name = name
+                    return
+    context.atlas_response = resp
 
 
 @then("the glossary is created successfully")
 def step_glossary_created(context):
+    # If glossary was found via 409-recovery, guid is already set
+    if hasattr(context, "atlas_glossary_guid") and context.atlas_glossary_guid:
+        return
     resp = context.atlas_response
     assert resp.status_code == 200, (
         f"Glossary creation failed (status {resp.status_code}): {resp.text[:300]}"
@@ -507,11 +533,20 @@ def step_create_glossary_term(context, term, glossary, desc):
         "shortDescription": desc,
         "anchor": {"glossaryGuid": glossary_guid},
     }
-    context.atlas_response = atlas_api("/glossary/term", method="POST", json=body)
+    resp = atlas_api("/glossary/term", method="POST", json=body)
+    if resp.status_code == 409:
+        # Term already exists — find it in the glossary
+        context.atlas_term_exists = True
+        context.atlas_response = resp
+        return
+    context.atlas_term_exists = False
+    context.atlas_response = resp
 
 
 @then("the term is created successfully")
 def step_term_created(context):
+    if getattr(context, "atlas_term_exists", False):
+        return  # idempotent — term already existed
     resp = context.atlas_response
     assert resp.status_code == 200, (
         f"Term creation failed (status {resp.status_code}): {resp.text[:300]}"

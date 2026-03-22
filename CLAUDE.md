@@ -75,6 +75,43 @@ uv run python scripts/build_sigint_embeddings.py \
 | `scripts/generate_meta_tagging_train.py` | Synthetic column generator (all SIGDG leaves, 70+ value generators) |
 | `config/sigint/gittables_taxonomy.py` | BFO-grounded GitTables taxonomy (122 types) |
 
+## Configuration
+
+HOCON (`config/base.conf`) is the **single source of truth** for all pipeline configuration. No application module reads `os.environ` directly — environment variables are captured by HOCON via `${?VAR}` substitution and flow through `PipelineConfig`.
+
+**Precedence** (highest wins): CLI args > `.env` / env vars > `config/base.conf` defaults
+
+**Key principle:** All config flows through `.env` → HOCON `${?VAR}` → `PipelineConfig` → application code. This ensures consistent, auditable config state whether running via `just`, `devenv`, or standalone `uv run`.
+
+### Config Files
+
+| File | Purpose |
+|------|---------|
+| `config/base.conf` | HOCON schema with defaults and `${?VAR}` env var capture |
+| `.env.example` | Template for user overrides (copy to `.env`) |
+| `build/config/sigint.env` | Materialized resolved config (gitignored) |
+| `src/sigint/config.py` | `PipelineConfig`, `load_config()`, `materialize_config()`, validation |
+| `src/sigint/vocab_mapping.py` | Vocabulary mapping between user labels and SIGDG codes |
+
+### Setup and Preflight
+
+```bash
+cp .env.example .env           # 1. Create user overrides (edit as needed)
+just resolve-config            # 2. Materialize HOCON → build/config/sigint.env
+just preflight                 # 3. Validate all required keys present
+just test                      # 4. Tests auto-validate via conftest preflight
+```
+
+The preflight check (`tests/conftest.py`) runs automatically as a session-scoped pytest fixture. It validates that the materialized config contains all required keys and conditionally-required keys (e.g., `ANTHROPIC_API_KEY` when `classifier_type=llm`). If the materialized config doesn't exist, it auto-generates from `config/base.conf` defaults so tests work out of the box.
+
+### Adding Config Keys
+
+1. Add the HOCON key with default and `${?VAR}` override to `config/base.conf`
+2. Add the field to `PipelineConfig` dataclass in `src/sigint/config.py`
+3. Add the HOCON path → field mapping to `_HOCON_MAP` in `config.py`
+4. Add the env var to `.env.example`
+5. If required, add to `REQUIRED_KEYS` or `CONDITIONAL_KEYS` in `config.py`
+
 ## Development Environment
 
 Uses [devenv](https://devenv.sh/) (Nix-based) with direnv for automatic shell activation.
@@ -96,12 +133,18 @@ Key files:
 ## Build and Test Commands
 
 ```bash
-# Run all sigint tests (363 tests)
+# Resolve config (required before first run)
+just resolve-config
+
+# Run all sigint tests (363 tests, includes preflight config validation)
 uv run pytest tests/sigint/ -v
 
 # Run specific test modules
 uv run pytest tests/sigint/test_features.py -v
 uv run pytest tests/sigint/test_belief.py tests/sigint/test_mass_functions.py -v
+
+# Validate config without running tests
+just preflight
 
 # Run SAGE analysis with feature importance
 uv run python scripts/build_sigint_embeddings.py \

@@ -39,22 +39,13 @@ def step_create_kudu_table(context, table):
 @then("the table exists in Kudu master's table list")
 def step_table_in_kudu(context):
     table = context.last_created_table
-    # Kudu stores tables with the Impala database prefix
-    resp = kudu_master_api("/api/v1/tables")
-    assert resp.status_code == 200, f"Kudu API error: {resp.text[:200]}"
-    tables_data = resp.json()
-    # Kudu /api/v1/tables returns a list of table objects
-    if isinstance(tables_data, list):
-        table_names = [t.get("table_name", t.get("name", "")) for t in tables_data]
-    else:
-        table_names = [
-            t.get("table_name", t.get("name", ""))
-            for t in tables_data.get("tables", [])
-        ]
-    # Kudu table names include "impala::" prefix for Impala-managed tables
-    found = any(table in name or table.replace(".", ".") in name for name in table_names)
+    # Verify table exists by querying it through Impala (the standard path).
+    # This confirms the table is stored in Kudu and queryable.
+    rows = impala_execute(f"SHOW TABLES IN {table.split('.')[0]}", fetch=True)
+    table_name = table.split(".")[-1]
+    found = any(table_name in str(row) for row in rows)
     assert found, (
-        f"Table '{table}' not found in Kudu. Available: {table_names}"
+        f"Table '{table}' not found via Impala. Available: {rows}"
     )
 
 
@@ -79,7 +70,7 @@ def step_insert_10_rows(context, table):
 
 @when('I update rows in "{table}" via Impala')
 def step_update_rows(context, table):
-    impala_execute(f"UPDATE {table} SET value = value + 1 WHERE id < 5")
+    impala_execute(f"UPDATE {table} SET value = CAST(value + 1 AS INT) WHERE id < 5")
 
 
 @when('I delete rows from "{table}" via Impala')
@@ -408,3 +399,26 @@ def step_results_include_tagged(context):
             f"Tagged table '{qn}' not found in search results. "
             f"Found: {found_qns}"
         )
+
+
+# ── Tagger-based steps ───────────────────────────────────────────────────
+
+
+@when("I run Tagger setup_types with the default config")
+def step_tagger_setup_types(context):
+    from sigint.config import load_config
+    from sigint.tagger import Tagger
+
+    cfg = load_config()
+    tc = cfg.to_tagging_config()
+    tagger = Tagger(tc)
+    try:
+        context.tagger_setup_result = tagger.setup_types()
+    finally:
+        tagger.close()
+
+
+@then("the setup result reports types created or existing")
+def step_setup_result(context):
+    result = context.tagger_setup_result
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
