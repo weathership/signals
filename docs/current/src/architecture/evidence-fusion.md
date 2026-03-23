@@ -335,7 +335,7 @@ dst.mass -> dst.combine -> dst.out
 
 ### Test Coverage
 
-72 tests cover the DST layer (280 total across the sigint package):
+72 tests cover the DST layer (363 total across the sigint package):
 
 | Test File | Count | Scope |
 |-----------|-------|-------|

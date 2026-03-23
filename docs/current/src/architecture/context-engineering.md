@@ -89,7 +89,7 @@ The classification pipeline runs in four stages, producing a parquet with three 
 direction: right
 
 s1: "Stage 1\nFeature Extraction" {
-  tooltip: "ColumnSample + siblings → ColumnFeatures (11 discrete, ablatable features)"
+  tooltip: "ColumnSample + siblings → ColumnFeatures (12 discrete, ablatable features)"
   style.fill: "#e8f4f8"
 }
 
