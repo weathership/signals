@@ -103,13 +103,13 @@ The cross-benchmark comparison reveals three regimes:
 
 The regimes map to a principled DST integration rule: use cosine evidence's own confidence to decide how to weight it against CatBoost.
 
-| Cosine Confidence | Regime | Action |
-|-------------------|--------|--------|
-| > 0.35 | High — cosine is reliable | Discount CatBoost |
-| 0.05 - 0.35 | Medium — both contribute | Standard DST combination |
-| < 0.05 | Low — cosine has no signal | Discount cosine |
+| Cosine Confidence | Regime | Observed Behavior |
+|-------------------|--------|-------------------|
+| > 0.35 | High — cosine is reliable | Cosine near-certain; CatBoost adds marginal value |
+| 0.05 - 0.35 | Medium — both contribute | Standard DST combination is appropriate |
+| < 0.05 | Low — cosine has no signal | Cosine creates destructive conflict; CatBoost should dominate |
 
-This is the *confidence-gated fusion* pattern. It resolves the source independence concern ([R-01](../reference/research-roadmap.md)) by recognizing that cosine and CatBoost share the embedding space but contribute discriminatively in different regimes. Rather than always combining or always choosing one, the gate selects the regime where each source adds value.
+This regime analysis motivates a planned *confidence-gated adaptive discounting* refinement (tracked in [R-02](../reference/research-roadmap.md)). The current implementation uses fixed discounts, but the empirical observation is that cosine and CatBoost, despite sharing the embedding space, contribute discriminatively in different regimes — their functional orthogonality mitigates (but does not eliminate) the source independence concern ([R-01](../reference/research-roadmap.md)).
 
 The DST conflict metric \\(K\\) provides the runtime diagnostic: when \\(K > 0.5\\), the sources disagree enough that one should be discounted. On GitTables, 100% of columns have \\(K > 0.5\\) — a clear signal that cosine should be discounted. On meta-tagging data columns, \\(K\\) is moderate (mean 0.47) — the sources agree enough for standard combination.
 

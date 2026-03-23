@@ -217,17 +217,9 @@ Replaces the previous additive boost heuristic with a proper evidence source. Th
 
 This formalization means name matching no longer inflates confidence scores. Instead, its evidence is combined with other sources via Dempster's rule, where agreement reinforces and disagreement raises the conflict diagnostic.
 
-## Confidence-Gated Fusion
+## Cross-Benchmark Analysis: Cosine Reliability Regimes
 
-Cross-benchmark experiments reveal that cosine similarity evidence is not uniformly helpful — it ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy). Rather than using a fixed cosine discount, confidence-gated fusion adapts the discount based on the cosine evidence's own confidence.
-
-### Three Regimes
-
-| Cosine Confidence | Regime | Fusion Strategy |
-|-------------------|--------|-----------------|
-| > 0.35 | High — cosine is reliable | Discount CatBoost; cosine evidence is near-certain |
-| 0.05 - 0.35 | Medium — both sources contribute | Standard Dempster combination |
-| < 0.05 | Low — cosine has no signal | Discount cosine; let CatBoost dominate |
+Cross-benchmark experiments reveal that cosine similarity evidence is not uniformly helpful — it ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy).
 
 ### Empirical Evidence
 
@@ -235,9 +227,19 @@ On **GitTables** (2517 columns, all generic names): CatBoost standalone achieves
 
 On the **SIGDG evaluation set** (mixed semantic and opaque names): cosine achieves 99.4% on semantically named columns but only 8.0% on opaque-name columns. CatBoost adds value precisely where cosine fails (29.7% on opaque columns). The union ceiling of both methods reaches 66.0% — 12 points above either alone.
 
-The confidence metric cleanly separates the regimes: semantic-name columns (cosine confidence > 0.35) are cosine-reliable; opaque-name columns (cosine confidence < 0.05) require CatBoost. This aligns with the source independence analysis in [R-01](../reference/research-roadmap.md) — cosine and CatBoost share the embedding space, but confidence gating prevents the shared representation from producing over-reinforcement or destructive interference.
+### Three Regimes
 
-See [Heuristic Elucidation](./heuristic-elucidation.md#cross-benchmark-validation) for the full cross-benchmark analysis that motivated this pattern.
+| Cosine Confidence | Regime | Observed Behavior |
+|-------------------|--------|-------------------|
+| > 0.35 | High — cosine is reliable | Cosine near-certain; CatBoost adds marginal value |
+| 0.05 - 0.35 | Medium — both sources contribute | Standard Dempster combination is appropriate |
+| < 0.05 | Low — cosine has no signal | Cosine creates destructive conflict; CatBoost should dominate |
+
+The current implementation uses fixed discounts (0.3 for cosine, 0.15 for CatBoost). The regime analysis motivates a planned refinement: **confidence-gated adaptive discounting**, where the cosine discount increases when cosine confidence is low and decreases when it is high. This is tracked as part of the [calibration experiment (R-02)](../reference/research-roadmap.md) in the research roadmap.
+
+The regime structure also informs the source independence analysis — cosine and CatBoost share the embedding space, but in different regimes their contributions are nearly orthogonal: cosine dominates on semantic names (where CatBoost is redundant) and CatBoost dominates on opaque names (where cosine is noise).
+
+See [Heuristic Elucidation](./heuristic-elucidation.md#cross-benchmark-validation) for the full cross-benchmark analysis.
 
 ## Hierarchical Classification Output
 
@@ -344,10 +346,53 @@ dst.mass -> dst.combine -> dst.out
 | `test_hierarchical_category_set.py` | 16 | Tree navigation, backward compatibility, factory functions |
 | `test_hierarchical_classification.py` | 15 | Belief methods, uncertainty diagnostics, classify_dst integration |
 
+## Combination Rule Choice & Limitations
+
+### Why Classical Dempster
+
+The implementation uses Dempster's conjunctive rule with normalization (the orthogonal sum) for several engineering reasons:
+
+1. **Associativity and commutativity.** The combination order does not affect the result. Sources can be added or removed without restructuring the pipeline. `combine_multiple()` applies left-to-right sequential combination, but the final mass function is order-independent.
+2. **Traceability.** Every combined mass can be decomposed back to source contributions. The evidence string records per-source mass summaries alongside \\([Bel, Pl, K]\\), making audit straightforward.
+3. **Conflict as diagnostic.** Dempster's \\(K\\) is not a flaw — it is a feature. High conflict between sources is a meaningful signal that something is wrong (ambiguous column, mismatched evidence). The `needs_clarification` flag (\\(K > 0.2\\) or gap \\(> 0.3\\)) routes uncertain columns to human review rather than suppressing disagreement.
+4. **Restricted focal set efficiency.** With ~53 focal elements and 3 pairwise combinations, the \\(O(F^2)\\) cost per column is negligible. More complex rules (e.g., PCR6) would add implementation complexity without proportional benefit at this scale.
+
+### Known Limitations
+
+**High-conflict sensitivity (Zadeh's paradox).** Classical Dempster with normalization concentrates mass on the intersection even when conflict is extreme. Zadeh (1986) demonstrated that when two sources assign mass to disjoint singletons, the normalized result assigns all mass to a third category with negligible original support. In our setting, this scenario is mitigated by three factors: (a) all four sources operate over the same embedding-derived information, making fully disjoint evidence unlikely in practice; (b) pattern and name-match sources return vacuous mass functions when they have no signal, contributing zero conflict rather than misleading evidence; (c) the \\(K > 0.2\\) flag identifies problematic cases for human review. However, no formal fallback rule is triggered — this is a passive diagnostic, not an active conflict resolution mechanism.
+
+**Source independence.** Dempster's rule assumes independent evidence sources. Cosine similarity and CatBoost both consume the same sentence-transformer embedding vector — they are not independent. Name matching partially overlaps with cosine (column name is part of embedding text). The cross-benchmark regime analysis suggests their contributions are *functionally* orthogonal in most cases (cosine dominates on semantic names, CatBoost on opaque names), but this is an empirical observation, not a theoretical guarantee. Options under consideration include merging cosine and CatBoost into a single source, decoupling their feature spaces, or adopting a cautious rule that does not require independence (Denoeux, 2008). See [R-01: Source Independence Analysis](../reference/research-roadmap.md).
+
+**Heuristic discounting.** The fixed discount constants (cosine: 0.30, CatBoost: 0.15, pattern: 0.10, name match: 0.30/0.50/0.70) were set by engineering judgment. No sensitivity analysis, grid search, or Bayesian optimization has been published. CatBoost's variance-adaptive discount is the one exception — it uses virtual ensemble variance to modulate trust. A systematic calibration experiment ([R-02](../reference/research-roadmap.md)) is planned: sweep constants against held-out data, measure accuracy and Expected Calibration Error (ECE), and extract optimized values with confidence intervals.
+
+**Hierarchical propagation.** Belief and plausibility at internal taxonomy nodes are computed by standard summation over subsets (\\(Bel(A) = \sum_{B \subseteq A} m(B)\\)), which is correct for arbitrary focal sets. The restricted focal set — singletons, internal nodes, confusable pairs, \\(\Theta\\) — means these sums involve only the pre-computed focal elements that are subsets of a given node's descendant set. This is not optimized via dedicated hierarchical algorithms (e.g., Shafer-Logan or evidential network propagation). For the current focal set size (~53 elements), brute-force summation is adequate. Larger taxonomies or dense confusable-pair sets would benefit from lattice-based optimization.
+
+**Closed-world assumption.** The implementation enforces \\(m(\emptyset) = 0\\), appropriate for classification against an exhaustive taxonomy. Mass on \\(\Theta\\) represents "one of these categories, but I don't know which" — not "none of the above." The Transferable Belief Model's open-world extension (Smets, 1990) would allow \\(m(\emptyset) > 0\\) for unknown-category detection. This is a potential extension for schema-drift scenarios where new column types appear that do not map to any SIGDG category.
+
+**Decision mapping.** The pignistic transform (BetP) always selects a leaf singleton for the classification decision. When evidence supports a parent node but is ambiguous among its children, the classifier still commits to a specific leaf — even when \\(Bel(\text{leaf}) \ll Bel(\text{parent})\\). A cautious classification approach following Denoeux & Zouhal (2001) would return the deepest hierarchy node where \\(Bel(A) > \tau\\), preserving the hierarchy's value. See [R-05: Cautious Hierarchical Classification](../reference/research-roadmap.md).
+
+### Alternative Rules Considered
+
+| Rule | Property | Trade-off |
+|------|----------|-----------|
+| **Yager (1987)** | Conflict mass → \\(\Theta\\) instead of normalization | Conservative; avoids Zadeh paradox but increases ignorance |
+| **Dubois-Prade (1988)** | Disjunctive: conflict mass → union \\(A \cup B\\) | Preserves information but produces large focal elements |
+| **Murphy (2000)** | Average masses before single Dempster combination | Simple; handles high conflict but loses sequential diagnostics |
+| **Denoeux cautious (2008)** | Weight-based; does not require independence | Theoretically cleanest for our setting; more complex to implement |
+| **PCR6 (Smarandache-Dezert)** | Proportional conflict redistribution | Addresses Zadeh paradox directly; computationally expensive |
+
+The modular architecture (`belief.py` + `mass_functions.py`) is designed to allow rule substitution — `dempster_combine()` can be swapped for any pairwise combination function with the same signature `(BeliefAssignment, BeliefAssignment) → (BeliefAssignment, float)`. A planned branch will benchmark Murphy averaging and Yager's rule against classical Dempster on high-\\(K\\) synthetic columns.
+
 ## References
 
-- Shafer, G. (1976). *A Mathematical Theory of Evidence*. Princeton University Press.
-- Smets, P. & Kennes, R. (1994). The Transferable Belief Model. *Artificial Intelligence*, 66(2), 191-234.
-- Smets, P. (1990). The combination of evidence in the Transferable Belief Model. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 12(5), 447-458.
+- Dubois, D. & Prade, H. (1988). Representation and combination of uncertainty with belief functions and possibility measures. *Computational Intelligence*, 4(3), 244-264.
 - Denoeux, T. (2008). Conjunctive and disjunctive combination of belief functions induced by nondistinct bodies of evidence. *Artificial Intelligence*, 172(2-3), 234-264.
 - Denoeux, T. & Zouhal, L.M. (2001). Handling possibilistic labels in pattern classification using evidential reasoning. *Fuzzy Sets and Systems*, 122(3), 409-424.
+- Murphy, C.K. (2000). Combining belief functions when evidence conflicts. *Decision Support Systems*, 29(1), 1-9.
+- Sentz, K. & Ferson, S. (2002). Combination of Evidence in Dempster-Shafer Theory. *Sandia National Laboratories*, SAND2002-0835.
+- Shafer, G. (1976). *A Mathematical Theory of Evidence*. Princeton University Press.
+- Smarandache, F. & Dezert, J. (2005). Information fusion based on new proportional conflict redistribution rules. *Proceedings of Fusion 2005*.
+- Smets, P. (1990). The combination of evidence in the Transferable Belief Model. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 12(5), 447-458.
+- Smets, P. & Kennes, R. (1994). The Transferable Belief Model. *Artificial Intelligence*, 66(2), 191-234.
+- Yager, R.R. (1987). On the Dempster-Shafer framework and new combination rules. *Information Sciences*, 41(2), 93-137.
+- Zadeh, L.A. (1986). A simple view of the Dempster-Shafer theory of evidence and its implication for the rule of combination. *AI Magazine*, 7(2), 85-90.

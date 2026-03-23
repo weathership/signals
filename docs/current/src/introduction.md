@@ -23,9 +23,9 @@ The interval width \\(Pl(A) - Bel(A)\\) quantifies epistemic uncertainty. The De
 
 The frame of discernment uses a restricted focal set — singletons, internal taxonomy nodes, and empirically identified confusable pairs — reducing computational complexity from \\(2^{30}\\) to ~53 focal elements for the SIGDG taxonomy (30 leaves). Each Dempster combination requires \\(O(F^2)\\) operations over focal elements; with 4 sources and \\(F \approx 53\\), classification overhead is sub-millisecond per column.
 
-### Confidence-Gated Fusion
+### Cosine Reliability Regimes
 
-Cross-benchmark analysis revealed that cosine similarity ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy). Rather than a fixed discount, the fusion layer adapts: when cosine confidence is high (>0.35), cosine evidence dominates; when low (<0.05), CatBoost dominates. The intermediate regime uses standard Dempster combination. This prevents the shared embedding space from causing over-reinforcement or destructive interference between sources.
+Cross-benchmark analysis revealed that cosine similarity ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy). Three regimes emerge: high cosine confidence (>0.35) where cosine is reliable, low (<0.05) where CatBoost should dominate, and an intermediate regime where standard Dempster combination is appropriate. The current implementation uses fixed discounts; adaptive confidence-gated discounting is a planned refinement. See [Evidence Fusion](./architecture/evidence-fusion.md) for the regime analysis and [Combination Rule Choice & Limitations](./architecture/evidence-fusion.md#combination-rule-choice--limitations) for design trade-offs.
 
 ## Architecture
 
