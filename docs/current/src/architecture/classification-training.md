@@ -160,7 +160,7 @@ The pipeline computes per-item feature explanations using CatBoost's built-in Tr
 | `shap_top1_name` | Feature group name | e.g., `full_embedding`, `sample_values`, `column_name` |
 | `shap_top1_value` | SHAP magnitude | Summed absolute SHAP value for the feature group |
 
-CatBoost's 991-dimensional feature space is grouped into interpretable categories: `full_embedding` (384 dims), `value_only_embedding` (384 dims), and 11 discrete features (`column_name`, `sample_values`, `cardinality`, `null_ratio`, `entropy`, `pattern_*`, `value_description`, `sibling_context`) plus cosine similarities. SHAP values within each group are summed to produce a single importance score.
+CatBoost's 992-dimensional feature space is grouped into interpretable categories: `full_embedding` (384 dims), `value_only_embedding` (384 dims), and 11 discrete features (`column_name`, `sample_values`, `cardinality`, `null_ratio`, `entropy`, `pattern_*`, `value_description`, `sibling_context`) plus cosine similarities. SHAP values within each group are summed to produce a single importance score.
 
 Disable SHAP with `--no-shap` for faster runs that skip the TreeSHAP computation.
 
