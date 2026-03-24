@@ -219,6 +219,9 @@ devenv.local.yaml
 # pre-commit
 .pre-commit-config.yaml
 
+# CatBoost training artifacts
+catboost_info/
+
 # mdbook build output
 docs/current/book/
 

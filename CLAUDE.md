@@ -12,12 +12,12 @@ The primary workflow is the **sigint classification pipeline**: a Python package
 
 ### sigint Classification Pipeline
 
-The `src/sigint/` package (20 modules) implements a multi-stage classification pipeline:
+The `src/sigint/` package (23 modules) implements a multi-stage classification pipeline:
 
 1. **Feature Extraction** — 12 discrete, ablatable features extracted from column metadata (name, type, sample values, cardinality, entropy, pattern signals, value description, etc.)
 2. **Embedding Classification** — Sentence-transformer embeddings (MiniLM-L6, 384-dim) with cosine similarity to taxonomy reference embeddings
-3. **CatBoost Training** — Gradient boosting on 992-dim feature vectors (dual embedding + discrete features + cosine similarities), trained on synthetic data or cross-validated
-4. **DST Evidence Fusion** — Dempster-Shafer Theory combines 4 independent evidence sources (cosine, CatBoost, pattern detection, name matching) into belief intervals [Bel, Pl] with conflict diagnostics
+3. **CatBoost Training** — Gradient boosting on 992-dim feature vectors (dual embedding + discrete features + cosine similarities), trained on synthetic data or cross-validated; `--self-train` mode injects GT labels for LLM annotation reproduction (99.4% accuracy)
+4. **DST Evidence Fusion** — Dempster-Shafer Theory combines 5 evidence sources (cosine, CatBoost, pattern detection, name matching, SVM) into belief intervals [Bel, Pl] with conflict diagnostics
 5. **SAGE Analysis** — Shapley Additive Global importancE measures each feature's marginal contribution to accuracy
 
 ### Two Operational Modes
@@ -35,29 +35,29 @@ uv run python scripts/evaluate_gittables.py \
 
 **Internal synthetic data** trains and evaluates on the SIGDG taxonomy (42 categories, 30 leaves):
 ```bash
-# Generate synthetic training data (70+ value generators, 50/50 semantic/opaque names)
+# Single-command: auto-generate synthetic data + train + classify + SHAP
+uv run python scripts/build_sigint_embeddings.py \
+    --data-dir <data-dir> \
+    --taxonomy <taxonomy> --threshold 0.25 \
+    --ground-truth <ground-truth.json> \
+    --auto-generate --variants-per-category 50 \
+    --output build/sigint_shap_eval.parquet
+
+# Two-step: generate separately, then train→eval
 uv run python scripts/generate_meta_tagging_train.py \
     --data-dir <data-dir> \
     --output-dir build/datasets/sigint_train/ \
-    --variants-per-category 30
+    --variants-per-category 50
 
-# Train→eval pipeline
 uv run python scripts/build_sigint_embeddings.py \
     --data-dir <data-dir> \
     --taxonomy <taxonomy> --threshold 0.25 \
     --ground-truth <ground-truth.json> \
     --train-dir build/datasets/sigint_train/ \
     --output build/sigint_embeddings.parquet
-
-# With DST belief intervals
-uv run python scripts/build_sigint_embeddings.py \
-    --data-dir <data-dir> \
-    --taxonomy <taxonomy> --threshold 0.25 \
-    --ground-truth <ground-truth.json> \
-    --train-dir build/datasets/sigint_train/ \
-    --dst \
-    --output build/sigint_dst.parquet
 ```
+
+DST evidence fusion is always active — the pipeline produces Dempster-Shafer belief intervals automatically when multiple evidence sources are available. Item-wise SHAP explanations are included by default (disable with `--no-shap`).
 
 ### Key Source Files
 
@@ -69,6 +69,8 @@ uv run python scripts/build_sigint_embeddings.py \
 | `src/sigint/mass_functions.py` | Evidence-to-mass converters (cosine, CatBoost, pattern, name) |
 | `src/sigint/classifier.py` | HierarchicalClassification with belief intervals |
 | `src/sigint/sage_analysis.py` | SAGE feature importance with GPU acceleration |
+| `src/sigint/shap_analysis.py` | Per-item CatBoost TreeSHAP explanations |
+| `src/sigint/svm_classifier.py` | TF-IDF + LinearSVC 5th DST evidence source |
 | `src/sigint/confusable_pairs.py` | Known ambiguous category pairs (ADID/GUID, BAN/PAN) |
 | `src/sigint/category_set.py` | Taxonomy-agnostic category sets (SIGDG + GitTables) |
 | `scripts/build_sigint_embeddings.py` | Full pipeline: features → classification → CatBoost → SAGE |
@@ -136,7 +138,7 @@ Key files:
 # Resolve config (required before first run)
 just resolve-config
 
-# Run all sigint tests (363 tests, includes preflight config validation)
+# Run all sigint tests (415 tests, includes preflight config validation)
 uv run pytest tests/sigint/ -v
 
 # Run specific test modules

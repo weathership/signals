@@ -19,14 +19,14 @@ from sigint.sampler import ColumnSample
 
 
 def _detect_device() -> str:
-    """Return 'cuda' if a CUDA GPU is available, else 'cpu'."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda"
-    except ImportError:
-        pass
-    return "cpu"
+    """Return 'cuda' if a CUDA GPU is available, else 'cpu'.
+
+    Uses the centralized GPU preflight check which validates
+    driver/PyTorch CUDA version compatibility.
+    """
+    from sigint.config import preflight_gpu
+
+    return preflight_gpu().resolved_device
 
 
 @dataclass
@@ -125,6 +125,8 @@ class EmbeddingClassifier:
         self._category_embeddings = None  # (N, dim) ndarray
         self._cb_model = None
         self._cb_classes = None
+        self._svm_model = None  # SVMClassifier, lazily loaded or injected
+        self._svm_loaded = False  # True once load attempted (avoids re-trying)
         self._hierarchical_cs: CategorySet | None = None
         self._frame = None  # FrameOfDiscernment, lazily built
 
@@ -254,6 +256,55 @@ class EmbeddingClassifier:
         self._frame = FrameOfDiscernment(hcs, confusable_pairs=pairs)
         return self._frame
 
+    def _get_svm_model(self):
+        """Lazily load SVM model from config path, if available."""
+        if self._svm_model is not None:
+            return self._svm_model
+        if self._svm_loaded:
+            return None  # Already tried, no model found
+        self._svm_loaded = True
+
+        # Check if config has svm_model_path (only available via PipelineConfig)
+        model_path = getattr(self._config, "svm_model_path", None)
+        if not model_path:
+            return None
+
+        from pathlib import Path
+
+        path = Path(model_path)
+        if not path.exists():
+            return None
+
+        from sigint.svm_classifier import SVMClassifier
+
+        self._svm_model = SVMClassifier.load(str(path))
+        return self._svm_model
+
+    def set_svm_model(self, svm_model) -> None:
+        """Inject a pre-trained SVM model for DST fusion.
+
+        Called by the pipeline when SVM is trained inline on synthetic data.
+        """
+        self._svm_model = svm_model
+        self._svm_loaded = True
+
+    @staticmethod
+    def _build_svm_text(sample: ColumnSample) -> str:
+        """Build short text for SVM — matches training format.
+
+        Uses ``name | type | values`` format, identical to the pipeline's
+        ``_build_svm_text(record)`` but operating on :class:`ColumnSample`.
+        This ensures the SVM sees the same text format at inference time
+        as it was trained on, avoiding the distribution shift that occurs
+        when the full 12-feature embedding text is passed instead.
+        """
+        parts = [sample.column_name.replace("_", " ")]
+        if sample.column_type and sample.column_type.upper() not in ("STRING", "VARCHAR"):
+            parts.append(sample.column_type.lower())
+        if sample.values:
+            parts.append(", ".join(str(v)[:80] for v in sample.values[:5]))
+        return " | ".join(parts)
+
     # ── Classification ───────────────────────────────────────────────
 
     def classify(
@@ -264,29 +315,36 @@ class EmbeddingClassifier:
         features: ColumnFeatures | None = None,
         feature_mask: dict[str, bool] | None = None,
         catboost_proba: dict[str, float] | None = None,
+        svm_proba: dict[str, float] | None = None,
     ) -> HierarchicalClassification | None:
         """Classify a column sample via Dempster-Shafer evidence fusion.
 
-        Combines up to 4 evidence sources:
+        Combines up to 5 evidence sources:
         1. Cosine similarities → mass function
         2. CatBoost probabilities → mass function (if model loaded or proba provided)
         3. Pattern signals → mass function (if features provided)
         4. Name match → mass function (if enabled)
+        5. SVM probabilities → mass function (if proba provided)
 
         Args:
             catboost_proba: External CatBoost probabilities {code: prob} from
                 e.g. k-fold CV.  When provided, used instead of the loaded model.
+            svm_proba: External SVM calibrated probabilities {code: prob} from
+                a TF-IDF + LinearSVC classifier.  Provides an architecturally
+                independent evidence source using sparse lexical features.
 
         Returns a HierarchicalClassification with belief intervals.
         """
         import numpy as np
 
+        from sigint.belief import BeliefAssignment
         from sigint.mass_functions import (
             catboost_to_mass,
             cosine_to_mass,
             get_pattern_category_map,
             name_match_to_mass,
             pattern_to_mass,
+            svm_to_mass,
         )
 
         frame = self._get_frame()
@@ -312,7 +370,7 @@ class EmbeddingClassifier:
         cats = self._category_set.categories
         sim_dict = {cat.code: float(sims[i]) for i, cat in enumerate(cats)}
 
-        source_masses: dict[str, object] = {}
+        source_masses: dict[str, BeliefAssignment] = {}
 
         # 1. Cosine evidence
         source_masses["cosine"] = cosine_to_mass(sim_dict, frame, discount=0.3)
@@ -344,6 +402,16 @@ class EmbeddingClassifier:
             source_masses["name_match"] = name_match_to_mass(
                 sample.column_name, frame, self._category_set
             )
+
+        # 5. SVM evidence (external proba, or loaded/injected model)
+        if svm_proba is not None:
+            source_masses["svm"] = svm_to_mass(svm_proba, frame)
+        else:
+            svm = self._get_svm_model()
+            if svm is not None:
+                svm_proba = svm.predict_proba_single(self._build_svm_text(sample))
+                if svm_proba:
+                    source_masses["svm"] = svm_to_mass(svm_proba, frame)
 
         result = HierarchicalClassification.from_combined_evidence(
             source_masses=source_masses,

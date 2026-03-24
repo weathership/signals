@@ -9,6 +9,7 @@ from sigint.mass_functions import (
     cosine_to_mass,
     name_match_to_mass,
     pattern_to_mass,
+    svm_to_mass,
 )
 
 
@@ -82,6 +83,24 @@ class TestCatBoostToMass:
         assert ba_high_var.masses[frame.theta] > ba_no_var.masses[frame.theta]
 
 
+    def test_mismatched_classes_still_valid(self):
+        """CatBoost proba with unknown codes still produces valid mass (R-04)."""
+        frame, _ = _make_frame()
+        proba = {"0085": 0.8, "0076": 0.1, "UNKNOWN": 0.1}
+        ba = catboost_to_mass(proba, frame)
+        assert ba.is_valid
+        # Residual from UNKNOWN should go to Theta
+        assert ba.masses[frame.theta] > 0.15  # base discount + residual
+
+    def test_all_unknown_classes_returns_near_vacuous(self):
+        """All proba codes unknown → all evidence mass to Theta."""
+        frame, _ = _make_frame()
+        proba = {"UNKNOWN_A": 0.6, "UNKNOWN_B": 0.4}
+        ba = catboost_to_mass(proba, frame)
+        assert ba.is_valid
+        assert abs(ba.masses[frame.theta] - 1.0) < 1e-9
+
+
 class TestPatternToMass:
     def test_email_pattern_maps_to_email(self):
         frame, _ = _make_frame()
@@ -142,6 +161,56 @@ class TestNameMatchToMass:
         ba = name_match_to_mass("xyzzy_nonsense", frame, cs)
         assert ba.is_valid
         assert ba.masses[frame.theta] == 1.0
+
+
+class TestSvmToMass:
+    def test_high_probability_concentrated(self):
+        """High SVM probability → concentrated mass on singleton."""
+        frame, _ = _make_frame()
+        proba = {"0085": 0.85, "0076": 0.10, "0074": 0.05}
+        ba = svm_to_mass(proba, frame, discount=0.20)
+        assert ba.is_valid
+        tin_mass = ba.masses.get(frame.singleton("0085"), 0.0)
+        assert tin_mass > 0.5
+
+    def test_empty_returns_vacuous(self):
+        frame, _ = _make_frame()
+        ba = svm_to_mass({}, frame)
+        assert ba.is_valid
+        assert ba.masses[frame.theta] == 1.0
+
+    def test_discount_controls_theta(self):
+        frame, _ = _make_frame()
+        proba = {"0085": 0.9, "0076": 0.1}
+        ba = svm_to_mass(proba, frame, discount=0.4)
+        assert abs(ba.masses[frame.theta] - 0.4) < 1e-9
+
+    def test_default_discount_is_020(self):
+        """Default SVM discount (0.20) is lower than cosine (0.30)."""
+        frame, _ = _make_frame()
+        proba = {"0085": 1.0}
+        ba = svm_to_mass(proba, frame)
+        assert abs(ba.masses[frame.theta] - 0.20) < 1e-9
+
+    def test_mismatched_classes_still_valid(self):
+        """SVM proba with unknown codes still produces valid mass (R-04)."""
+        frame, _ = _make_frame()
+        proba = {"0085": 0.7, "UNKNOWN": 0.3}
+        ba = svm_to_mass(proba, frame, discount=0.20)
+        assert ba.is_valid
+        # Residual from UNKNOWN should go to Theta
+        assert ba.masses[frame.theta] > 0.20
+
+    def test_probabilities_scaled_by_evidence_mass(self):
+        """SVM probabilities are scaled by (1 - discount)."""
+        frame, _ = _make_frame()
+        proba = {"0085": 0.6, "0076": 0.4}
+        ba = svm_to_mass(proba, frame, discount=0.20)
+        assert ba.is_valid
+        tin_mass = ba.masses.get(frame.singleton("0085"), 0.0)
+        email_mass = ba.masses.get(frame.singleton("0076"), 0.0)
+        assert abs(tin_mass - 0.6 * 0.8) < 1e-9
+        assert abs(email_mass - 0.4 * 0.8) < 1e-9
 
 
 def _make_frame_with_pairs():

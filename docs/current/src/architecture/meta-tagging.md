@@ -48,7 +48,7 @@ atlas -> pg: "Lineage + classification\ngraph queries"
 
 4. **Classifications are written back to Atlas** as tags on the entity, making them visible in the catalog UI and available for policy enforcement via Ranger.
 
-The classification model uses a [context engineering](./context-engineering.md) approach — each column is represented as a structured feature vector that can be measured and optimized using SAGE feature importance analysis. When the `--dst` flag is enabled, the pipeline outputs Dempster-Shafer belief intervals at every hierarchy level via the [evidence fusion](./evidence-fusion.md) layer.
+The classification model uses a [context engineering](./context-engineering.md) approach — each column is represented as a structured feature vector that can be measured and optimized using SAGE feature importance analysis. The pipeline outputs Dempster-Shafer belief intervals at every hierarchy level via the [evidence fusion](./evidence-fusion.md) layer.
 
 ## Atlas Integration
 

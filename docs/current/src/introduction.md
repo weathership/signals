@@ -8,7 +8,7 @@ Enterprise data platforms accumulate thousands of tables and columns with incons
 
 ## Approach
 
-The classification pipeline combines four independent evidence sources — embedding similarity, gradient-boosted prediction, regex pattern detection, and column name matching — through Dempster-Shafer belief functions rather than simple score averaging. Each source produces a mass function over a restricted frame of discernment derived from the taxonomy hierarchy. Dempster's rule of combination yields belief intervals \\([Bel(A), Pl(A)]\\) at every hierarchy level, exposing where evidence commits versus where it merely does not contradict.
+The classification pipeline combines five evidence sources — embedding similarity, gradient-boosted prediction, regex pattern detection, column name matching, and SVM short-text classification — through Dempster-Shafer belief functions rather than simple score averaging. Each source produces a mass function over a restricted frame of discernment derived from the taxonomy hierarchy. Dempster's rule of combination yields belief intervals \\([Bel(A), Pl(A)]\\) at every hierarchy level, exposing where evidence commits versus where it merely does not contradict.
 
 The interval width \\(Pl(A) - Bel(A)\\) quantifies epistemic uncertainty. The Dempster conflict \\(K\\) between sources flags disagreement that flat scores suppress. Together, these diagnostics separate confident leaf-level classifications from cases that warrant human review — a property that point estimates cannot provide.
 
@@ -20,8 +20,11 @@ The interval width \\(Pl(A) - Bel(A)\\) quantifies epistemic uncertainty. The De
 | **CatBoost prediction** | Gradient-boosted model trained on 992-dim feature vectors (dual embedding + 12 discrete features + cosine similarities) | `predict_proba()` mapped to singletons, variance-adaptive discounting when virtual ensembles are available |
 | **Pattern detection** | 8 regex detectors (email, SSN, credit card, phone, UUID, IPv4, URL, ISO date) | High-confidence mass (0.9) on matched categories; vacuous when no patterns detected |
 | **Name matching** | Column name matched against category labels via exact, abbreviation, and word-overlap tiers | Tiered mass assignment (0.7 / 0.5 / 0.3); vacuous on no match |
+| **SVM** | TF-IDF (character 3–6 grams + word bigrams) → LinearSVC with Platt scaling (CalibratedClassifierCV) | Calibrated probabilities mapped to singletons, fixed discount (0.20) |
 
-The frame of discernment uses a restricted focal set — singletons, internal taxonomy nodes, and empirically identified confusable pairs — reducing computational complexity from \\(2^{30}\\) to ~53 focal elements for the SIGDG taxonomy (30 leaves). Each Dempster combination requires \\(O(F^2)\\) operations over focal elements; with 4 sources and \\(F \approx 53\\), classification overhead is sub-millisecond per column.
+The SVM source operates on sparse lexical features with no dependency on the sentence-transformer embedding, directly addressing the source independence concern in Dempster's rule. It is always active when training data is available — the pipeline trains SVM inline on synthetic data and injects it before classification. Standalone accuracy: 84.6%. A pilot validation script (`scripts/svm_pilot.py`) measures the marginal impact on fused belief intervals and conflict \\(K\\).
+
+The frame of discernment uses a restricted focal set — singletons, internal taxonomy nodes, and empirically identified confusable pairs — reducing computational complexity from \\(2^{30}\\) to ~53 focal elements for the SIGDG taxonomy (30 leaves). Each Dempster combination requires \\(O(F^2)\\) operations over focal elements; with up to 5 sources and \\(F \approx 53\\), classification overhead is sub-millisecond per column.
 
 ### Cosine Reliability Regimes
 
@@ -41,12 +44,12 @@ Atlas with a PostgreSQL + AGE graph backend (replacing JanusGraph/HBase/Solr) se
 
 ### Classification Pipeline
 
-The `sigint` Python package (20 modules, 363 unit tests) implements the full classification chain:
+The `sigint` Python package (23 modules, 415 unit tests) implements the full classification chain:
 
 1. **Feature extraction** — 12 discrete, ablatable features per column (name, type, sample values, cardinality, entropy, pattern signals, sibling context, value description, etc.), each measured for marginal contribution via SAGE Shapley values
 2. **Embedding classification** — Sentence-transformer embeddings with cosine similarity to taxonomy references
-3. **CatBoost training** — Gradient boosting on 992-dim feature vectors, trained on synthetic data (70+ value generators, 50/50 semantic/opaque name split)
-4. **Evidence fusion** — Dempster-Shafer mass functions from 4 sources combined via Dempster's rule, yielding belief intervals at every hierarchy level
+3. **CatBoost training** — Gradient boosting on 992-dim feature vectors, trained on synthetic data (70+ value generators, 50/50 semantic/opaque name split); optional `--self-train` mode injects GT labels for LLM annotation reproduction (99.4% accuracy)
+4. **Evidence fusion** — Dempster-Shafer mass functions from 5 sources (cosine, CatBoost, pattern, name match, SVM) combined via Dempster's rule, yielding belief intervals at every hierarchy level
 5. **SAGE analysis** — Shapley Additive Global importancE quantifies each feature's marginal accuracy contribution, replacing intuition with measured values
 
 See [Context Engineering](./architecture/context-engineering.md), [Evidence Fusion](./architecture/evidence-fusion.md), and [Heuristic Elucidation](./architecture/heuristic-elucidation.md).

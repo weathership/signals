@@ -574,6 +574,8 @@ class TestDetectDevice:
     def test_returns_cpu_without_torch(self, monkeypatch):
         """Falls back to 'cpu' when torch is not importable."""
         import builtins
+        import sigint.config as config_mod
+
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -582,6 +584,8 @@ class TestDetectDevice:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
+        # Clear the GPU preflight cache so the mock takes effect
+        monkeypatch.setattr(config_mod, "_gpu_info_cache", None)
         assert _detect_device() == "cpu"
 
     def test_gpu_batch_size_scaling(self, monkeypatch):
@@ -652,3 +656,59 @@ class TestPatternEvidenceTaxonomyMap:
         assert result is not None
         # Pattern evidence should be present since we have pattern_signals
         assert "patterns" in result.source_masses
+
+
+# ── _build_svm_text tests ──────────────────────────────────────────
+
+
+class TestBuildSvmText:
+    """Verify SVM text format matches training format (short text)."""
+
+    def test_basic_name_and_values(self):
+        sample = _make_sample("payment_card_number", "STRING", ["4111111111111111"])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert text == "payment card number | 4111111111111111"
+
+    def test_includes_nonstring_type(self):
+        sample = _make_sample("age", "INT", ["25", "30"])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert "int" in text
+        assert "age" in text
+
+    def test_excludes_string_type(self):
+        sample = _make_sample("full_name", "STRING", ["Alice Smith"])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert "string" not in text.lower()
+
+    def test_excludes_varchar_type(self):
+        sample = _make_sample("email", "VARCHAR", ["a@b.com"])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert "varchar" not in text.lower()
+
+    def test_no_values(self):
+        sample = ColumnSample(column_name="unknown_col", column_type="STRING", values=[])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert text == "unknown col"
+
+    def test_no_discrete_features(self):
+        """SVM text must NOT contain embedding features like cardinality or entropy."""
+        sample = _make_sample("ssn", "STRING", ["123-45-6789"])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        assert "cardinality" not in text
+        assert "entropy" not in text
+        assert "pattern" not in text
+        assert "sibling" not in text
+
+    def test_truncates_long_values(self):
+        long_val = "x" * 200
+        sample = _make_sample("data", "STRING", [long_val])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        # Values are truncated to 80 chars each
+        assert len(text) < 200
+
+    def test_limits_to_five_values(self):
+        sample = _make_sample("data", "STRING", [f"v{i}" for i in range(10)])
+        text = EmbeddingClassifier._build_svm_text(sample)
+        # Only first 5 values
+        assert "v4" in text
+        assert "v5" not in text

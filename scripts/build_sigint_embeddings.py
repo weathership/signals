@@ -9,6 +9,7 @@ Produces an embedding-atlas-compatible parquet with columns:
   - ml_tag_code, ml_tag_label, ml_confidence, ml_correct (CatBoost CV)
   - feat_* columns (12 transparency features, always present)
   - sage_* columns (12 SAGE importance values, always present)
+  - shap_top{1,2,3}_{name,value} (item-wise top-3 SHAP explanations)
 
 Three-signal comparison when --ground-truth is provided:
   1. Cosine (zero-shot embedding similarity)
@@ -47,6 +48,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from datetime import datetime, timezone
@@ -76,6 +78,25 @@ def _classify_column_kind(column_name: str) -> str:
     return "data"
 
 
+def _build_svm_text(record: dict) -> str:
+    """Build short text for SVM from column record.
+
+    Uses column name + sample values — the same information available
+    to all evidence sources, but encoded as raw text for TF-IDF rather
+    than as a dense embedding.
+    """
+    parts = [record["column_name"].replace("_", " ")]
+
+    if record.get("column_type") and record["column_type"].upper() not in ("STRING", "VARCHAR"):
+        parts.append(record["column_type"].lower())
+
+    values = record.get("sample_values", [])
+    if values:
+        parts.append(", ".join(str(v)[:80] for v in values[:5]))
+
+    return " | ".join(parts)
+
+
 def _build_classifier(args, category_set):
     """Build the embedding classifier from CLI args."""
     from sigint.embedding_classifier import EmbeddingClassifier, EmbeddingClassifierConfig
@@ -99,6 +120,27 @@ def _load_ground_truth(gt_path: Path) -> dict[str, str]:
     with open(gt_path) as f:
         data = json.load(f)
     return data.get("mappings", data)
+
+
+def _catboost_gpu_kwargs(devices: str | None = None) -> dict:
+    """Return task_type/devices kwargs for CatBoost if CUDA is available.
+
+    CatBoost GPU does not support posterior_sampling or rsm (random
+    subspace method) for multiclass — callers should skip those
+    parameters when ``"task_type"`` is in the returned dict.
+
+    Args:
+        devices: CUDA device IDs for CatBoost (e.g., "0" or "0:1").
+            If None, auto-detects all available GPUs.
+    """
+    from sigint.config import preflight_gpu
+
+    gpu = preflight_gpu()
+    if gpu.available:
+        if devices is None:
+            devices = ":".join(str(i) for i in range(gpu.device_count))
+        return {"task_type": "GPU", "devices": devices}
+    return {}
 
 
 def _run_catboost_cv(
@@ -184,7 +226,8 @@ def _run_catboost_cv(
         y_train = np.concatenate([y_gt[train_idx], y_ref])
         X_val = X_gt[val_idx]
 
-        cb = CatBoostClassifier(
+        gpu_kw = _catboost_gpu_kwargs()
+        cb_params = dict(
             loss_function="MultiClass",
             classes_count=len(class_labels),
             depth=6,
@@ -193,8 +236,12 @@ def _run_catboost_cv(
             learning_rate=0.1,
             random_seed=42,
             verbose=0,
-            posterior_sampling=True,
+            **gpu_kw,
         )
+        # posterior_sampling not supported on GPU
+        if "task_type" not in gpu_kw:
+            cb_params["posterior_sampling"] = True
+        cb = CatBoostClassifier(**cb_params)
         cb.fit(X_train, y_train)
 
         proba = cb.predict_proba(X_val)
@@ -213,7 +260,8 @@ def _run_catboost_cv(
     if non_gt_indices:
         X_full_train = np.vstack([X_gt, X_ref])
         y_full_train = np.concatenate([y_gt, y_ref])
-        cb_full = CatBoostClassifier(
+        gpu_kw = _catboost_gpu_kwargs()
+        cb_full_params = dict(
             loss_function="MultiClass",
             classes_count=len(class_labels),
             depth=6,
@@ -222,8 +270,11 @@ def _run_catboost_cv(
             learning_rate=0.1,
             random_seed=42,
             verbose=0,
-            posterior_sampling=True,
+            **gpu_kw,
         )
+        if "task_type" not in gpu_kw:
+            cb_full_params["posterior_sampling"] = True
+        cb_full = CatBoostClassifier(**cb_full_params)
         cb_full.fit(X_full_train, y_full_train)
         X_non = X_all[non_gt_indices]
         proba_non = cb_full.predict_proba(X_non)
@@ -278,6 +329,20 @@ def _encode_discrete_features(features_obj) -> list[float]:
     return vec  # length = 11
 
 
+@dataclasses.dataclass
+class CatBoostTrainResult:
+    """Artifacts from CatBoost train→eval for downstream SHAP analysis."""
+
+    ml_preds: list[dict]
+    accuracy_metrics: dict
+    model: object  # CatBoostClassifier
+    X_eval: object  # np.ndarray (scaled)
+    predicted_indices: object  # np.ndarray
+    class_labels: list[str]
+    emb_dim: int
+    n_discrete: int
+
+
 def _run_catboost_train_eval(
     clf,
     train_records: list[dict],
@@ -288,7 +353,10 @@ def _run_catboost_train_eval(
     eval_gt: dict[str, str],
     category_set,
     concat_features: bool = True,
-) -> tuple[list[dict], dict]:
+    self_train: bool = False,
+    self_train_rounds: int = 1,
+    self_train_threshold: float = 0.80,
+) -> CatBoostTrainResult:
     """Train CatBoost on synthetic data, evaluate on real data.
 
     Strategy to bridge domain shift between synthetic and real embeddings:
@@ -300,9 +368,15 @@ def _run_catboost_train_eval(
        embedding rather than getting swamped.
     3. StandardScaler on full feature vector for stable gradient boosting.
 
+    When ``self_train=True``, GT-labeled eval columns are injected into the
+    training set (round 1).  With ``self_train_rounds > 1``, subsequent rounds
+    inject high-confidence CatBoost predictions as pseudo-labels.  This is the
+    LLM-annotation-reproduction workflow — NOT target leakage, because the LLM
+    annotations ARE the ground truth to learn.
+
     Returns:
-        ml_preds: per-record prediction dicts for eval set
-        accuracy_metrics: accuracy report dict
+        CatBoostTrainResult with predictions, metrics, and model artifacts
+        for downstream SHAP analysis.
     """
     import numpy as np
     from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -459,50 +533,138 @@ def _run_catboost_train_eval(
     print(f"  Total feature dim: {X_train_with_cos.shape[1]}")
 
     # ── Combine all training sources ───────────────────────────────
-    X_train = X_train_with_cos
-    y_train_codes = train_codes + ref_codes
+    X_base_train = X_train_with_cos
+    y_base_codes = train_codes + ref_codes
+
+    # ── Self-training: inject GT-labeled eval data (Round 1) ──────
+    n_gt_injected = 0
+    injected_indices: set[int] = set()
+
+    if self_train and eval_gt:
+        st_indices = []
+        st_codes = []
+        for i, rec in enumerate(eval_records):
+            col = rec["column_name"]
+            if col in eval_gt and eval_gt[col] in by_code:
+                st_indices.append(i)
+                st_codes.append(eval_gt[col])
+                injected_indices.add(i)
+
+        if st_indices:
+            n_gt_injected = len(st_indices)
+            print(f"\n  Self-training: injecting {n_gt_injected} LLM-labeled eval columns")
+            print(f"  (LLM annotations are ground truth — this is NOT target leakage)")
+
+            # Extract pre-computed eval embeddings for GT-labeled columns
+            st_full_emb = X_eval_full_emb[st_indices]
+            st_vo_emb = X_eval_vo_emb[st_indices]
+
+            # Build combined feature vector for injected columns
+            if concat_features and eval_feat_vecs:
+                st_disc = np.array([eval_feat_vecs[i] for i in st_indices]) * scale_factor
+                st_combined = np.hstack([st_full_emb, st_vo_emb, st_disc])
+            else:
+                st_combined = np.hstack([st_full_emb, st_vo_emb])
+
+            # Cosine similarity features for injected columns
+            cos_st = cosine_similarity(st_vo_emb, X_ref_vo).astype(np.float32)
+            st_with_cos = np.hstack([st_combined, cos_st])
+
+            # Append to training data
+            X_base_train = np.vstack([X_base_train, st_with_cos])
+            y_base_codes = y_base_codes + st_codes
 
     # ── Build label encoder ────────────────────────────────────────
-    all_codes = sorted(set(y_train_codes))
+    all_codes = sorted(set(y_base_codes))
     le = LabelEncoder()
     le.fit(all_codes)
     class_labels = le.classes_.tolist()
-    y_train = le.transform(y_train_codes)
 
-    # ── StandardScaler for stable gradient boosting ────────────────
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_eval = scaler.transform(X_eval_with_cos)
-
-    print(f"  Classes: {len(class_labels)}, Training shape: {X_train.shape}")
-    print(f"    Synthetic: {len(train_full_texts)}, Reference: {len(ref_texts)}")
-
-    # ── Train CatBoost ─────────────────────────────────────────────
-    cb = CatBoostClassifier(
+    # ── CatBoost training (with optional multi-round self-training) ──
+    cb_params: dict = dict(
         loss_function="MultiClass",
         classes_count=len(class_labels),
         depth=8,
         iterations=500,
         l2_leaf_reg=0.3,
         learning_rate=0.08,
+        bootstrap_type="Bernoulli",
         subsample=0.8,
         rsm=0.6,
+        posterior_sampling=True,
         min_data_in_leaf=2,
         random_seed=42,
         verbose=0,
-        posterior_sampling=True,
     )
-    cb.fit(X_train, y_train)
-    print("  CatBoost training complete.")
 
-    # ── Predict on eval set ────────────────────────────────────────
-    proba = cb.predict_proba(X_eval)
+    total_rounds = self_train_rounds if self_train else 1
+    X_train_current = X_base_train
+    y_codes_current = y_base_codes
+    raw_preds: list[tuple[str, float]] = []
 
-    # Pass 1: Raw CatBoost predictions for all columns
-    raw_preds: list[tuple[str, float]] = []  # (code, confidence)
-    for i in range(len(eval_records)):
-        best = int(np.argmax(proba[i]))
-        raw_preds.append((class_labels[best], float(proba[i][best])))
+    for round_num in range(1, total_rounds + 1):
+        # Scale and fit for this round
+        y_train = le.transform(y_codes_current)
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train_current)
+        X_eval = scaler.transform(X_eval_with_cos)
+
+        if round_num == 1:
+            src_label = f"Synthetic: {len(train_full_texts)}, Reference: {len(ref_texts)}"
+            if n_gt_injected > 0:
+                src_label += f", GT-injected: {n_gt_injected}"
+            print(f"  Classes: {len(class_labels)}, Training shape: {X_train.shape}")
+            print(f"    {src_label}")
+
+        # Force CPU: posterior_sampling and rsm not supported on CatBoost GPU
+        device_label = "CPU (ordered boosting)"
+        round_label = f" (round {round_num}/{total_rounds})" if total_rounds > 1 else ""
+        print(f"  CatBoost training on {device_label}{round_label}...")
+        cb = CatBoostClassifier(**cb_params)
+        cb.fit(X_train, y_train)
+        print("  CatBoost training complete.")
+
+        # Predict on eval set
+        proba = cb.predict_proba(X_eval)
+        raw_preds = []
+        for i in range(len(eval_records)):
+            best = int(np.argmax(proba[i]))
+            raw_preds.append((class_labels[best], float(proba[i][best])))
+
+        # Multi-round: inject high-confidence pseudo-labels for next round
+        if self_train and round_num < total_rounds:
+            pseudo_indices = []
+            pseudo_codes = []
+            for i in range(len(eval_records)):
+                if i in injected_indices:
+                    continue
+                code, conf = raw_preds[i]
+                if conf >= self_train_threshold and code in by_code:
+                    pseudo_indices.append(i)
+                    pseudo_codes.append(code)
+                    injected_indices.add(i)
+
+            if not pseudo_indices:
+                print(f"  Round {round_num}: no new columns above threshold "
+                      f"{self_train_threshold}, stopping early")
+                break
+
+            print(f"  Round {round_num}: injecting {len(pseudo_indices)} "
+                  f"pseudo-labeled columns (confidence >= {self_train_threshold})")
+
+            # Build feature vectors for pseudo-labeled columns
+            ps_full_emb = X_eval_full_emb[pseudo_indices]
+            ps_vo_emb = X_eval_vo_emb[pseudo_indices]
+            if concat_features and eval_feat_vecs:
+                ps_disc = np.array([eval_feat_vecs[i] for i in pseudo_indices]) * scale_factor
+                ps_combined = np.hstack([ps_full_emb, ps_vo_emb, ps_disc])
+            else:
+                ps_combined = np.hstack([ps_full_emb, ps_vo_emb])
+            cos_ps = cosine_similarity(ps_vo_emb, X_ref_vo).astype(np.float32)
+            ps_with_cos = np.hstack([ps_combined, cos_ps])
+
+            X_train_current = np.vstack([X_train_current, ps_with_cos])
+            y_codes_current = y_codes_current + pseudo_codes
 
     # Pass 2: Paired column propagation — for each annotation column,
     # if its predecessor is a data column with a confident prediction,
@@ -603,7 +765,23 @@ def _run_catboost_train_eval(
         "annotation_accuracy": round(ann_acc / 100, 4),
     }
 
-    return ml_preds, accuracy_metrics
+    # Build predicted class indices for SHAP
+    predicted_indices = np.array([
+        int(np.argmax(proba[i])) for i in range(len(eval_records))
+    ])
+
+    n_disc = n_discrete if concat_features and train_feat_vecs else 0
+
+    return CatBoostTrainResult(
+        ml_preds=ml_preds,
+        accuracy_metrics=accuracy_metrics,
+        model=cb,
+        X_eval=X_eval,
+        predicted_indices=predicted_indices,
+        class_labels=class_labels,
+        emb_dim=emb_dim,
+        n_discrete=n_disc,
+    )
 
 
 def _evaluate_accuracy(results, records, truth, category_set):
@@ -716,6 +894,11 @@ def _write_parquet(results: list[dict], output: Path) -> None:
     for fname in FEATURE_NAMES:
         schema_fields.append((f"sage_{fname}", pa.float64()))
 
+    # shap_top* columns (item-wise SHAP explanations)
+    for rank in range(1, 4):
+        schema_fields.append((f"shap_top{rank}_name", pa.string()))
+        schema_fields.append((f"shap_top{rank}_value", pa.float64()))
+
     schema = pa.schema(schema_fields)
 
     arrays = {}
@@ -762,6 +945,9 @@ def _write_report_json(
             "disabled_features": args.disable_features or [],
             "sage_permutations": args.sage_permutations,
             "ml_folds": args.ml_folds,
+            "self_train": args.self_train,
+            "self_train_rounds": args.self_train_rounds,
+            "self_train_threshold": args.self_train_threshold,
         },
         "n_columns": n_records,
         "ground_truth_source": gt_source,
@@ -855,6 +1041,42 @@ def main(argv: list[str] | None = None) -> int:
         "--taxonomy-file", default=None,
         help="Path to custom taxonomy Python module",
     )
+    p.add_argument(
+        "--no-shap",
+        action="store_true",
+        help="Disable item-wise SHAP feature explanations (CatBoost TreeSHAP).",
+    )
+    p.add_argument(
+        "--auto-generate",
+        action="store_true",
+        default=False,
+        help="Auto-generate synthetic training data inline (no separate --train-dir needed).",
+    )
+    p.add_argument(
+        "--variants-per-category",
+        type=int,
+        default=None,
+        help="Variants per category for auto-generate (default: 50, from config).",
+    )
+    p.add_argument(
+        "--self-train",
+        action="store_true",
+        default=False,
+        help="Inject GT-labeled eval data into CatBoost training set. "
+        "Use for LLM annotation reproduction (NOT for benchmark evaluation).",
+    )
+    p.add_argument(
+        "--self-train-rounds",
+        type=int,
+        default=None,
+        help="Self-training rounds (1=direct GT injection, >1=iterative refinement).",
+    )
+    p.add_argument(
+        "--self-train-threshold",
+        type=float,
+        default=None,
+        help="Min CatBoost confidence for multi-round pseudo-labels (default 0.80).",
+    )
     args = p.parse_args(argv)
 
     # ── Load config (HOCON + env vars), then overlay CLI args ────────
@@ -887,6 +1109,12 @@ def main(argv: list[str] | None = None) -> int:
         overrides["taxonomy_file"] = args.taxonomy_file
     if args.no_concat_features:
         overrides["concat_features"] = False
+    if args.self_train:
+        overrides["self_train"] = True
+    if args.self_train_rounds is not None:
+        overrides["self_train_rounds"] = args.self_train_rounds
+    if args.self_train_threshold is not None:
+        overrides["self_train_threshold"] = args.self_train_threshold
 
     cfg = load_config(overrides=overrides)
 
@@ -903,12 +1131,62 @@ def main(argv: list[str] | None = None) -> int:
     if args.train_dir is None and cfg.train_dir:
         args.train_dir = cfg.train_dir
 
+    # Backfill auto-generate from config
+    if not args.auto_generate and cfg.auto_generate:
+        args.auto_generate = True
+    if args.variants_per_category is None:
+        args.variants_per_category = cfg.variants_per_category
+
+    # Backfill self-training from config
+    if not args.self_train and cfg.self_train:
+        args.self_train = True
+    if args.self_train_rounds is None:
+        args.self_train_rounds = cfg.self_train_rounds
+    if args.self_train_threshold is None:
+        args.self_train_threshold = cfg.self_train_threshold
+
+    # ── GPU preflight ────────────────────────────────────────────────
+    from sigint.config import preflight_gpu
+
+    gpu = preflight_gpu()
+    print(f"GPU: {gpu.summary()}")
+    for w in gpu.warnings:
+        print(f"  WARNING: {w}")
+
     data_dir = Path(args.data_dir).expanduser()
     output = Path(args.output)
 
     if not data_dir.is_dir():
         print(f"Error: {data_dir} is not a directory", file=sys.stderr)
         return 1
+
+    # ── Auto-generate synthetic training data ─────────────────────────
+    if args.auto_generate and not args.train_dir:
+        import importlib.util
+
+        gen_path = Path(__file__).parent / "generate_meta_tagging_train.py"
+        if not gen_path.exists():
+            print(f"Error: generator not found at {gen_path}", file=sys.stderr)
+            return 1
+
+        train_dir = Path("build/datasets/sigint_train")
+        vpc = args.variants_per_category
+
+        print(f"\nAuto-generating synthetic training data ({vpc} variants/category)...")
+        mod_spec = importlib.util.spec_from_file_location(
+            "generate_meta_tagging_train", str(gen_path),
+        )
+        assert mod_spec is not None and mod_spec.loader is not None
+        gen_mod = importlib.util.module_from_spec(mod_spec)
+        sys.modules["generate_meta_tagging_train"] = gen_mod
+        mod_spec.loader.exec_module(gen_mod)
+        gen_mod.main([
+            "--data-dir", str(data_dir),
+            "--output-dir", str(train_dir),
+            "--variants-per-category", str(vpc),
+        ])
+        args.train_dir = str(train_dir)
+        print(f"  Synthetic data written to {train_dir}")
 
     # ── Build category set ───────────────────────────────────────────
     # For annotations taxonomy, auto-detect CSV path from data-dir if not configured
@@ -990,6 +1268,36 @@ def main(argv: list[str] | None = None) -> int:
     from sigint.embedding_classifier import build_embedding_text
 
     clf = _build_classifier(args, category_set)
+
+    # ── Stage 1.5: Train SVM on synthetic data (5th DST source) ──────
+    _cached_train_records = None
+    _cached_train_gt = None
+
+    if args.train_dir and category_set:
+        train_dir_path = Path(args.train_dir).expanduser()
+        print(f"\nTraining SVM on synthetic data from {train_dir_path}...")
+        _cached_train_records = load_csv_columns(train_dir_path)
+        _cached_train_gt = _load_ground_truth(train_dir_path / "ground_truth.json")
+
+        by_code = category_set.by_code
+        svm_texts = []
+        svm_labels = []
+        for rec in _cached_train_records:
+            col = rec["column_name"]
+            if col in _cached_train_gt and _cached_train_gt[col] in by_code:
+                svm_texts.append(_build_svm_text(rec))
+                svm_labels.append(_cached_train_gt[col])
+
+        if svm_texts:
+            from sigint.svm_classifier import SVMClassifier
+
+            svm = SVMClassifier()
+            svm.fit(svm_texts, svm_labels)
+            clf.set_svm_model(svm)
+            print(f"  SVM trained: {len(svm_texts)} samples, {len(set(svm_labels))} classes")
+            print("  SVM injected as 5th DST evidence source")
+        else:
+            print("  WARNING: No valid SVM training samples found")
 
     print(f"\nClassifying ({args.taxonomy} taxonomy)...")
     results: list[dict] = []
@@ -1085,6 +1393,11 @@ def main(argv: list[str] | None = None) -> int:
         for fname in FEATURE_NAMES:
             row[f"sage_{fname}"] = 0.0
 
+        # shap_top* columns — initialized empty, updated after SHAP runs
+        for rank in range(1, 4):
+            row[f"shap_top{rank}_name"] = ""
+            row[f"shap_top{rank}_value"] = 0.0
+
         results.append(row)
 
         label = row["tag_label"]
@@ -1119,16 +1432,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.train_dir and gt and category_set:
         # ── Train/eval split using synthetic training data ─────────
-        train_dir = Path(args.train_dir).expanduser()
-        print(f"\nLoading synthetic training data from {train_dir}...")
-        train_records = load_csv_columns(train_dir)
-        train_gt = _load_ground_truth(train_dir / "ground_truth.json")
+        # Reuse training data loaded during SVM training (Stage 1.5)
+        if _cached_train_records is not None and _cached_train_gt is not None:
+            train_records = _cached_train_records
+            train_gt = _cached_train_gt
+        else:
+            train_dir_path = Path(args.train_dir).expanduser()
+            print(f"\nLoading synthetic training data from {train_dir_path}...")
+            train_records = load_csv_columns(train_dir_path)
+            train_gt = _load_ground_truth(train_dir_path / "ground_truth.json")
         print(f"  Synthetic columns: {len(train_records)}, GT mappings: {len(train_gt)}")
 
         concat = not args.no_concat_features
         print(f"  Feature concatenation: {'enabled' if concat else 'disabled'}")
 
-        ml_preds, ml_accuracy_metrics = _run_catboost_train_eval(
+        cb_result = _run_catboost_train_eval(
             clf,
             train_records=train_records,
             train_gt=train_gt,
@@ -1138,9 +1456,13 @@ def main(argv: list[str] | None = None) -> int:
             eval_gt=gt,
             category_set=category_set,
             concat_features=concat,
+            self_train=args.self_train,
+            self_train_rounds=args.self_train_rounds,
+            self_train_threshold=args.self_train_threshold,
         )
+        ml_accuracy_metrics = cb_result.accuracy_metrics
 
-        for row, ml in zip(results, ml_preds):
+        for row, ml in zip(results, cb_result.ml_preds):
             row["ml_tag_code"] = ml["ml_tag_code"]
             row["ml_tag_label"] = ml["ml_tag_label"]
             row["ml_confidence"] = ml["ml_confidence"]
@@ -1149,6 +1471,22 @@ def main(argv: list[str] | None = None) -> int:
             col = rec["column_name"]
             if col in gt:
                 row["ml_correct"] = "correct" if row["ml_tag_code"] == gt[col] else "wrong"
+
+        # ── Stage 3.7: Item-wise SHAP ────────────────────────────────
+        if not args.no_shap:
+            from sigint.shap_analysis import run_catboost_shap
+
+            print("\nComputing item-wise SHAP explanations...")
+            shap_result = run_catboost_shap(
+                model=cb_result.model,
+                X_eval=cb_result.X_eval,
+                predicted_indices=cb_result.predicted_indices,
+                emb_dim=cb_result.emb_dim,
+                n_discrete=cb_result.n_discrete,
+            )
+            shap_records = shap_result.to_records(k=3)
+            for row, shap_row in zip(results, shap_records):
+                row.update(shap_row)
 
     elif gt and category_set:
         # ── Fallback: k-fold CV on real data ───────────────────────

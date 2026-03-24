@@ -19,6 +19,7 @@ from sigint.config import (
     _MATERIALIZED_PATH,
     load_config,
     materialize_config,
+    preflight_gpu,
     validate_materialized_config,
 )
 
@@ -40,3 +41,16 @@ def preflight_config():
             f"  - {e}" for e in errors
         )
         pytest.fail(msg, pytrace=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def preflight_gpu_check():
+    """Detect GPU availability and warn about CUDA version mismatches.
+
+    This is informational — GPU issues produce warnings, not failures,
+    because the pipeline always falls back to CPU.
+    """
+    gpu = preflight_gpu()
+    for w in gpu.warnings:
+        import warnings
+        warnings.warn(w, stacklevel=1)

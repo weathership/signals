@@ -70,10 +70,19 @@ _HOCON_MAP: dict[str, tuple[str, type]] = {
     "taxonomy.taxonomy_file": ("taxonomy_file", str),
     "vocabulary_mapping.enabled": ("vocab_mapping_enabled", bool),
     "vocabulary_mapping.mapping_file": ("vocab_mapping_file", str),
+    "svm.model_path": ("svm_model_path", str),
+    "svm.discount": ("svm_discount", float),
     "sage.permutations": ("sage_permutations", int),
+    "shap.enabled": ("shap_enabled", bool),
     "ml.folds": ("ml_folds", int),
     "ml.train_dir": ("train_dir", str),
     "ml.concat_features": ("concat_features", bool),
+    "ml.auto_generate": ("auto_generate", bool),
+    "ml.variants_per_category": ("variants_per_category", int),
+    "ml.self_train": ("self_train", bool),
+    "ml.self_train_rounds": ("self_train_rounds", int),
+    "ml.self_train_threshold": ("self_train_threshold", float),
+    "gpu.devices": ("gpu_devices", str),
     "data.dir": ("data_dir", str),
     "data.input_format": ("input_format", str),
     "data.ground_truth": ("ground_truth", str),
@@ -134,13 +143,28 @@ class PipelineConfig:
     vocab_mapping_enabled: bool = False
     vocab_mapping_file: str | None = None
 
+    # SVM classifier (5th DST evidence source — always active when model available)
+    svm_model_path: str | None = None
+    svm_discount: float = 0.20
+
     # SAGE
     sage_permutations: int = 512
+
+    # SHAP
+    shap_enabled: bool = True
+
+    # GPU
+    gpu_devices: str = "0"
 
     # ML
     ml_folds: int = 5
     train_dir: str | None = None
     concat_features: bool = True
+    auto_generate: bool = False
+    variants_per_category: int = 50
+    self_train: bool = False
+    self_train_rounds: int = 1
+    self_train_threshold: float = 0.80
 
     # Data paths
     data_dir: str | None = None
@@ -498,3 +522,163 @@ def validate_materialized_config(
                     )
 
     return errors
+
+
+# ── GPU preflight ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class GpuInfo:
+    """GPU detection result from preflight."""
+
+    available: bool
+    device_count: int = 0
+    driver_version: str = ""
+    driver_cuda_version: str = ""
+    pytorch_cuda_version: str = ""
+    devices: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def resolved_device(self) -> str:
+        """Return 'cuda' if GPUs are usable, else 'cpu'."""
+        return "cuda" if self.available else "cpu"
+
+    def summary(self) -> str:
+        """Human-readable GPU status string."""
+        if not self.device_count:
+            return "No NVIDIA GPUs detected"
+        if not self.available:
+            return (
+                f"{self.device_count}x GPU detected but CUDA unavailable "
+                f"(driver CUDA {self.driver_cuda_version}, "
+                f"PyTorch CUDA {self.pytorch_cuda_version})"
+            )
+        vram = f" ({', '.join(self.devices)})" if self.devices else ""
+        return f"{self.device_count}x GPU available{vram}, CUDA {self.driver_cuda_version}"
+
+
+_gpu_info_cache: GpuInfo | None = None
+
+
+def preflight_gpu() -> GpuInfo:
+    """Detect GPU availability and validate CUDA driver compatibility.
+
+    Checks:
+    1. nvidia-smi reachable -> GPU count, driver version, CUDA version
+    2. torch.cuda.is_available() -> runtime compatibility
+    3. Version mismatch detection with actionable fix guidance
+
+    This runs at config load time so the resolved device is known before
+    any model loading.  Warnings are surfaced in the preflight report
+    but never block startup (CPU fallback is always safe).
+
+    Results are cached for the process lifetime (GPU hardware doesn't
+    change mid-run).
+    """
+    global _gpu_info_cache
+    if _gpu_info_cache is not None:
+        return _gpu_info_cache
+
+    import re
+    import shutil
+    import subprocess
+
+    warnings: list[str] = []
+    device_count = 0
+    driver_version = ""
+    driver_cuda = ""
+    pytorch_cuda = ""
+    device_names: list[str] = []
+    cuda_available = False
+
+    # ── Step 1: Probe nvidia-smi for hardware ────────────────────
+    if shutil.which("nvidia-smi"):
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    device_names.append(
+                        f"{parts[0]} {parts[1]}" if len(parts) >= 2 else parts[0],
+                    )
+                device_count = len(device_names)
+
+            # Get driver version
+            result2 = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=driver_version",
+                    "--format=csv,noheader",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result2.returncode == 0:
+                driver_version = result2.stdout.strip().splitlines()[0].strip()
+
+            # Parse CUDA version from nvidia-smi header
+            result3 = subprocess.run(
+                ["nvidia-smi"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result3.returncode == 0:
+                for line in result3.stdout.splitlines():
+                    if "CUDA Version" in line:
+                        m = re.search(r"CUDA Version:\s*([\d.]+)", line)
+                        if m:
+                            driver_cuda = m.group(1)
+                        break
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+
+    # ── Step 2: Check PyTorch CUDA runtime ───────────────────────
+    try:
+        import torch
+
+        pytorch_cuda = torch.version.cuda or ""
+        cuda_available = torch.cuda.is_available()
+
+        if not cuda_available and device_count > 0 and pytorch_cuda:
+            # GPUs present but torch can't see them -> version mismatch
+            warnings.append(
+                f"CUDA version mismatch: driver supports CUDA {driver_cuda}, "
+                f"PyTorch built for CUDA {pytorch_cuda}. "
+                f"Upgrade driver: sudo apt install nvidia-driver-570-open && sudo reboot"
+            )
+    except ImportError:
+        if device_count > 0:
+            warnings.append(
+                "PyTorch not installed — GPUs detected but cannot be used. "
+                "Install: uv add torch"
+            )
+
+    # ── Step 3: Check CatBoost GPU (independent CUDA runtime) ───
+    if device_count > 0 and not cuda_available:
+        warnings.append(
+            "CatBoost GPU also requires compatible driver "
+            "(same CUDA version constraint as PyTorch)"
+        )
+
+    _gpu_info_cache = GpuInfo(
+        available=cuda_available,
+        device_count=device_count,
+        driver_version=driver_version,
+        driver_cuda_version=driver_cuda,
+        pytorch_cuda_version=pytorch_cuda,
+        devices=device_names,
+        warnings=warnings,
+    )
+    return _gpu_info_cache

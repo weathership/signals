@@ -34,6 +34,11 @@ def get_confusable_pairs(taxonomy: str) -> list[tuple[str, str]]:
     elif taxonomy == "sigdg":
         return SIGDG_CONFUSABLE_PAIRS
     elif taxonomy == "gittables":
-        from config.sigint.gittables_taxonomy import GITTABLES_CONFUSABLE_PAIRS
-        return GITTABLES_CONFUSABLE_PAIRS
+        import importlib.util
+        from pathlib import Path
+        tax_path = Path(__file__).resolve().parent.parent.parent / "config" / "sigint" / "gittables_taxonomy.py"
+        spec = importlib.util.spec_from_file_location("gittables_taxonomy", tax_path)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod.GITTABLES_CONFUSABLE_PAIRS
     return []

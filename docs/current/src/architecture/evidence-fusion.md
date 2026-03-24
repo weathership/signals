@@ -1,6 +1,6 @@
 # Evidence Fusion
 
-The evidence fusion layer replaces single-point confidence scores with belief intervals derived from Dempster-Shafer Theory (DST). Each evidence source — cosine similarity, CatBoost prediction, pattern detection, name matching — produces an independent mass function. These are combined via Dempster's rule of combination to yield belief intervals \\([Bel(A), Pl(A)]\\) at every level of the category hierarchy.
+The evidence fusion layer replaces single-point confidence scores with belief intervals derived from Dempster-Shafer Theory (DST). Each evidence source — cosine similarity, CatBoost prediction, pattern detection, name matching, and SVM short-text classification — produces an independent mass function. These are combined via Dempster's rule of combination to yield belief intervals \\([Bel(A), Pl(A)]\\) at every level of the category hierarchy.
 
 The key insight: a flat confidence of 0.85 conflates "definitely Payment Card Number" with "definitely some kind of Payment Information but unsure which sub-type." Belief intervals expose this distinction. When \\(Bel(\text{PaymentCardData}) = 0.6\\) but \\(Pl(\text{PaymentCardData}) = 0.95\\), the gap signals that evidence supports the broader category but is ambiguous at the leaf level — a meaningful signal for downstream consumers and human reviewers.
 
@@ -48,6 +48,9 @@ sources: Evidence Sources {
   name_match: "Name\nMatch" {
     tooltip: "Column name → category label matching"
   }
+  svm: "SVM\n(always-on)" {
+    tooltip: "TF-IDF + LinearSVC → calibrated probabilities"
+  }
 }
 
 mass: Mass Functions {
@@ -65,9 +68,12 @@ mass: Mass Functions {
   m4: "m₄: name_match_to_mass()" {
     tooltip: "exact=0.7, abbrev=0.5, overlap=0.3, none=vacuous"
   }
+  m5: "m₅: svm_to_mass()" {
+    tooltip: "calibrated proba × (1-discount), discount=0.20"
+  }
 }
 
-combine: "Dempster's Rule\nm₁₂ = m₁ ⊕ m₂\nm₁₂₃ = m₁₂ ⊕ m₃\nm₁₂₃₄ = m₁₂₃ ⊕ m₄" {
+combine: "Dempster's Rule\nm₁₂ = m₁ ⊕ m₂\nm₁₂₃ = m₁₂ ⊕ m₃\nm₁₂₃₄ = m₁₂₃ ⊕ m₄\nm₁₂₃₄₅ = m₁₂₃₄ ⊕ m₅" {
   style.fill: "#fff3e0"
   tooltip: "Conjunctive combination, normalized by 1/(1-K)"
 }
@@ -90,11 +96,13 @@ sources.cosine -> mass.m1
 sources.catboost -> mass.m2
 sources.pattern -> mass.m3
 sources.name_match -> mass.m4
+sources.svm -> mass.m5
 
 mass.m1 -> combine
 mass.m2 -> combine
 mass.m3 -> combine
 mass.m4 -> combine
+mass.m5 -> combine
 
 combine -> decide.betp
 combine -> decide.interval
@@ -146,11 +154,11 @@ frame: "Frame of Discernment (Θ)" {
 
 ### Complexity
 
-Each Dempster combination computes pairwise intersections over focal elements. With \\(F\\) focal elements and \\(S = 4\\) sources requiring \\(S-1 = 3\\) combinations:
+Each Dempster combination computes pairwise intersections over focal elements. With \\(F\\) focal elements and \\(S\\) sources requiring \\(S-1\\) combinations:
 
-\\[\text{Cost per column} = 3 \times F^2\\]
+\\[\text{Cost per column} = (S-1) \times F^2\\]
 
-For the SIGDG taxonomy (\\(F \approx 53\\)), this is ~8,400 operations per column — negligible compared to the ~50ms sentence-transformer encode step. Even for larger taxonomies with hundreds of focal elements, DST overhead remains sub-millisecond.
+With 5 sources and \\(F \approx 53\\) (SIGDG taxonomy), this is ~11,200 operations per column — negligible compared to the ~50ms sentence-transformer encode step. Even for larger taxonomies with hundreds of focal elements, DST overhead remains sub-millisecond.
 
 ## Mass Function Converters
 
@@ -217,6 +225,32 @@ Replaces the previous additive boost heuristic with a proper evidence source. Th
 
 This formalization means name matching no longer inflates confidence scores. Instead, its evidence is combined with other sources via Dempster's rule, where agreement reinforces and disagreement raises the conflict diagnostic.
 
+### SVM Short-Text Classification → Mass
+
+```
+svm_to_mass(proba, frame, discount=0.20)
+```
+
+Converts calibrated probability estimates from a TF-IDF + LinearSVC classifier into a mass function. The SVM operates on sparse lexical features — character n-grams (3–6) and word bigrams — making it architecturally independent from the dense sentence-transformer embedding shared by the cosine and CatBoost sources. This directly addresses the source independence concern ([R-01](../reference/research-roadmap.md)): correlation between TF-IDF features and dense embeddings is measurably lower than the correlation between two dense-embedding-derived sources.
+
+The classifier uses scikit-learn's `CalibratedClassifierCV` (Platt scaling) to produce well-calibrated probability estimates from the LinearSVC decision function. These probabilities map directly to singleton masses:
+
+\\[m(\\{c_i\\}) = p_i \times (1 - d), \quad m(\Theta) = d\\]
+
+The default discount (\\(d = 0.20\\)) is lower than cosine (0.30) because Platt-scaled SVM probabilities tend to be well-concentrated on the correct class for short-text classification. Like other sources, when the SVM has no meaningful prediction, it can be omitted entirely — `classify()` accepts `svm_proba` as an optional parameter, and the combination proceeds with only the non-vacuous sources.
+
+The SVM source is always active when training data is available. The main pipeline (`build_sigint_embeddings.py`) trains SVM inline on synthetic data before the classification loop, making it the default 5th evidence source. Standalone accuracy: 84.6% on the meta-tagging evaluation set. A validation script (`scripts/svm_pilot.py`) measures source correlation and the marginal impact on fused belief intervals and conflict \\(K\\).
+
+**Training/evaluation text format.** The SVM is trained on short text (`name | type | values`) and must receive the same format at evaluation time. The `EmbeddingClassifier._build_svm_text()` method ensures format consistency between training and inference, regardless of the full embedding text used by other evidence sources.
+
+| Property | SVM (5th source) | Cosine (1st) | CatBoost (2nd) |
+|----------|-----------------|--------------|----------------|
+| Feature space | Sparse TF-IDF (char + word n-grams) | Dense embedding (384-dim) | Dense embedding + discrete features |
+| Inductive bias | Maximum-margin separation | Nearest-neighbor similarity | Gradient-boosted decision boundaries |
+| Independence from cosine | High (different feature space) | — | Low (shared embedding) |
+| Calibration | Platt scaling (CalibratedClassifierCV) | Softmax + fixed discount | Variance-adaptive discount |
+| Explainability | Linear feature weights | Embedding similarity scores | SAGE Shapley values |
+
 ## Cross-Benchmark Analysis: Cosine Reliability Regimes
 
 Cross-benchmark experiments reveal that cosine similarity evidence is not uniformly helpful — it ranges from near-perfect (99.4% on semantically named columns) to destructive (1.6% on generic names, where it adds pure conflict to CatBoost's 81.6% accuracy).
@@ -276,7 +310,7 @@ dst(cosine=0.621, catboost=0.834, patterns=0.900) → TaxIdentifier [Bel=0.72, P
 
 ### Parquet Output Columns
 
-The `--dst` flag adds 7 columns to the pipeline parquet output:
+The pipeline always includes these DST columns in the parquet output:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -330,19 +364,21 @@ dst.mass -> dst.combine -> dst.out
 | File | Purpose |
 |------|---------|
 | `src/sigint/belief.py` | `FocalElement`, `BeliefAssignment`, `dempster_combine()`, `FrameOfDiscernment` |
-| `src/sigint/mass_functions.py` | `cosine_to_mass()`, `catboost_to_mass()`, `pattern_to_mass()`, `name_match_to_mass()` |
+| `src/sigint/mass_functions.py` | `cosine_to_mass()`, `catboost_to_mass()`, `pattern_to_mass()`, `name_match_to_mass()`, `svm_to_mass()` |
+| `src/sigint/svm_classifier.py` | `SVMClassifier`: TF-IDF + LinearSVC + CalibratedClassifierCV pipeline |
 | `src/sigint/classifier.py` | `HierarchicalClassification` with belief methods and `from_combined_evidence()` |
-| `src/sigint/embedding_classifier.py` | `classify_dst()` orchestration |
+| `src/sigint/embedding_classifier.py` | `classify()` orchestration (up to 5 sources) |
 | `src/sigint/category_set.py` | `HierarchicalCategorySet` with tree navigation |
 
 ### Test Coverage
 
-72 tests cover the DST layer (363 total across the sigint package):
+86 tests cover the DST layer (400 total across the sigint package):
 
 | Test File | Count | Scope |
 |-----------|-------|-------|
 | `test_belief.py` | 26 | Mass functions, Bel/Pl computation, Dempster combination, frame construction |
-| `test_mass_functions.py` | 15 | All 4 converters: high-confidence, uniform, vacuous, edge cases |
+| `test_mass_functions.py` | 20 | All 5 converters: high-confidence, uniform, vacuous, discount, edge cases |
+| `test_svm_classifier.py` | 9 | SVM train/predict, save/load, config, 5-source DST integration |
 | `test_hierarchical_category_set.py` | 16 | Tree navigation, backward compatibility, factory functions |
 | `test_hierarchical_classification.py` | 15 | Belief methods, uncertainty diagnostics, classify_dst integration |
 
@@ -361,7 +397,7 @@ The implementation uses Dempster's conjunctive rule with normalization (the orth
 
 **High-conflict sensitivity (Zadeh's paradox).** Classical Dempster with normalization concentrates mass on the intersection even when conflict is extreme. Zadeh (1986) demonstrated that when two sources assign mass to disjoint singletons, the normalized result assigns all mass to a third category with negligible original support. In our setting, this scenario is mitigated by three factors: (a) all four sources operate over the same embedding-derived information, making fully disjoint evidence unlikely in practice; (b) pattern and name-match sources return vacuous mass functions when they have no signal, contributing zero conflict rather than misleading evidence; (c) the \\(K > 0.2\\) flag identifies problematic cases for human review. However, no formal fallback rule is triggered — this is a passive diagnostic, not an active conflict resolution mechanism.
 
-**Source independence.** Dempster's rule assumes independent evidence sources. Cosine similarity and CatBoost both consume the same sentence-transformer embedding vector — they are not independent. Name matching partially overlaps with cosine (column name is part of embedding text). The cross-benchmark regime analysis suggests their contributions are *functionally* orthogonal in most cases (cosine dominates on semantic names, CatBoost on opaque names), but this is an empirical observation, not a theoretical guarantee. Options under consideration include merging cosine and CatBoost into a single source, decoupling their feature spaces, or adopting a cautious rule that does not require independence (Denoeux, 2008). See [R-01: Source Independence Analysis](../reference/research-roadmap.md).
+**Source independence.** Dempster's rule assumes independent evidence sources. Cosine similarity and CatBoost both consume the same sentence-transformer embedding vector — they are not independent. Name matching partially overlaps with cosine (column name is part of embedding text). The cross-benchmark regime analysis suggests their contributions are *functionally* orthogonal in most cases (cosine dominates on semantic names, CatBoost on opaque names), but this is an empirical observation, not a theoretical guarantee. The optional SVM source directly addresses this concern: it operates on sparse TF-IDF features (character and word n-grams) with no dependency on the sentence-transformer embedding, providing a genuinely independent evidence channel. Additional options under consideration include merging cosine and CatBoost into a single source, or adopting a cautious rule that does not require independence (Denoeux, 2008). See [R-01: Source Independence Analysis](../reference/research-roadmap.md).
 
 **Heuristic discounting.** The fixed discount constants (cosine: 0.30, CatBoost: 0.15, pattern: 0.10, name match: 0.30/0.50/0.70) were set by engineering judgment. No sensitivity analysis, grid search, or Bayesian optimization has been published. CatBoost's variance-adaptive discount is the one exception — it uses virtual ensemble variance to modulate trust. A systematic calibration experiment ([R-02](../reference/research-roadmap.md)) is planned: sweep constants against held-out data, measure accuracy and Expected Calibration Error (ECE), and extract optimized values with confidence intervals.
 

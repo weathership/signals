@@ -704,6 +704,21 @@ in
     export HF_HUB_OFFLINE=1
     export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
 
+    # NVIDIA driver libs for PyTorch/CatBoost CUDA.
+    # Nix ld-linux doesn't search /lib/x86_64-linux-gnu/ (which also has
+    # a conflicting glibc).  Symlink just the driver .so files into a
+    # clean directory and prepend it to LD_LIBRARY_PATH.
+    NVIDIA_DRIVER_LIBS="$PWD/.devenv/nvidia-driver-libs"
+    if [ -e /lib/x86_64-linux-gnu/libcuda.so.1 ]; then
+      mkdir -p "$NVIDIA_DRIVER_LIBS"
+      for lib in libcuda libnvidia-ml libnvidia-ptxjitcompiler; do
+        for f in /lib/x86_64-linux-gnu/''${lib}.so*; do
+          [ -e "$f" ] && ln -sfn "$f" "$NVIDIA_DRIVER_LIBS/$(basename "$f")"
+        done
+      done
+      export LD_LIBRARY_PATH="$NVIDIA_DRIVER_LIBS''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+
     # OpenTofu alias
     alias tf=tofu
 

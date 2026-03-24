@@ -143,7 +143,7 @@ The CatBoost CV baseline uses category reference embedding augmentation to overc
 
 The train→eval pipeline replaces k-fold CV with synthetic training data and several additional techniques. See [Classification Training](./classification-training.md) for the full methodology and accuracy progression.
 
-When the `--dst` flag is enabled, the pipeline additionally produces Dempster-Shafer belief intervals at every hierarchy level. See [Evidence Fusion](./evidence-fusion.md) for the full DST architecture.
+The pipeline always produces Dempster-Shafer belief intervals at every hierarchy level. See [Evidence Fusion](./evidence-fusion.md) for the full DST architecture.
 
 ### Column Kinds
 

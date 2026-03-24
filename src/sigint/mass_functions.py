@@ -156,7 +156,9 @@ def catboost_to_mass(
         if code in frame.singletons and prob > 1e-15:
             masses[frame.singleton(code)] = prob * evidence_mass
 
-    masses[frame.theta] = discount
+    # Residual from codes not in frame → allocate to Theta (R-04)
+    assigned = sum(masses.values())
+    masses[frame.theta] = discount + max(0.0, evidence_mass - assigned)
     masses = _redistribute_confusable_mass(masses, frame)
     return BeliefAssignment(masses=masses)
 
@@ -177,8 +179,13 @@ SIGDG_PATTERN_MAP: dict[str, str] = {
 def get_pattern_category_map(taxonomy: str) -> dict[str, str]:
     """Return the pattern-to-category mapping for a given taxonomy."""
     if taxonomy == "gittables":
-        from config.sigint.gittables_taxonomy import GITTABLES_PATTERN_MAP
-        return GITTABLES_PATTERN_MAP
+        import importlib.util
+        from pathlib import Path
+        tax_path = Path(__file__).resolve().parent.parent.parent / "config" / "sigint" / "gittables_taxonomy.py"
+        spec = importlib.util.spec_from_file_location("gittables_taxonomy", tax_path)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return mod.GITTABLES_PATTERN_MAP
     return SIGDG_PATTERN_MAP
 
 
@@ -220,6 +227,48 @@ def pattern_to_mass(
         masses[frame.singleton(code)] = mass_per_code
 
     masses[frame.theta] = 0.1
+    return BeliefAssignment(masses=masses)
+
+
+def svm_to_mass(
+    proba: dict[str, float],
+    frame: FrameOfDiscernment,
+    discount: float = 0.20,
+) -> BeliefAssignment:
+    """Convert SVM calibrated probabilities to a mass function.
+
+    Converts Platt-scaled (CalibratedClassifierCV) probability estimates
+    from a TF-IDF + LinearSVC classifier into a BeliefAssignment.  The
+    SVM operates on sparse lexical features (character/word n-grams),
+    making it architecturally independent from the dense sentence-
+    transformer embedding shared by cosine and CatBoost sources.
+
+    The discount is lower than cosine (0.30) because calibrated SVM
+    probabilities tend to be well-concentrated on the correct class
+    for short-text classification tasks.
+
+    When the frame has confusable pairs and the top-2 singletons form
+    a known pair with a close mass ratio, mass is redistributed to
+    the pair focal element.
+
+    Args:
+        proba: {category_code: probability} from SVM predict_proba().
+        frame: The frame of discernment.
+        discount: Fraction of total mass allocated to Theta.
+    """
+    if not proba:
+        return frame.vacuous()
+
+    masses: dict[FocalElement, float] = {}
+    evidence_mass = 1.0 - discount
+    for code, prob in proba.items():
+        if code in frame.singletons and prob > 1e-15:
+            masses[frame.singleton(code)] = prob * evidence_mass
+
+    # Residual from codes not in frame → allocate to Theta (R-04)
+    assigned = sum(masses.values())
+    masses[frame.theta] = discount + max(0.0, evidence_mass - assigned)
+    masses = _redistribute_confusable_mass(masses, frame)
     return BeliefAssignment(masses=masses)
 
 
