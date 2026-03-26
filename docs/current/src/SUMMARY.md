@@ -18,6 +18,7 @@
 - [Classification Training](./architecture/classification-training.md)
 - [Heuristic Elucidation](./architecture/heuristic-elucidation.md)
 - [Evidence Fusion](./architecture/evidence-fusion.md)
+- [Bootstrap Agent](./architecture/bootstrap-agent.md)
 - [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios

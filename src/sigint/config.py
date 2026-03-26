@@ -83,6 +83,24 @@ _HOCON_MAP: dict[str, tuple[str, type]] = {
     "ml.self_train_rounds": ("self_train_rounds", int),
     "ml.self_train_threshold": ("self_train_threshold", float),
     "gpu.devices": ("gpu_devices", str),
+    "bootstrap.max_iterations": ("bootstrap_max_iterations", int),
+    "bootstrap.k_threshold": ("bootstrap_k_threshold", float),
+    "bootstrap.uncertainty_gap_threshold": ("bootstrap_uncertainty_gap_threshold", float),
+    "bootstrap.coverage_target": ("bootstrap_coverage_target", float),
+    "bootstrap.confidence_floor": ("bootstrap_confidence_floor", float),
+    "bootstrap.initial_sample_fraction": ("bootstrap_initial_sample_fraction", float),
+    "bootstrap.propagation_similarity": ("bootstrap_propagation_similarity", float),
+    "bootstrap.max_llm_calls_per_iteration": ("bootstrap_max_llm_calls_per_iteration", int),
+    "bootstrap.max_total_llm_calls": ("bootstrap_max_total_llm_calls", int),
+    "bootstrap.columns_per_call": ("bootstrap_columns_per_call", int),
+    "bootstrap.output": ("bootstrap_output", str),
+    "bootstrap.llm_backend": ("bootstrap_llm_backend", str),
+    "bootstrap.llm_base_url": ("bootstrap_llm_base_url", str),
+    "bootstrap.llm_model": ("bootstrap_llm_model", str),
+    "bootstrap.llm_api_key": ("bootstrap_llm_api_key", str),
+    "bootstrap.llm_max_tokens": ("bootstrap_llm_max_tokens", int),
+    "bootstrap.llm_discount": ("bootstrap_llm_discount", float),
+    "bootstrap.table_aware_batching": ("bootstrap_table_aware_batching", bool),
     "data.dir": ("data_dir", str),
     "data.input_format": ("input_format", str),
     "data.ground_truth": ("ground_truth", str),
@@ -165,6 +183,26 @@ class PipelineConfig:
     self_train: bool = False
     self_train_rounds: int = 1
     self_train_threshold: float = 0.80
+
+    # Bootstrap agent
+    bootstrap_max_iterations: int = 5
+    bootstrap_k_threshold: float = 0.2
+    bootstrap_uncertainty_gap_threshold: float = 0.3
+    bootstrap_coverage_target: float = 0.95
+    bootstrap_confidence_floor: float = 0.5
+    bootstrap_initial_sample_fraction: float = 0.3
+    bootstrap_propagation_similarity: float = 0.85
+    bootstrap_max_llm_calls_per_iteration: int = 500
+    bootstrap_max_total_llm_calls: int = 5000
+    bootstrap_columns_per_call: int = 50
+    bootstrap_output: str = "build/bootstrap_gt.json"
+    bootstrap_llm_backend: str = "cerebras"
+    bootstrap_llm_api_key: str | None = None
+    bootstrap_llm_base_url: str | None = None
+    bootstrap_llm_model: str = "claude-opus-4-6"
+    bootstrap_llm_max_tokens: int = 65536
+    bootstrap_llm_discount: float = 0.10
+    bootstrap_table_aware_batching: bool = True
 
     # Data paths
     data_dir: str | None = None

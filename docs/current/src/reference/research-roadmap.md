@@ -297,6 +297,7 @@ Each converter produces a full-confidence mass function, then discounting is app
 | SHAP explanations | **Done** | Per-item CatBoost TreeSHAP with top-3 feature attribution in parquet output. |
 | Single-command pipeline | **Done** | `--auto-generate` trains SVM + CatBoost inline on synthetic data. Zero manual steps. |
 | Self-training mode | **Done** | `--self-train` injects GT-labeled eval data into CatBoost training. 99.4% accuracy (348/350). LLM annotation reproduction workflow. SVM text format fix: 60.6% → 84.6% DST accuracy. |
+| LLM bootstrap agent | **Done** | K-based convergent classification for novel tables. Dual backend (Anthropic + OpenAI-compatible). Tiered sampling, label propagation, LLM revisit with ML context. `llm_to_mass()` as 6th DST source. Output feeds `--self-train`. |
 
 ## Dependency Graph
 

@@ -73,7 +73,10 @@ DST evidence fusion is always active — the pipeline produces Dempster-Shafer b
 | `src/sigint/svm_classifier.py` | TF-IDF + LinearSVC 5th DST evidence source |
 | `src/sigint/confusable_pairs.py` | Known ambiguous category pairs (ADID/GUID, BAN/PAN) |
 | `src/sigint/category_set.py` | Taxonomy-agnostic category sets (SIGDG + GitTables) |
+| `src/sigint/llm_backend.py` | Dual LLM backend (Anthropic + OpenAI-compatible) |
+| `src/sigint/bootstrap_agent.py` | LLM bootstrap convergence loop (K-based revisiting) |
 | `scripts/build_sigint_embeddings.py` | Full pipeline: features → classification → CatBoost → SAGE |
+| `scripts/bootstrap_classify.py` | Bootstrap CLI: novel table classification without GT |
 | `scripts/generate_meta_tagging_train.py` | Synthetic column generator (all SIGDG leaves, 70+ value generators) |
 | `config/sigint/gittables_taxonomy.py` | BFO-grounded GitTables taxonomy (122 types) |
 

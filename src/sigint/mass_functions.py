@@ -272,6 +272,62 @@ def svm_to_mass(
     return BeliefAssignment(masses=masses)
 
 
+def llm_to_mass(
+    category_code: str | None,
+    confidence: float,
+    alternatives: list[dict],
+    frame: FrameOfDiscernment,
+    discount: float = 0.10,
+) -> BeliefAssignment:
+    """Convert LLM classification to a mass function.
+
+    The primary prediction receives confidence-proportional mass.
+    Alternatives distribute remaining evidence mass.  Low discount
+    (0.10 vs cosine's 0.30) because frontier LLM predictions are
+    well-informed and typically well-calibrated.
+
+    When the frame has confusable pairs and the top-2 singletons form
+    a known pair with a close mass ratio, mass is redistributed to
+    the pair focal element.
+
+    Args:
+        category_code: Predicted category code (None if unclassified).
+        confidence: LLM confidence 0.0-1.0 for primary prediction.
+        alternatives: List of dicts with 'code' and 'confidence' keys.
+        frame: The frame of discernment.
+        discount: Fraction of total mass allocated to Theta.
+    """
+    if not category_code or category_code not in frame.singletons:
+        return frame.vacuous()
+
+    evidence_mass = 1.0 - discount
+    masses: dict[FocalElement, float] = {}
+
+    # Primary prediction
+    primary_mass = confidence * evidence_mass
+    masses[frame.singleton(category_code)] = primary_mass
+
+    # Distribute remaining evidence to alternatives
+    remaining = evidence_mass - primary_mass
+    if remaining > 1e-15 and alternatives:
+        alt_total = sum(a.get("confidence", 0.0) for a in alternatives)
+        if alt_total > 0:
+            for alt in alternatives:
+                alt_code = alt.get("code", "")
+                alt_conf = alt.get("confidence", 0.0)
+                if alt_code in frame.singletons and alt_conf > 0:
+                    alt_mass = (alt_conf / alt_total) * remaining
+                    if alt_mass > 1e-15:
+                        fe = frame.singleton(alt_code)
+                        masses[fe] = masses.get(fe, 0.0) + alt_mass
+
+    # Theta gets discount + any unallocated evidence
+    assigned = sum(masses.values())
+    masses[frame.theta] = discount + max(0.0, evidence_mass - assigned)
+    masses = _redistribute_confusable_mass(masses, frame)
+    return BeliefAssignment(masses=masses)
+
+
 def name_match_to_mass(
     column_name: str,
     frame: FrameOfDiscernment,
