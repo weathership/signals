@@ -3,6 +3,8 @@
 let
   # Shared LD_LIBRARY_PATH setup for all Impala processes.
   # Nix glibc must come FIRST so libc.so.6 resolves to glibc 2.42.
+  # This binding is only forced on Linux (impala processes are gated by mkIf below);
+  # on Darwin pkgs.glibc is never evaluated, so the ${pkgs.glibc} reference is safe.
   impalaLdLibraryPath = ''
     NIX_GLIBC="${pkgs.glibc}/lib"
     GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
@@ -313,9 +315,14 @@ in
   # alongside system libraries (which only need glibc ≤2.35, backward-
   # compatible with 2.42). LD_LIBRARY_PATH ordering is critical: Nix glibc
   # must come FIRST so libc.so.6 resolves to glibc 2.42.
+  #
+  # The three impala-* processes are gated on isLinux: pkgs.glibc is
+  # unavailable on Darwin, and Impala itself only runs on Linux x86_64.
+  # mkIf with a false condition drops the entire submodule before its
+  # contents (including ${pkgs.glibc} interpolations) are forced.
 
   # ── Impala Statestore Process ───────────────────────────────────────────
-  processes.impala-statestore = {
+  processes.impala-statestore = lib.mkIf pkgs.stdenv.isLinux {
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/statestored" ]; then
@@ -352,7 +359,7 @@ in
   };
 
   # ── Impala Catalog Server Process (HMS-free) ────────────────────────────
-  processes.impala-catalogd = {
+  processes.impala-catalogd = lib.mkIf pkgs.stdenv.isLinux {
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/catalogd" ]; then
@@ -409,7 +416,7 @@ in
   };
 
   # ── Impala Daemon Process (HMS-free) ────────────────────────────────────
-  processes.impala-impalad = {
+  processes.impala-impalad = lib.mkIf pkgs.stdenv.isLinux {
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/impalad" ]; then
