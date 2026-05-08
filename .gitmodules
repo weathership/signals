@@ -26,3 +26,7 @@
 	path = components/nifi
 	url = git@github.com:rch/asf-nifi.git
 	branch = rch/signals
+[submodule "components/openph"]
+	path = components/openph
+	url = git@github.com:rch/oss-openph.git
+	branch = rch/signals

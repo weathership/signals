@@ -14,6 +14,8 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "catboost>=1.2.7",
     "openai>=2.29.0",
+    "cython>=3.2.4",
+    "ripser>=0.6.14",
 ]
 
 [project.optional-dependencies]
