@@ -2,7 +2,7 @@ name: Catalog Stack CI
 
 on:
   push:
-    branches: [main]
+    branches: [trunk]
     paths:
       - 'components/impala/fe/src/main/java/org/apache/impala/catalog/**'
       - 'components/impala/fe/src/main/java/org/apache/impala/service/**'
