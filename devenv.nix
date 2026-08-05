@@ -579,8 +579,11 @@ SQL
         cd components/atlas
         # Create empty apidocs dir so WAR plugin succeeds when enunciate is skipped
         mkdir -p webapp/target/api/v2/apidocs/ui
+        # mockito.version is referenced by test-jar deps but not defined in root pom;
+        # pin it so remote-resources can resolve without hitting expired java.net certs.
         mvn package -pl webapp -am -Dmaven.test.skip=true -DskipUTs=true \
           -DGRAPH-PROVIDER=age -Dcheckstyle.skip=true -DskipEnunciate=true \
+          -Dmockito.version=3.5.10 \
           --no-transfer-progress
       '';
       description = "Build Atlas webapp with AGE backend";
@@ -687,9 +690,9 @@ SQL
         # GCC 15: C23 bool breaks bundled thirdparty postgres; libstdc++ no longer
         # transitively provides uint*_t in LLVM 11 headers. Force GNU11/C++17 and
         # pre-include stdint.h (not cstdint — compiler-rt uses -nostdinc++).
-        export EXTRA_CFLAGS="''${EXTRA_CFLAGS:-} -std=gnu11 -include stdint.h"
+        export EXTRA_CFLAGS="''${EXTRA_CFLAGS:-} -std=gnu11 -include stdint.h -D_DEFAULT_SOURCE"
         export EXTRA_CXXFLAGS="''${EXTRA_CXXFLAGS:-} -std=gnu++17 -include stdint.h"
-        export CFLAGS="''${CFLAGS:-} -std=gnu11 -include stdint.h"
+        export CFLAGS="''${CFLAGS:-} -std=gnu11 -include stdint.h -D_DEFAULT_SOURCE"
         export CXXFLAGS="''${CXXFLAGS:-} -std=gnu++17 -include stdint.h"
         # Nix gcc is configured with a fake --prefix=/nix/store/eeee...; Kudu's
         # build_llvm() passes that to -DGCC_INSTALL_PREFIX and clang later fails
@@ -700,6 +703,21 @@ SQL
         # glibc (no termio/crypt) fails to compile compiler-rt sanitizers.
         export EXTRA_CMAKE_FLAGS="''${EXTRA_CMAKE_FLAGS:-} -DGCC_INSTALL_PREFIX=$_real_gcc_prefix -DCOMPILER_RT_BUILD_SANITIZERS=OFF -DCOMPILER_RT_BUILD_XRAY=OFF"
         echo "Kudu build: GCC_INSTALL_PREFIX=$_real_gcc_prefix (sanitizers off)"
+        # Gradle 7.6 (Kudu Java wrapper) does not support class file major 65 (Java 21).
+        # Prefer JDK 17 on PATH when available for gradle-wrapper / kudu-proto jar.
+        if command -v java >/dev/null 2>&1; then
+          _jv="$(java -version 2>&1 | head -1 || true)"
+          if echo "$_jv" | grep -qE 'version "2[1-9]'; then
+            for _jhome in /nix/store/*openjdk-17*/lib/openjdk /nix/store/*openjdk-17*; do
+              if [ -x "$_jhome/bin/java" ]; then
+                export JAVA_HOME="$_jhome"
+                export PATH="$JAVA_HOME/bin:$PATH"
+                echo "Kudu build: using JAVA_HOME=$JAVA_HOME (Gradle needs <=17)"
+                break
+              fi
+            done
+          fi
+        fi
 
         mkdir -p "$KUDU_SRC/build/release"
         cd "$KUDU_SRC/build/release"
