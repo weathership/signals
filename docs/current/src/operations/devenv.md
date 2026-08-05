@@ -23,6 +23,34 @@ secretspec run -- just tag default.my_table   # inject declared secrets for a jo
 devenv up             # Start PostgreSQL + Kerberos KDC (+ Atlas, Kudu, Impala on Linux)
 ```
 
+## ASF submodules and nested devenv
+
+Atlas, Ranger, Kudu, and Impala live under `components/*` as git submodules
+(`rch/asf-*` forks, usually branch `rch/signals`). **Build knowledge should
+prefer to live next to those trees**; the host devenv owns **ports, realm,
+process graph, and product config**.
+
+| Layer | Responsibility |
+|-------|----------------|
+| Component (`components/kudu/devenv*.nix`, …) | How to compile that ASF tree on Nix (packages, `*:build-*` tasks) |
+| Host (repo-root `devenv.nix`) | PG `:5455`, KDC, Atlas `:21010`, wiring, SecretSpec |
+| Product config (`config/`) | `install.properties`, Impala HMS-free, AGE JDBC, local overrides |
+
+**Kudu** already ships a full nested devenv (`components/kudu` on `rch/devenv`).
+Treat that as the reference: split a **library module** (packages + build tasks)
+from optional **standalone** processes so the host can import without starting a
+second KDC/cluster.
+
+**Maven isolation:** do not install SNAPSHOTs into `~/.m2`. devenv sets
+`SIG_MAVEN_REPO=$PWD/.devenv/m2` and `MAVEN_ARGS=-Dmaven.repo.local=…`. Ranger →
+Impala FE resolution uses that store; Impala skips the CDP Ranger admin tarball
+via `config/impala/impala-config-local.sh` (`RANGER_VERSION_OVERRIDE` /
+`RANGER_HOME_OVERRIDE`).
+
+Design detail and phased rollout:
+[`docs/scratch/2026-08-05/234317_asf-devenv-nesting.md`](../../../scratch/2026-08-05/234317_asf-devenv-nesting.md)
+(and devenv’s [monorepo guide](https://devenv.sh/guides/monorepo/)).
+
 ## Languages
 
 | Language | Version | Purpose |
