@@ -203,8 +203,10 @@ in
       # Symlink models so AtlasTypeDefStoreInitializer finds bootstrap type definitions
       ln -sfn "$ATLAS_DIR/addons/models" "$ATLAS_HOME/models"
 
-      # Materialize conf with live PG port (Atlas does not interpolate env reliably)
-      sed "s|localhost:[0-9]*/signals|localhost:$PGPORT/signals|" \
+      # Materialize conf with live PG port + app role (Atlas does not interpolate env reliably)
+      sed -e "s|localhost:[0-9]*/signals|localhost:$PGPORT/signals|" \
+          -e "s|atlas.age.jdbc.user=.*|atlas.age.jdbc.user=signals|" \
+          -e "s|atlas.age.jdbc.password=.*|atlas.age.jdbc.password=signals|" \
         "$ATLAS_CONF_SRC/atlas-application.properties" > "$ATLAS_HOME/conf/atlas-application.properties"
       cp -f "$ATLAS_CONF_SRC/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
       cp -f "$ATLAS_CONF_SRC/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
@@ -587,6 +589,58 @@ SQL
           --no-transfer-progress
       '';
       description = "Build Atlas webapp with AGE backend";
+    };
+
+    "ranger:build" = {
+      exec = ''
+        if [ ! -f components/ranger/pom.xml ]; then
+          echo "components/ranger not initialized. Run: git submodule update --init components/ranger"
+          exit 1
+        fi
+        cd components/ranger
+        # Admin + tagsync (+ common); skip full -Pall agent matrix for day-one
+        mvn -pl security-admin,tagsync -am clean package -DskipTests \
+          --no-transfer-progress
+        echo "Ranger modules built under components/ranger/"
+      '';
+      description = "Build Ranger security-admin + tagsync (Maven)";
+    };
+
+    "ranger:db-setup" = {
+      exec = ''
+        RANGER_HOME="$PWD/.devenv/ranger"
+        mkdir -p "$RANGER_HOME/lib" "$RANGER_HOME/conf" "$RANGER_HOME/logs"
+        # Materialize install.properties with absolute paths
+        sed -e "s|SIG_RANGER_HOME|$RANGER_HOME|g" \
+            -e "s|SIG_PROJECT_ROOT|$PWD|g" \
+          "$PWD/config/ranger/install.properties" > "$RANGER_HOME/conf/install.properties"
+        # PostgreSQL JDBC from local m2 (prefer 42.7.x)
+        PGJAR=$(ls -1 "$HOME"/.m2/repository/org/postgresql/postgresql/*/postgresql-*.jar 2>/dev/null \
+          | grep -v 'sources\|javadoc' | sort -V | tail -1 || true)
+        if [ -z "$PGJAR" ] || [ ! -f "$PGJAR" ]; then
+          echo "Downloading PostgreSQL JDBC driver..."
+          curl -fsSL -o "$RANGER_HOME/lib/postgresql.jar" \
+            "https://jdbc.postgresql.org/download/postgresql-42.7.4.jar"
+        else
+          cp -f "$PGJAR" "$RANGER_HOME/lib/postgresql.jar"
+        fi
+        # Ensure DB role + grants
+        psql -p 5455 -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rangeradmin') THEN
+    CREATE ROLE rangeradmin LOGIN PASSWORD 'rangeradmin1';
+  END IF;
+END$$;
+GRANT ALL PRIVILEGES ON DATABASE ranger TO rangeradmin;
+SQL
+        # schema privileges for future objects
+        psql -p 5455 -d ranger -c "GRANT ALL ON SCHEMA public TO rangeradmin;" 2>/dev/null || true
+        echo "Ranger install.properties → $RANGER_HOME/conf/install.properties"
+        echo "JDBC jar → $RANGER_HOME/lib/postgresql.jar"
+        echo "Next: unpack ranger-admin from Maven target and run setup.sh with this install.properties"
+      '';
+      description = "Materialize Ranger install.properties + Postgres role/JDBC";
     };
 
     "impala-fdw:build" = {
