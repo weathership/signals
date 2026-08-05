@@ -3,12 +3,17 @@
 PostgreSQL foreign data wrapper for Apache Impala (HS2), maintained as
 `components/impala_fdw` → [weathership/impala_fdw](https://github.com/weathership/impala_fdw).
 
+## Scope
+
+**Kudu storage only.** Impala is the HS2 frontend; foreign tables map to Impala
+tables backed by Kudu. Iceberg and other Impala formats are out of scope for v1.
+
 ## Role
 
-Lets governance / AGE SQL on Postgres join live Impala tables without bulk copy:
+Lets governance / AGE SQL on Postgres join live **Kudu** data without bulk copy:
 
 ```
-PostgreSQL (:5455)  --impala_fdw-->  Impala HS2 (:21050)  -->  Kudu / Iceberg
+PostgreSQL (:5455)  --impala_fdw-->  Impala HS2 (:21050)  -->  Kudu (:7051)
 ```
 
 Complementary to Atlas (metadata catalog) and the HMS-free catalog registry.
