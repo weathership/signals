@@ -1,38 +1,40 @@
 # Impala FDW
 
-PostgreSQL foreign data wrapper for Apache Impala (HS2), maintained as
+PostgreSQL foreign data wrapper for the Impala + Kudu data plane, maintained as
 `components/impala_fdw` → [weathership/impala_fdw](https://github.com/weathership/impala_fdw).
+
+**Full specification:** [`components/impala_fdw/docs/SPEC.md`](https://github.com/weathership/impala_fdw/blob/trunk/docs/SPEC.md)
+(in-tree: `components/impala_fdw/docs/SPEC.md` after submodule init).
 
 ## Scope
 
-**Kudu storage only.** Impala is the HS2 frontend; foreign tables map to Impala
-tables backed by Kudu. Iceberg and other Impala formats are out of scope for v1.
+| | |
+|--|--|
+| Storage | **Kudu only** (via Impala tables `STORED AS KUDU`) |
+| Default path | Impala HS2 (`jdbc:hive2` / thrift) — SQL-shaped queries |
+| Fast path | Direct Kudu client for closed governance ops (PK lookup, samples, …) |
+| Non-goals | Iceberg, HMS, standalone HiveServer2, DML in v0 |
 
 ## Role
 
-Lets governance / AGE SQL on Postgres join live **Kudu** data without bulk copy:
-
 ```
 PostgreSQL (:5455)  --impala_fdw-->  Impala HS2 (:21050)  -->  Kudu (:7051)
+                         \------ kudu_scan (gov shapes) ------/
 ```
 
-Complementary to Atlas (metadata catalog) and the HMS-free catalog registry.
+Postgres remains the primary front end for AGE / Atlas / Ranger **metadata**
+SQL. The FDW supplies **row and sample data** from Kudu, with Impala as the
+default SQL adapter and Kudu scans for the known Atlas+Ranger+sigint algebra
+(see SPEC §6).
 
 ## Build
 
 ```bash
 git submodule update --init components/impala_fdw
 just impala-fdw-build
-# or: devenv tasks run impala-fdw:build
-```
-
-Install into the Postgres prefix (`make install`), then:
-
-```sql
-CREATE EXTENSION impala_fdw;
 ```
 
 ## Status
 
-Scaffold: extension registers, options validate, scans raise until HS2 client
-is wired. Defaults match signals devenv (`host=127.0.0.1`, `port=21050`).
+Phase 0 scaffold: extension registers and validates options; scans raise until
+HS2/Kudu executors land (SPEC §14).
