@@ -22,7 +22,8 @@ import sys
 REQUIRED_PORTS = [
     (5455, "tcp", "PostgreSQL"),
     (8848, "udp", "Kerberos KDC"),
-    (21000, "tcp", "Atlas"),
+    (21010, "tcp", "Atlas"),
+    (6080, "tcp", "Ranger Admin"),
     (7051, "tcp", "Kudu Master RPC"),
     (8051, "tcp", "Kudu Master Web UI"),
     (7050, "tcp", "Kudu TServer RPC"),

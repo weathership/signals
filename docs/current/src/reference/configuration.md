@@ -29,7 +29,8 @@
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KRB5_REALM` | `KRBTEST.COM` | Kerberos realm |
+| `KRB5_REALM` | `VISTA.ZNDX.ORG` | Kerberos realm (location-oriented) |
+| `SIGNALS_KRB_HOST` | `tinybox.dev.vista.zndx.org` | Kerberos SPN host FQDN |
 | `KRB5_KDC_PORT` | `8848` | KDC listener port |
 | `KRB5_CONFIG` | `.devenv/kdc/krb5.conf` | krb5 client config (set by shell) |
 | `KRB5_KDC_PROFILE` | `.devenv/kdc/kdc.conf` | KDC server config (set by shell) |

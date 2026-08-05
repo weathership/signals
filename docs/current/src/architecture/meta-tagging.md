@@ -12,7 +12,7 @@ impala: Impala {
 }
 
 atlas: Atlas {
-  tooltip: "Metadata catalog\nPort 21000"
+  tooltip: "Metadata catalog\nPort 21010"
   types: Type System {tooltip: "Entity types, classifications"}
   entities: Entities {tooltip: "Tables, columns, databases"}
   tags: Classifications {tooltip: "BFO-grounded governance tags"}

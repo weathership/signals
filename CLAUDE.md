@@ -8,26 +8,33 @@ signals-360 — uncertainty-aware column classification for metadata governance.
 
 The primary workflow is the **sigint classification pipeline**: a Python package that classifies database columns into a hierarchical taxonomy using Dempster-Shafer evidence fusion, CatBoost gradient boosting, and SAGE feature importance analysis. Classifications feed downstream into Apache Atlas for governance tagging and Ranger for policy enforcement.
 
+Two Python packages live under `src/`:
+
+- `sigint/` — the classification pipeline (features, embeddings, DST fusion, CatBoost/SVM, LLM bootstrap, Atlas tagging)
+- `signals/` — platform primitives shared across pipeline stages (`platform.py` capability detection, `persistence.py` persistent homology)
+
 ## Primary Workflow
 
 ### sigint Classification Pipeline
 
-The `src/sigint/` package (23 modules) implements a multi-stage classification pipeline:
+`scripts/build_sigint_embeddings.py` is the pipeline driver; its `main()` is organized into explicitly commented stages that mirror the architecture:
 
-1. **Feature Extraction** — 12 discrete, ablatable features extracted from column metadata (name, type, sample values, cardinality, entropy, pattern signals, value description, etc.)
+1. **Feature Extraction** — 12 discrete, ablatable features per column (`FEATURE_NAMES` in `src/sigint/features.py`: column_name, column_type, sample_values, cardinality, null_ratio, value_entropy, pattern_signals, avg_value_length, numeric_ratio, sibling_context, source_table, value_description). Each is independently maskable — that mask is the SAGE ablation hook.
 2. **Embedding Classification** — Sentence-transformer embeddings (MiniLM-L6, 384-dim) with cosine similarity to taxonomy reference embeddings
-3. **CatBoost Training** — Gradient boosting on 992-dim feature vectors (dual embedding + discrete features + cosine similarities), trained on synthetic data or cross-validated; `--self-train` mode injects GT labels for LLM annotation reproduction (99.4% accuracy)
+3. **CatBoost Training** — Gradient boosting on a concatenated matrix `[full_emb | value_only_emb | discrete_features]` plus per-category cosine similarities; discrete features are scaled by `sqrt(emb_dim / n_discrete)` so they aren't drowned out by the embedding block. Trained on synthetic data or cross-validated; `--self-train` injects GT labels for LLM annotation reproduction (99.4% accuracy)
 4. **DST Evidence Fusion** — Dempster-Shafer Theory combines 5 evidence sources (cosine, CatBoost, pattern detection, name matching, SVM) into belief intervals [Bel, Pl] with conflict diagnostics
-5. **SAGE Analysis** — Shapley Additive Global importancE measures each feature's marginal contribution to accuracy
+5. **SAGE Analysis** — Shapley Additive Global importancE measures each feature's marginal contribution to accuracy (runs always; uses predictions as pseudo-GT when no ground truth is supplied)
 
-### Two Operational Modes
+DST evidence fusion is always active — the pipeline produces belief intervals automatically when multiple evidence sources are available. Item-wise SHAP explanations are included by default (disable with `--no-shap`).
+
+### Three Operational Modes
 
 **External benchmarks** test generalization on public datasets:
 ```bash
 # Download GitTables CTA benchmark (2517 columns, 122 DBpedia types)
 uv run python scripts/download_gittables_benchmark.py --output-dir build/datasets/gittables/
 
-# Evaluate against ground truth
+# Evaluate against ground truth (or: just benchmark-gittables)
 uv run python scripts/evaluate_gittables.py \
     --data-dir build/datasets/gittables/ \
     --output build/gittables_eval.parquet
@@ -57,7 +64,25 @@ uv run python scripts/build_sigint_embeddings.py \
     --output build/sigint_embeddings.parquet
 ```
 
-DST evidence fusion is always active — the pipeline produces Dempster-Shafer belief intervals automatically when multiple evidence sources are available. Item-wise SHAP explanations are included by default (disable with `--no-shap`).
+**LLM bootstrap** produces ground truth for novel tables that have none. The outer loop uses DST conflict `K` as the disagreement signal between LLM and ML predictions, revisiting high-conflict columns until `k_threshold` / `coverage_target` are met (`config/base.conf` → `bootstrap { … }`). Its JSON output is directly consumable as `--ground-truth` / `--self-train` input:
+```bash
+uv run python scripts/bootstrap_classify.py \
+    --data-dir <data-dir> --taxonomy sigdg --threshold 0.25 \
+    --output build/bootstrap_gt.json
+# air-gap variant: --llm-backend openai_compatible --llm-base-url http://localhost:8000/v1 --llm-model <model>
+
+uv run python scripts/build_sigint_embeddings.py \
+    --data-dir <data-dir> --ground-truth build/bootstrap_gt.json \
+    --self-train --auto-generate --output build/sigint_final.parquet
+```
+
+### Live Tagging
+
+`python -m sigint` (console script: `sigint`) runs sample → classify → tag against live Impala + Atlas, scoped by `scope.databases` / `scope.tables` in HOCON:
+```bash
+just tag <table> ...          # write classifications to Atlas
+just tag-dry-run <table> ...  # classify without writing
+```
 
 ### Key Source Files
 
@@ -68,17 +93,25 @@ DST evidence fusion is always active — the pipeline produces Dempster-Shafer b
 | `src/sigint/belief.py` | Dempster-Shafer mass functions and combination |
 | `src/sigint/mass_functions.py` | Evidence-to-mass converters (cosine, CatBoost, pattern, name) |
 | `src/sigint/classifier.py` | HierarchicalClassification with belief intervals |
+| `src/sigint/category_set.py` | Taxonomy-agnostic category sets (SIGDG + GitTables), hierarchy nav for DST |
+| `src/sigint/ontology.py` | SIGDG categories, sensitivity levels, Atlas type mapping (BFO 2020-grounded) |
 | `src/sigint/sage_analysis.py` | SAGE feature importance with GPU acceleration |
 | `src/sigint/shap_analysis.py` | Per-item CatBoost TreeSHAP explanations |
 | `src/sigint/svm_classifier.py` | TF-IDF + LinearSVC 5th DST evidence source |
 | `src/sigint/confusable_pairs.py` | Known ambiguous category pairs (ADID/GUID, BAN/PAN) |
-| `src/sigint/category_set.py` | Taxonomy-agnostic category sets (SIGDG + GitTables) |
 | `src/sigint/llm_backend.py` | Dual LLM backend (Anthropic + OpenAI-compatible) |
 | `src/sigint/bootstrap_agent.py` | LLM bootstrap convergence loop (K-based revisiting) |
+| `src/sigint/data_element.py` | Composite governance concepts spanning columns/tables (`sigint_data_element` in Atlas) |
+| `src/sigint/schema_discovery.py` | Data Element discovery: naming conventions, FK hints, post-hoc co-occurrence |
+| `src/sigint/tagger.py` | Orchestrator: sample → classify → tag (Impala + Atlas) |
+| `src/signals/platform.py` | Cached CPU/GPU/OS capability probes for hot-path backend selection |
+| `src/signals/persistence.py` | `PersistenceBackend` protocol + Ripser CPU backend (CUDA backend planned) |
 | `scripts/build_sigint_embeddings.py` | Full pipeline: features → classification → CatBoost → SAGE |
 | `scripts/bootstrap_classify.py` | Bootstrap CLI: novel table classification without GT |
 | `scripts/generate_meta_tagging_train.py` | Synthetic column generator (all SIGDG leaves, 70+ value generators) |
 | `config/sigint/gittables_taxonomy.py` | BFO-grounded GitTables taxonomy (122 types) |
+
+`signals.platform` is the single place accelerator selection lives — modules with CPU and GPU paths query it instead of probing torch/CUDA directly. It is deliberately distinct from `sigint.config.preflight_gpu()`, which produces the rich startup report (nvidia-smi probing, version-mismatch warnings).
 
 ## Configuration
 
@@ -88,6 +121,8 @@ HOCON (`config/base.conf`) is the **single source of truth** for all pipeline co
 
 **Key principle:** All config flows through `.env` → HOCON `${?VAR}` → `PipelineConfig` → application code. This ensures consistent, auditable config state whether running via `just`, `devenv`, or standalone `uv run`.
 
+HOCON sections: `impala`, `atlas`, `sampling`, `classifier`, `embedding`, `llm`, `taxonomy`, `vocabulary_mapping`, `sage`, `shap`, `svm`, `gpu`, `ml`, `bootstrap`, `data`, `scope`.
+
 ### Config Files
 
 | File | Purpose |
@@ -95,7 +130,7 @@ HOCON (`config/base.conf`) is the **single source of truth** for all pipeline co
 | `config/base.conf` | HOCON schema with defaults and `${?VAR}` env var capture |
 | `.env.example` | Template for user overrides (copy to `.env`) |
 | `build/config/sigint.env` | Materialized resolved config (gitignored) |
-| `src/sigint/config.py` | `PipelineConfig`, `load_config()`, `materialize_config()`, validation |
+| `src/sigint/config.py` | `PipelineConfig`, `load_config()`, `materialize_config()`, validation, `preflight_gpu()` |
 | `src/sigint/vocab_mapping.py` | Vocabulary mapping between user labels and SIGDG codes |
 
 ### Setup and Preflight
@@ -107,7 +142,7 @@ just preflight                 # 3. Validate all required keys present
 just test                      # 4. Tests auto-validate via conftest preflight
 ```
 
-The preflight check (`tests/conftest.py`) runs automatically as a session-scoped pytest fixture. It validates that the materialized config contains all required keys and conditionally-required keys (e.g., `ANTHROPIC_API_KEY` when `classifier_type=llm`). If the materialized config doesn't exist, it auto-generates from `config/base.conf` defaults so tests work out of the box.
+The preflight check (`tests/conftest.py`) runs automatically as a session-scoped pytest fixture. It validates that the materialized config contains all required keys and conditionally-required keys (e.g., `ANTHROPIC_API_KEY` when `classifier_type=llm`). If the materialized config doesn't exist, it auto-generates from `config/base.conf` defaults so tests work out of the box. A second session fixture runs `preflight_gpu()` and surfaces CUDA mismatches as warnings, never failures.
 
 ### Adding Config Keys
 
@@ -124,46 +159,89 @@ Uses [devenv](https://devenv.sh/) (Nix-based) with direnv for automatic shell ac
 - **Enter the dev shell:** `devenv shell` (or automatic via direnv)
 - **Start all services:** `devenv up` (PostgreSQL + Kerberos KDC + Atlas + Kudu + Impala)
 - **Run devenv tests:** `devenv test`
+- **List tasks:** `devenv tasks list` — notable: `signals:kdc-init`, `signals:kdc-reset`, `signals:catalog-init`, `sigint:resolve-config`, `sigint:cache-models`, `docs:build`, `docs:serve`, `atlas:build`, `kudu:build-cpp`, `impala:build`, `impala:build-fe`, `impala:test-fe`, `hms:init-schema`, `polaris:install`
 
 Key files:
 - `devenv.nix` — packages, services, processes, tasks, and shell configuration
 - `devenv.yaml` — Nix inputs configuration
 - `.envrc` — direnv integration
 
+**Note:** `uv` manages a project-local `.venv`. The first `uv run` in a fresh checkout syncs a large dependency set (torch, catboost, sentence-transformers) and can take many minutes — a "hanging" first test run is usually this sync.
+
 ### Languages
 - **Python 3.12** — primary language; `uv` for package management
 - **Java 21** — ASF component builds (Maven)
 - **Rust** — planned gRPC engine (not yet implemented)
 
-## Build and Test Commands
+### Air-gap / offline operation
 
 ```bash
-# Resolve config (required before first run)
-just resolve-config
+just cache-models   # pre-download MiniLM into build/models/
+```
+Afterwards the pipeline runs with `HF_HUB_OFFLINE=1` and `SENTENCE_TRANSFORMERS_HOME=build/models`. For LLM stages, point `--llm-backend openai_compatible --llm-base-url` at a local vLLM server instead of a hosted API.
 
-# Run all sigint tests (415 tests, includes preflight config validation)
+## Build and Test Commands
+
+`Justfile` holds the canonical entry points — prefer them over ad-hoc invocations:
+
+```bash
+just resolve-config       # materialize HOCON → build/config/sigint.env (required first)
+just preflight            # validate materialized config
+just show-config          # print resolved config
+just cache-models         # pre-download embedding model for offline use
+just test                 # uv run pytest tests/sigint/ -v
+just build-embeddings ... # scripts/build_sigint_embeddings.py
+just run-pipeline ...     # scripts/run_pipeline.py
+just evaluate-gittables ...
+just benchmark-gittables  # zero-config GitTables run
+just tag / just tag-dry-run <tables>
+just docs-build / just docs-serve
+```
+
+### Python tests
+
+```bash
+# Full sigint suite (25 modules under tests/sigint/, includes preflight config validation)
 uv run pytest tests/sigint/ -v
 
-# Run specific test modules
+# Single module / single test
 uv run pytest tests/sigint/test_features.py -v
+uv run pytest tests/sigint/test_belief.py::TestBeliefAssignment::test_normalization -v  # tests are class-grouped
+
+# Related module groups
 uv run pytest tests/sigint/test_belief.py tests/sigint/test_mass_functions.py -v
-
-# Validate config without running tests
-just preflight
-
-# Run SAGE analysis with feature importance
-uv run python scripts/build_sigint_embeddings.py \
-    --data-dir <data-dir> \
-    --taxonomy <taxonomy> --threshold 0.25 \
-    --sage-permutations 512 \
-    --output build/sigint_embeddings.parquet
-
-# Build mdbook documentation
-devenv tasks run docs:build
-
-# Serve docs with live reload
-devenv tasks run docs:serve
 ```
+
+### BDD suite (behave)
+
+`features/` holds the Gherkin suite, tiered by tag and gated in `features/environment.py`:
+
+- `@tier-0` — pure Python, no external services; runs anywhere
+- `@tier-1` — requires the full `devenv up` stack; the hook waits on process-compose health for postgres, kdc, atlas, kudu-master, kudu-tserver, impala-{statestore,catalogd,impalad}, then application readiness (120s budget, cached per session)
+- tier-2/3 — not implemented, auto-skipped
+
+```bash
+uv run behave --tags=tier-0                              # no services needed
+uv run behave features/classification/                   # classification domain
+uv run behave --tags="@data-lifecycle and @ci" --no-capture \
+    features/platform/data_lifecycle.feature             # tier-1, needs devenv up
+```
+
+Domains: `features/classification/` (feature extraction, embedding classification, evidence fusion, taxonomy/vocabulary, benchmarks, config lifecycle), `features/platform/` (per-service health, catalog sync, meta-tagging integration, data lifecycle), `features/tagging/`. `features_archive/` holds retired specs — don't treat it as live.
+
+### Workload harness
+
+`tests/workload/lifecycle.py` drives a real data lifecycle against the running stack:
+
+```bash
+uv run python -m tests.workload.lifecycle --phase all --rows 1000 --partitions 10 --upsert-ratio 0.20
+# phases: setup | land | consolidate | verify | all | teardown
+```
+
+### CI
+
+- `.github/workflows/catalog-ci.yml` — Tier 0 runs Impala FE `ConfigLoaderTest` under Maven/Java 21 on `ubuntu-latest`; Tier 1 runs `devenv up --detach`, `signals:catalog-init`, the lifecycle workload, and the `@data-lifecycle and @ci` BDD scenarios on a **self-hosted** runner. Triggered by changes under `components/impala/fe/.../{catalog,service}/`, `config/{impala,hms,polaris}/`, `tests/workload/`, `features/platform/data_lifecycle*`.
+- `.github/workflows/docs.yml` — builds the mdbook (mdBook + D2 + preprocessors) and deploys to GitHub Pages.
 
 ### ASF Components (submodules in `components/`)
 
@@ -183,21 +261,22 @@ Build dependencies for C++ components (Kudu, Impala): cmake, ninja, gcc, protobu
 
 ## Services
 
-### PostgreSQL 16
-- **Extensions:** Apache AGE (graph queries), pg_cron (scheduled jobs), pg_trgm (fuzzy search)
-- **Database:** `signals` (created automatically)
-- Managed by `services.postgres` in devenv — starts automatically with `devenv up`
+Started together by `devenv up` (process-compose). Impala processes are `lib.mkIf pkgs.stdenv.isLinux` — on Darwin the stack comes up without them, so tier-1 scenarios and live tagging are Linux-only.
 
-### Kerberos KDC
-- **Realm:** `KRBTEST.COM`
-- **KDC port:** `8848` (127.0.0.1)
-- **Principals:** `postgres/localhost`, `signals` (password: `signals`)
+| Service | Endpoint / notes |
+|---------|------------------|
+| PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry); extensions Apache AGE (graph), pg_cron, pg_trgm |
+| Kerberos KDC | realm `VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
+| Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` |
+| Ranger | port **6080** (admin; when configured) |
+| Kudu | master webserver 8051, tserver 8050 |
+| Impala | HS2 **21050**, beeswax 21001, statestore 24000, catalogd 26000 (HMS-free, config from `config/impala/catalog_config_dir/`), webservers 25000/25010/25020 |
 
-### Common Commands
-```
+```bash
 devenv up                               # Start all services
 devenv tasks run signals:kdc-init       # Initialize/verify KDC
-psql -d signals                         # Connect to database
+devenv tasks run signals:catalog-init   # Load catalog registry schema into PostgreSQL
+psql -p 5455 -d signals                 # Connect to database
 kinit signals                           # Get Kerberos ticket (pw: signals)
 ```
 
@@ -213,4 +292,11 @@ Key architecture pages:
 - `architecture/classification-training.md` — CatBoost, synthetic data, train→eval
 - `architecture/heuristic-elucidation.md` — observation-to-feature methodology
 - `architecture/evidence-fusion.md` — DST theory, belief intervals, confidence-gated fusion
+- `architecture/bootstrap-agent.md` — LLM convergence loop for novel tables
+- `architecture/meta-tagging.md` — SIGDG hierarchy and Atlas projection
+- `reference/sigdg-ontology.md` — taxonomy reference
 - `reference/research-roadmap.md` — calibration, source independence, confusable pairs
+
+## Deployment Assets
+
+Not part of the classification pipeline, but present at the repo root: `zarf/` (air-gap bundle: charts, images, manifests), `policy/` (k8s + OpenTofu), `infra/` (AWS, benchmarks), `tilt/` + `Tiltfile` (engine dev loop).

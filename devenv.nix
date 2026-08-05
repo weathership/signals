@@ -104,9 +104,12 @@ in
   languages.typescript = { enable = true; };
 
   # ── Environment ────────────────────────────────────────────────────────────
+  # Kerberos: location realm VISTA.ZNDX.ORG; host FQDN tinybox.dev.vista.zndx.org
+  # (host.posture.location.tld). KDC stays on loopback :8848.
   env = {
-    KRB5_REALM = "KRBTEST.COM";
+    KRB5_REALM = "VISTA.ZNDX.ORG";
     KRB5_KDC_PORT = "8848";
+    SIGNALS_KRB_HOST = "tinybox.dev.vista.zndx.org";
   };
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -136,6 +139,7 @@ in
       }
       { name = "polaris"; }
       { name = "signals_catalog"; }
+      { name = "ranger"; }
     ];
   };
 
@@ -165,32 +169,41 @@ in
     };
   };
 
-  # ── Atlas Process ────────────────────────────────────────────────────────
+  # ── Atlas Process (AGE backend on signals PG; HTTP :21010 to coexist with aegir :21000) ──
   processes.atlas = {
     exec = ''
       ATLAS_DIR="$PWD/components/atlas"
       ATLAS_WEBAPP="$ATLAS_DIR/webapp/target/atlas-webapp-3.0.0-SNAPSHOT"
-      ATLAS_CONF="$PWD/config/atlas"
+      ATLAS_CONF_SRC="$PWD/config/atlas"
       ATLAS_HOME="$PWD/.devenv/atlas"
+      PGPORT="''${PGPORT:-5455}"
 
       mkdir -p "$ATLAS_HOME/data" "$ATLAS_HOME/logs" "$ATLAS_HOME/conf"
 
       # Symlink models so AtlasTypeDefStoreInitializer finds bootstrap type definitions
       ln -sfn "$ATLAS_DIR/addons/models" "$ATLAS_HOME/models"
 
-      # Copy credentials/authz to atlas home conf for runtime resolution
-      cp -n "$ATLAS_CONF/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
-      cp -n "$ATLAS_CONF/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
+      # Materialize conf with live PG port (Atlas does not interpolate env reliably)
+      sed "s|localhost:[0-9]*/signals|localhost:$PGPORT/signals|" \
+        "$ATLAS_CONF_SRC/atlas-application.properties" > "$ATLAS_HOME/conf/atlas-application.properties"
+      cp -f "$ATLAS_CONF_SRC/users-credentials.properties" "$ATLAS_HOME/conf/" 2>/dev/null || true
+      cp -f "$ATLAS_CONF_SRC/atlas-simple-authz-policy.json" "$ATLAS_HOME/conf/" 2>/dev/null || true
 
       if [ ! -d "$ATLAS_WEBAPP/WEB-INF" ]; then
         echo "Atlas webapp not built. Run: devenv tasks run atlas:build"
         exit 1
       fi
 
-      echo "Starting Atlas on http://localhost:21000..."
+      # Hikari fail-fasts without retry — wait for Postgres
+      for _i in $(seq 1 90); do
+        pg_isready -h localhost -p "$PGPORT" -q && break
+        sleep 1
+      done
+
+      echo "Starting Atlas on http://localhost:21010 (AGE -> signals DB, pg :$PGPORT)..."
       exec java \
         -Datlas.home="$ATLAS_HOME" \
-        -Datlas.conf="$ATLAS_CONF" \
+        -Datlas.conf="$ATLAS_HOME/conf" \
         -Datlas.log.dir="$ATLAS_HOME/logs" \
         -Datlas.log.file=application \
         -Datlas.data="$ATLAS_HOME/data" \
@@ -207,17 +220,17 @@ in
         --add-opens java.base/sun.security.action=ALL-UNNAMED \
         --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED \
         -server -Xmx1024m \
-        -cp "$ATLAS_CONF:$ATLAS_WEBAPP/WEB-INF/classes:$ATLAS_WEBAPP/WEB-INF/lib/*" \
+        -cp "$ATLAS_HOME/conf:$ATLAS_WEBAPP/WEB-INF/classes:$ATLAS_WEBAPP/WEB-INF/lib/*" \
         org.apache.atlas.Atlas \
         -app "$ATLAS_WEBAPP" \
-        -port 21000
+        -port 21010
     '';
     process-compose = {
       depends_on = {
         postgres = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        exec.command = "curl -sf http://127.0.0.1:21000/api/atlas/admin/status";
+        exec.command = "curl -sf http://127.0.0.1:21010/api/atlas/admin/status";
         initial_delay_seconds = 10;
         period_seconds = 10;
         timeout_seconds = 5;
@@ -231,10 +244,11 @@ in
   processes.kudu-master = {
     exec = ''
       KUDU_HOME="$PWD/.devenv/kudu"
-      KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
+      # Prefer submodule build; allow KUDU_BUILD override for emergency external trees
+      KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
 
       if [ ! -f "$KUDU_BUILD/bin/kudu-master" ]; then
-        echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
+        echo "Kudu not built. Run: devenv tasks run kudu:build-cpp"
         exit 1
       fi
 
@@ -270,10 +284,10 @@ in
   processes.kudu-tserver = {
     exec = ''
       KUDU_HOME="$PWD/.devenv/kudu"
-      KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
+      KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
 
       if [ ! -f "$KUDU_BUILD/bin/kudu-tserver" ]; then
-        echo "Kudu not built. Build from $HOME/local/src/asf/kudu"
+        echo "Kudu not built. Run: devenv tasks run kudu:build-cpp"
         exit 1
       fi
 
@@ -599,15 +613,23 @@ in
 
     "kudu:install-java" = {
       exec = ''
-        cd "$HOME/local/src/asf/kudu/java"
+        if [ ! -d components/kudu/java ]; then
+          echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
+          exit 1
+        fi
+        cd components/kudu/java
         ./gradlew :kudu-client:publishToMavenLocal
       '';
-      description = "Install Kudu Java client to local Maven repo";
+      description = "Install Kudu Java client to local Maven repo (from components/kudu)";
     };
 
     "kudu:build-cpp" = {
       exec = ''
-        KUDU_SRC="$HOME/local/src/asf/kudu"
+        KUDU_SRC="$PWD/components/kudu"
+        if [ ! -d "$KUDU_SRC" ] || [ ! -f "$KUDU_SRC/CMakeLists.txt" ]; then
+          echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
+          exit 1
+        fi
         mkdir -p "$KUDU_SRC/build/release"
         cd "$KUDU_SRC/build/release"
         # Clear cmake cache if OpenSSL version changed
@@ -622,8 +644,9 @@ in
         cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DNO_TESTS=1 ../..
         ninja kudu-master kudu-tserver
         ln -sfn "$KUDU_SRC/build/release" "$KUDU_SRC/build/latest"
+        echo "Kudu binaries: $KUDU_SRC/build/latest/bin/"
       '';
-      description = "Build Kudu C++ master and tserver binaries";
+      description = "Build Kudu C++ master and tserver from components/kudu";
     };
 
     "impala:bootstrap" = {
@@ -704,8 +727,8 @@ in
     export KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf"
     export KRB5CCNAME="$KDC_DIR/krb5cc"
 
-    # Kudu build location
-    export KUDU_BUILD="$HOME/local/src/asf/kudu/build/latest"
+    # Kudu build location (submodule; override with KUDU_BUILD if needed)
+    export KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
 
     # Air-gap safe: use local model cache, no HuggingFace phone-home
     export HF_HUB_OFFLINE=1
@@ -733,8 +756,9 @@ in
     echo ""
     echo "Core services (start with 'devenv up'):"
     echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron"
-    echo "  Kerberos KDC      — realm: KRBTEST.COM, port: 8848"
-    echo "  Atlas             — http://localhost:21000 (AGE backend)"
+    echo "  Kerberos KDC      — realm: VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
+    echo "  Atlas             — http://localhost:21010 (AGE backend → signals DB)"
+    echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
     echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
     echo "  Impala Statestore — localhost:24000 (web UI: 25010)"

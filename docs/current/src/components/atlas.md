@@ -15,7 +15,7 @@ See [Metadata Tagging](../architecture/meta-tagging.md) for the classification a
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| Atlas | 21000 | Web UI and REST API (admin/admin) |
+| Atlas | 21010 | Web UI and REST API (admin/admin); :21010 avoids clash with aegir Atlas on :21000 |
 
 Atlas uses PostgreSQL with the Apache AGE graph extension as its backend (replacing the default JanusGraph/HBase/Solr stack).
 

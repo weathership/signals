@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--db", default="sigint_ingest", help="Impala database name")
     p.add_argument("--impala-host", default="localhost")
     p.add_argument("--impala-port", type=int, default=21050)
-    p.add_argument("--atlas-url", default="http://localhost:21000")
+    p.add_argument("--atlas-url", default="http://localhost:21010")
     p.add_argument("--api-key", default=None, help="Anthropic API key")
     p.add_argument("--model", default="claude-opus-4-6")
     p.add_argument("--max-rows", type=int, default=100, help="Max rows to ingest per CSV")

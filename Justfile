@@ -63,6 +63,38 @@ tag *TABLES:
 tag-dry-run *TABLES:
     uv run python -m sigint --tables {{TABLES}} --dry-run
 
+# ── Native / ASF component builds (devenv tasks) ─────────────────
+
+# Build Kudu C++ master + tserver from components/kudu
+kudu-build:
+    devenv tasks run kudu:build-cpp
+
+# Publish Kudu Java client to local Maven
+kudu-java:
+    devenv tasks run kudu:install-java
+
+# Download Impala toolchain (~5-10 GB, once per machine)
+impala-bootstrap:
+    devenv tasks run impala:bootstrap
+
+# Full Impala build (C++ backend + Java frontend)
+impala-build:
+    devenv tasks run impala:build
+
+# Build Atlas webapp with AGE graph provider
+atlas-build:
+    devenv tasks run atlas:build
+
+# Reset local KDC (required after Kerberos realm renames)
+kdc-reset:
+    devenv tasks run signals:kdc-reset
+
+# Serial stack build: Atlas → Kudu → Impala (long wall-clock)
+stack-build:
+    devenv tasks run atlas:build
+    devenv tasks run kudu:build-cpp
+    devenv tasks run impala:build
+
 # ── Tests ─────────────────────────────────────────────────────────
 
 # Run all Python tests (includes preflight config check)

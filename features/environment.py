@@ -68,7 +68,7 @@ def _check_atlas_api():
     import requests
 
     resp = requests.get(
-        "http://localhost:21000/api/atlas/admin/status",
+        "http://localhost:21010/api/atlas/admin/status",
         auth=("admin", "admin"), timeout=5,
     )
     if resp.status_code == 200:

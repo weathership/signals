@@ -124,7 +124,7 @@ class PipelineConfig:
     # Infrastructure
     impala_host: str = "127.0.0.1"
     impala_port: int = 21050
-    atlas_url: str = "http://localhost:21000"
+    atlas_url: str = "http://localhost:21010"
     atlas_user: str = "admin"
     atlas_password: str = "admin"
     cluster_name: str = "signals"
@@ -324,7 +324,7 @@ class TaggingConfig:
     impala_port: int = 21050
 
     # Atlas connection
-    atlas_url: str = "http://localhost:21000"
+    atlas_url: str = "http://localhost:21010"
     atlas_user: str = "admin"
     atlas_password: str = "admin"
 
@@ -446,7 +446,7 @@ def materialize_config(
     Output format (sourceable by shell)::
 
         ANTHROPIC_API_KEY=sk-ant-...
-        SIGINT_ATLAS_URL=http://localhost:21000
+        SIGINT_ATLAS_URL=http://localhost:21010
         SIGINT_CONFIDENCE_THRESHOLD=0.3
         ...
 
