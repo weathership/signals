@@ -671,6 +671,13 @@ in
           echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
           exit 1
         fi
+        # GCC 15 defaults to C23; bundled thirdparty postgres typedefs bool (pre-C23).
+        # Force GNU11/C++17 for thirdparty + main build.
+        export EXTRA_CFLAGS="''${EXTRA_CFLAGS:-} -std=gnu11"
+        export EXTRA_CXXFLAGS="''${EXTRA_CXXFLAGS:-} -std=gnu++17"
+        export CFLAGS="''${CFLAGS:-} -std=gnu11"
+        export CXXFLAGS="''${CXXFLAGS:-} -std=gnu++17"
+
         mkdir -p "$KUDU_SRC/build/release"
         cd "$KUDU_SRC/build/release"
         # Clear cmake cache if OpenSSL version changed
@@ -682,7 +689,16 @@ in
             rm -f CMakeCache.txt
           fi
         fi
-        cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DNO_TESTS=1 ../..
+        # Ensure thirdparty is built with the CFLAGS above (cmake may invoke it)
+        if [ ! -f "$KUDU_SRC/thirdparty/installed/common/bin/protoc" ] && \
+           [ ! -d "$KUDU_SRC/thirdparty/installed/uninstrumented" ]; then
+          echo "Building Kudu thirdparty (long)..."
+          (cd "$KUDU_SRC/thirdparty" && ./build-if-necessary.sh)
+        fi
+        cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DNO_TESTS=1 \
+          -DCMAKE_C_FLAGS="-std=gnu11" \
+          -DCMAKE_CXX_FLAGS="-std=gnu++17" \
+          ../..
         ninja kudu-master kudu-tserver
         ln -sfn "$KUDU_SRC/build/release" "$KUDU_SRC/build/latest"
         echo "Kudu binaries: $KUDU_SRC/build/latest/bin/"
