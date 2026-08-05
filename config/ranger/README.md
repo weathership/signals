@@ -18,13 +18,28 @@ Scaffold for Apache Ranger against signals Postgres + Atlas.
 - [ ] processes: `ranger-admin`, `ranger-tagsync`
 - [ ] Impala plugin + SIGDG tag policies
 
-## Day-one setup
+## Day-one setup (local Ranger, not Impala CDP tarball)
+
+Impala is rewired via `config/impala/impala-config-local.sh` so it does **not** download
+or use the CDP `ranger-*-admin` package. Instead:
+
+| Knob | Value |
+|------|--------|
+| `RANGER_VERSION_OVERRIDE` | `3.0.0-SNAPSHOT` (local Maven) |
+| `RANGER_HOME_OVERRIDE` | `$PWD/.devenv/ranger/admin` |
 
 ```bash
-devenv tasks run ranger:db-setup   # materialize install.properties + JDBC + roles
-devenv tasks run ranger:build      # Maven security-admin + tagsync
-# then unpack admin package and run setup.sh against .devenv/ranger/conf/install.properties
+devenv tasks run ranger:db-setup   # install.properties + JDBC + roles
+devenv tasks run ranger:build      # JDK 11 → install into .devenv/m2 (project-local)
+devenv tasks run ranger:install    # unpack admin under .devenv/ranger/admin
+(cd .devenv/ranger/admin && ./setup.sh)
 ```
+
+**Maven isolation:** devenv sets `SIG_MAVEN_REPO=$PWD/.devenv/m2` and `MAVEN_ARGS=-Dmaven.repo.local=…`
+so Ranger/Impala/Atlas builds do **not** write SNAPSHOTs into `~/.m2`.
+
+Impala bootstrap/build copies `config/impala/impala-config-local.sh` into the submodule
+(`bin/impala-config-local.sh`, gitignored) so `IMPALA_RANGER_VERSION` matches those jars.
 
 Default admin passwords in `install.properties` are **dev-only** (`Admin123`).
 

@@ -29,9 +29,17 @@ Kerberos (when enabled): realm `DEV.VISTA.ZNDX.ORG`, host
 branch `rch/signals`). Config scaffold under `config/ranger/`. Full admin +
 TagSync + Impala plugin wiring is part of the current stack plan.
 
-## Build (once submodule initialized)
+## Build (local, not Impala CDP package)
+
+Impala’s toolchain can download a prebuilt CDP Ranger admin. **Signals does not use that.**
+We build `components/ranger` and point Impala at it:
 
 ```bash
 git submodule update --init components/ranger
-# then: devenv tasks run ranger:build   # when task lands
+devenv tasks run ranger:db-setup
+devenv tasks run ranger:build      # OpenJDK 11; installs 3.0.0-SNAPSHOT to ~/.m2
+devenv tasks run ranger:install    # .devenv/ranger/admin
 ```
+
+`config/impala/impala-config-local.sh` sets `RANGER_VERSION_OVERRIDE` + `RANGER_HOME_OVERRIDE`
+so bootstrap skips the CDP tarball and the FE resolves plugins from local Maven.

@@ -583,7 +583,10 @@ SQL
         mkdir -p webapp/target/api/v2/apidocs/ui
         # mockito.version is referenced by test-jar deps but not defined in root pom;
         # pin it so remote-resources can resolve without hitting expired java.net certs.
-        mvn package -pl webapp -am -Dmaven.test.skip=true -DskipUTs=true \
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        mkdir -p "$SIG_MAVEN_REPO"
+        mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" package -pl webapp -am \
+          -Dmaven.test.skip=true -DskipUTs=true \
           -DGRAPH-PROVIDER=age -Dcheckstyle.skip=true -DskipEnunciate=true \
           -Dmockito.version=3.5.10 \
           --no-transfer-progress
@@ -597,13 +600,70 @@ SQL
           echo "components/ranger not initialized. Run: git submodule update --init components/ranger"
           exit 1
         fi
+        # Nashorn removed in JDK 15+. Need a full JDK 11 *with* jdk.scripting.nashorn.jmod
+        # (Ubuntu often ships JRE-only; Nix openjdk-11/*/lib/openjdk has jmods).
+        export JAVA_HOME=""
+        for _jhome in /nix/store/*openjdk-11*/lib/openjdk; do
+          if [ -f "$_jhome/jmods/jdk.scripting.nashorn.jmod" ] && [ -x "$_jhome/bin/javac" ]; then
+            export JAVA_HOME="$_jhome"
+            break
+          fi
+        done
+        if [ -z "$JAVA_HOME" ]; then
+          echo "No OpenJDK 11 with nashorn jmod found. Install openjdk-11-jdk or Nix jdk11."
+          exit 1
+        fi
+        export PATH="$JAVA_HOME/bin:$PATH"
+        echo "ranger:build using JAVA_HOME=$JAVA_HOME"
+        java -version 2>&1 | head -1
         cd components/ranger
-        # Admin + tagsync (+ common); skip full -Pall agent matrix for day-one
-        mvn -pl security-admin,tagsync -am clean package -DskipTests \
+        # Install into project-local repo only (.devenv/m2) — Impala FE resolves from there.
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        mkdir -p "$SIG_MAVEN_REPO"
+        # rat.skip: JVM crash dumps / local noise must not fail devenv builds
+        rm -f core.* hs_err_pid*.log 2>/dev/null || true
+        mvn -pl security-admin,tagsync,distro -am install -DskipTests -Drat.skip=true \
+          -Dmaven.repo.local="$SIG_MAVEN_REPO" \
+          -Dmaven.compiler.fork=true \
+          -Dmaven.compiler.executable="$JAVA_HOME/bin/javac" \
           --no-transfer-progress
-        echo "Ranger modules built under components/ranger/"
+        echo "Ranger modules installed to $SIG_MAVEN_REPO (typically 3.0.0-SNAPSHOT)"
+        ls -1 distro/target/ranger-*-admin.tar.gz 2>/dev/null || true
       '';
-      description = "Build Ranger security-admin + tagsync (Maven)";
+      description = "Build Ranger into .devenv/m2 (JDK 11; for local Impala FE)";
+    };
+
+    "ranger:install" = {
+      exec = ''
+        # Stable path for Impala RANGER_HOME_OVERRIDE: .devenv/ranger/admin/setup.sh
+        ADMIN_SRC=$(find components/ranger -path '*/target/*' -name setup.sh 2>/dev/null \
+          | head -1 | xargs -r dirname || true)
+        if [ -z "$ADMIN_SRC" ]; then
+          TAR=$(find components/ranger -name 'ranger-*-admin.tar.gz' 2>/dev/null | head -1 || true)
+          if [ -n "$TAR" ]; then
+            mkdir -p .devenv/ranger/unpack
+            rm -rf .devenv/ranger/unpack/*
+            tar -xzf "$TAR" -C .devenv/ranger/unpack
+            ADMIN_SRC=$(find .devenv/ranger/unpack -name setup.sh | head -1 | xargs -r dirname)
+          fi
+        fi
+        if [ -z "$ADMIN_SRC" ] || [ ! -f "$ADMIN_SRC/setup.sh" ]; then
+          echo "No ranger-admin package found. Run: devenv tasks run ranger:build"
+          exit 1
+        fi
+        bash -c 'devenv tasks run ranger:db-setup'
+        rm -rf .devenv/ranger/admin
+        mkdir -p .devenv/ranger/admin
+        cp -a "$ADMIN_SRC"/. .devenv/ranger/admin/
+        cp -f .devenv/ranger/conf/install.properties .devenv/ranger/admin/install.properties
+        mkdir -p .devenv/ranger/admin/ews/webapp/WEB-INF/lib 2>/dev/null || true
+        cp -f .devenv/ranger/lib/postgresql.jar .devenv/ranger/admin/ews/webapp/WEB-INF/lib/ 2>/dev/null \
+          || cp -f .devenv/ranger/lib/postgresql.jar .devenv/ranger/admin/ || true
+        echo "Ranger admin tree: $PWD/.devenv/ranger/admin"
+        echo "Impala: RANGER_HOME_OVERRIDE points here via config/impala/impala-config-local.sh"
+        echo "Next: (cd .devenv/ranger/admin && ./setup.sh) then start ranger-admin"
+      '';
+      description = "Install local Ranger admin package under .devenv/ranger/admin";
     };
 
     "ranger:db-setup" = {
@@ -614,8 +674,10 @@ SQL
         sed -e "s|SIG_RANGER_HOME|$RANGER_HOME|g" \
             -e "s|SIG_PROJECT_ROOT|$PWD|g" \
           "$PWD/config/ranger/install.properties" > "$RANGER_HOME/conf/install.properties"
-        # PostgreSQL JDBC from local m2 (prefer 42.7.x)
-        PGJAR=$(ls -1 "$HOME"/.m2/repository/org/postgresql/postgresql/*/postgresql-*.jar 2>/dev/null \
+        # PostgreSQL JDBC: prefer project repo, then user cache, else download
+        SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        PGJAR=$(ls -1 "$SIG_MAVEN_REPO"/org/postgresql/postgresql/*/postgresql-*.jar \
+                     "$HOME"/.m2/repository/org/postgresql/postgresql/*/postgresql-*.jar 2>/dev/null \
           | grep -v 'sources\|javadoc' | sort -V | tail -1 || true)
         if [ -z "$PGJAR" ] || [ ! -f "$PGJAR" ]; then
           echo "Downloading PostgreSQL JDBC driver..."
@@ -728,10 +790,15 @@ SQL
           echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
           exit 1
         fi
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        mkdir -p "$SIG_MAVEN_REPO"
         cd components/kudu/java
-        ./gradlew :kudu-client:publishToMavenLocal
+        # Publish into project-local Maven layout (not ~/.m2)
+        ./gradlew :kudu-client:publishToMavenLocal \
+          -Dmaven.repo.local="$SIG_MAVEN_REPO" \
+          -Pmaven.repo.local="$SIG_MAVEN_REPO"
       '';
-      description = "Install Kudu Java client to local Maven repo (from components/kudu)";
+      description = "Install Kudu Java client into .devenv/m2";
     };
 
     "kudu:build-cpp" = {
@@ -803,36 +870,54 @@ SQL
 
     "impala:bootstrap" = {
       exec = ''
+        # Local Ranger/Kudu overrides — skip CDP ranger-admin tarball download
+        cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
         cd components/impala
         source bin/impala-config.sh
+        echo "RANGER_HOME=$RANGER_HOME  IMPALA_RANGER_VERSION=$IMPALA_RANGER_VERSION"
         python3 bin/bootstrap_toolchain.py
       '';
-      description = "Download Impala toolchain (~5-10 GB)";
+      description = "Download Impala toolchain (skips CDP Ranger when local override set)";
     };
 
     "impala:build" = {
       exec = ''
+        cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        mkdir -p "$SIG_MAVEN_REPO"
+        export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
         cd components/impala
         source bin/impala-config.sh
+        # FE needs ranger-plugins-* at IMPALA_RANGER_VERSION in *project* m2
+        if ! ls "$SIG_MAVEN_REPO"/org/apache/ranger/ranger-plugins-common/"$IMPALA_RANGER_VERSION"/*.jar >/dev/null 2>&1; then
+          echo "Ranger jars missing in $SIG_MAVEN_REPO for version $IMPALA_RANGER_VERSION."
+          echo "Run: devenv tasks run ranger:build"
+          exit 1
+        fi
         ./buildall.sh -notests -noclean
       '';
-      description = "Full Impala build (C++ backend + Java frontend)";
+      description = "Full Impala build (uses .devenv/m2 for local Ranger)";
     };
 
     "impala:build-fe" = {
       exec = ''
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
+        cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
         cd components/impala
         source bin/impala-config.sh
-        cd java && mvn compile -pl ../fe -am -DskipTests --no-transfer-progress
+        cd java && mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" compile -pl ../fe -am -DskipTests --no-transfer-progress
       '';
       description = "Incremental Impala frontend build (Java only)";
     };
 
     "impala:test-fe" = {
       exec = ''
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
         cd components/impala
         source bin/impala-config.sh
-        mvn test -pl fe \
+        mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" test -pl fe \
           -Dtest="ConfigLoaderTest,KuduMetaProviderTest,SignalsDdlExecutorTest" \
           -DfailIfNoTests=false --no-transfer-progress
       '';
@@ -882,6 +967,12 @@ SQL
     # Kudu build location (submodule; override with KUDU_BUILD if needed)
     export KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
 
+    # Project-local Maven repo (never pollute ~/.m2 with signals SNAPSHOTs).
+    # Maven 3.9+ honors MAVEN_ARGS; tasks also pass -Dmaven.repo.local explicitly.
+    export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+    mkdir -p "$SIG_MAVEN_REPO"
+    export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
+
     # Air-gap safe: use local model cache, no HuggingFace phone-home
     export HF_HUB_OFFLINE=1
     export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
@@ -924,12 +1015,16 @@ SQL
     echo ""
     echo "Build tasks:"
     echo "  devenv tasks run kudu:build-cpp       — Build Kudu C++ binaries"
-    echo "  devenv tasks run kudu:install-java    — Install Kudu Java client to Maven"
-    echo "  devenv tasks run impala:bootstrap     — Download Impala toolchain (~5-10 GB)"
+    echo "  devenv tasks run kudu:install-java    — Kudu Java client → \$SIG_MAVEN_REPO"
+    echo "  devenv tasks run impala:bootstrap     — Download Impala toolchain (no CDP Ranger)"
     echo "  devenv tasks run impala:build         — Full Impala build (C++ + Java)"
     echo "  devenv tasks run impala:build-fe      — Incremental Java frontend build"
-    echo "  devenv tasks run impala:test-fe       — Run signals FE unit tests"
+    echo "  devenv tasks run impala:test-fe       — Run Impala FE unit tests"
     echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
+    echo "  devenv tasks run ranger:build         — Ranger → .devenv/m2 + distro"
+    echo "  devenv tasks run ranger:install       — .devenv/ranger/admin"
+    echo ""
+    echo "Maven: SIG_MAVEN_REPO=\$SIG_MAVEN_REPO (project-local; not ~/.m2)"
     echo ""
     echo "Utility tasks:"
     echo "  devenv tasks run sigint:resolve-config — Resolve config to build/config/sigint.env"
