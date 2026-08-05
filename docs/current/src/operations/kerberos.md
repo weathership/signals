@@ -42,12 +42,19 @@ is **not** exposed via Cloudflare.
 
 | Principal | Type | Credentials |
 |-----------|------|-------------|
-| `postgres/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service | `.devenv/kdc/postgres.keytab` |
-| `impala/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service | `.devenv/kdc/impala.keytab` |
+| `postgres/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service (PG GSSAPI) | `.devenv/kdc/postgres.keytab` |
+| `impala/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service (Impala HS2) | `.devenv/kdc/impala.keytab` |
 | `HTTP/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service (Atlas/Ranger SPNEGO) | `.devenv/kdc/http.keytab` |
-| `kudu/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service | `.devenv/kdc/kudu.keytab` |
-| `signals@VISTA.ZNDX.ORG` | User | Password: `signals` |
+| `kudu/tinybox.dev.vista.zndx.org@VISTA.ZNDX.ORG` | Service (Kudu) | `.devenv/kdc/kudu.keytab` |
+| `signals@VISTA.ZNDX.ORG` | User (PG role + FDW outbound) | Password: `signals` |
 | `signals/admin@VISTA.ZNDX.ORG` | Admin (optional) | Password: `signals` |
+
+### End-to-end identity (impala_fdw)
+
+Target: authenticate to Postgres with **GSSAPI** as `signals@VISTA.ZNDX.ORG`
+(community Kerberos support / `pg_hba` `gss`), mapping to PG role `signals`, then
+have `impala_fdw` use that **same principal** for Impala HS2 and Kudu client
+calls. See `components/impala_fdw/docs/SPEC.md` §11.3.
 
 ## Usage
 

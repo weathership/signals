@@ -13,7 +13,7 @@ PostgreSQL foreign data wrapper for the Impala + Kudu data plane, maintained as
 | Storage | **Kudu only** (via Impala tables `STORED AS KUDU`) |
 | Default path | Impala HS2 (C/C++ thrift client) — SQL-shaped queries |
 | Fast path | Direct **C++ `libkudu_client`** for closed governance ops |
-| Identity | **Kerberos first-class** (Impala + Kudu); `nosasl` for devenv/CI |
+| Identity | **End-to-end Kerberos**: Postgres GSSAPI role ↔ same principal on Impala/Kudu |
 | Access control | Postgres GRANT + **RLS** / security-barrier views; **not multi-tenant** FDW |
 | Non-goals | Iceberg, HMS, Java-in-process clients, FDW multi-tenancy, DML in v0 |
 
