@@ -1,0 +1,8 @@
+# Example pg_ident map for signals devenv (Postgres GSSAPI).
+# Install under PG data dir or include from custom config when enabling hostgss.
+#
+# principal signals@DEV.VISTA.ZNDX.ORG → database role "signals"
+# (env segment lives in the realm; PG role is short primary only)
+
+# MAPNAME       SYSTEM-USERNAME                        PG-USERNAME
+krb_map         /^(.*)@DEV\.VISTA\.ZNDX\.ORG$          \1

@@ -3,6 +3,12 @@
 A project-local MIT Kerberos KDC runs as a devenv process. Naming follows the
 ZNDX host taxonomy, with the **environment segment in the realm** (not only in DNS).
 
+**Expectation:** users and services in **this repo** are expected to use Kerberos.
+Impala, Kudu, Postgres GSSAPI, and `impala_fdw` are designed around it. Full
+org-wide end-to-end security (including a future gRPC engine federation) is
+not required to land every feature, but components here should not invent a
+parallel long-term identity path. CI may use trust/nosasl for bootstrap only.
+
 ## Naming model
 
 | Layer | Value |

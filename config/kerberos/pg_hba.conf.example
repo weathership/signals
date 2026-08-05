@@ -1,0 +1,18 @@
+# Example pg_hba fragments for signals devenv Kerberos (GSSAPI).
+# Merge carefully with devenv/postgres defaults. Order matters: first match wins.
+#
+# Expectation: signals users authenticate with Kerberos to Postgres.
+# trust/scram lines remain for local CI/bootstrap only.
+
+# TYPE  DATABASE  USER  ADDRESS         METHOD
+# Local peer for unix socket bootstrap (optional CI)
+local   all       all                   peer
+
+# Kerberos (GSS) from localhost / loopback lab clients
+# Requires: krb_server_keyfile → postgres.keytab, pg_ident map "krb_map"
+hostgssenc  signals   all   127.0.0.1/32   gss include_realm=0 map=krb_map
+hostgssenc  signals   all   ::1/128        gss include_realm=0 map=krb_map
+hostgss     signals   all   127.0.0.1/32   gss include_realm=0 map=krb_map
+
+# Fallback for CI without KDC (do not rely on in product workflows)
+# host    signals   all   127.0.0.1/32   trust

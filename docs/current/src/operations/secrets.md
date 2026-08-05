@@ -47,8 +47,11 @@ devenv shell                  # SecretSpec + dotenv enabled
 secretspec run -- just tag default.my_table
 ```
 
-Interactive lab often uses `kinit signals` (password) instead of a user keytab.
-Headless / FDW jobs prefer `SIGNALS_KRB_USER_KEYTAB` from SecretSpec.
+Interactive lab uses `kinit signals` (password) or a user keytab — **Kerberos is
+the expected path for signals users**, not an optional add-on. Headless / FDW
+jobs prefer `SIGNALS_KRB_USER_KEYTAB` from SecretSpec. A future gRPC engine
+should use the same realm and principal conventions (federation join), without
+blocking current stack work on a full mesh.
 
 ## Declared secrets (summary)
 
