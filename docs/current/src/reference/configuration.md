@@ -29,10 +29,14 @@
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KRB5_REALM` | `DEV.VISTA.ZNDX.ORG` | Kerberos realm `{ENV}.{LOCATION}.ZNDX.ORG` |
+| `KRB5_REALM` | `DEV.VISTA.ZNDX.ORG` | Kerberos realm `{ENV}.{LOCATION}.ZNDX.ORG` (non-secret) |
 | `SIGNALS_KRB_ENV` | `dev` | Env segment → `DEV` in realm |
 | `SIGNALS_KRB_LOCATION` | `vista` | Location segment → `VISTA` in realm |
 | `SIGNALS_KRB_HOST` | `tinybox.dev.vista.zndx.org` | Kerberos SPN host FQDN |
+| `SIGNALS_KRB_USER_KEYTAB` | (optional) | SecretSpec: path to `signals@…` keytab |
+| `POSTGRES_KRB_KEYTAB` | (optional) | SecretSpec: path to postgres SPN keytab |
+
+See [Secrets](../operations/secrets.md) and `secretspec.toml` for the full declared set.
 | `KRB5_KDC_PORT` | `8848` | KDC listener port |
 | `KRB5_CONFIG` | `.devenv/kdc/krb5.conf` | krb5 client config (set by shell) |
 | `KRB5_KDC_PROFILE` | `.devenv/kdc/kdc.conf` | KDC server config (set by shell) |

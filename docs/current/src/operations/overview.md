@@ -5,8 +5,9 @@ Operational procedures for the Signals 360 development and deployment environmen
 ## Getting Started
 
 1. **[Development Environment](./devenv.md)** — enter the devenv shell, start services, available tasks
-2. **[Services](./services.md)** — PostgreSQL (AGE, pg_cron) configuration and usage
-3. **[Kerberos](./kerberos.md)** — project-local KDC, principals, ticket management
+2. **[Secrets](./secrets.md)** — SecretSpec declarations, dotenv provider, keytab paths
+3. **[Services](./services.md)** — PostgreSQL (AGE, pg_cron) configuration and usage
+4. **[Kerberos](./kerberos.md)** — project-local KDC, principals, ticket management (`DEV.VISTA.ZNDX.ORG`)
 
 ## Quick Reference
 

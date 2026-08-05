@@ -58,6 +58,7 @@
 
 - [Operations Guide](./operations/overview.md)
     - [Development Environment](./operations/devenv.md)
+    - [Secrets](./operations/secrets.md)
     - [Services](./operations/services.md)
     - [Kerberos](./operations/kerberos.md)
 

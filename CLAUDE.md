@@ -121,6 +121,8 @@ HOCON (`config/base.conf`) is the **single source of truth** for all pipeline co
 
 **Key principle:** All config flows through `.env` → HOCON `${?VAR}` → `PipelineConfig` → application code. This ensures consistent, auditable config state whether running via `just`, `devenv`, or standalone `uv run`.
 
+**Secrets:** Declared in `secretspec.toml` (no values); enabled in `devenv.yaml` (`provider: dotenv`). Non-secret Kerberos shape stays in `devenv.nix` (`KRB5_REALM=DEV.VISTA.ZNDX.ORG`). Prefer `secretspec run -- <cmd>` for secret-bearing jobs. See `docs/current/src/operations/secrets.md`.
+
 HOCON sections: `impala`, `atlas`, `sampling`, `classifier`, `embedding`, `llm`, `taxonomy`, `vocabulary_mapping`, `sage`, `shap`, `svm`, `gpu`, `ml`, `bootstrap`, `data`, `scope`.
 
 ### Config Files

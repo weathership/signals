@@ -9,10 +9,18 @@ devenv shell          # Manual entry
 # or automatic via direnv when cd-ing into the repo
 ```
 
+**Secrets:** SecretSpec is enabled in `devenv.yaml` (dotenv provider). Declarations
+live in `secretspec.toml` — see [Secrets](./secrets.md). Non-secret Kerberos
+identity (`KRB5_REALM=DEV.VISTA.ZNDX.ORG`, host FQDN) is set in `devenv.nix`.
+
+```bash
+secretspec run -- just tag default.my_table   # inject declared secrets for a job
+```
+
 ## Starting Services
 
 ```bash
-devenv up             # Start PostgreSQL + Kerberos KDC
+devenv up             # Start PostgreSQL + Kerberos KDC (+ Atlas, Kudu, Impala on Linux)
 ```
 
 ## Languages

@@ -3,6 +3,19 @@ inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
 
+# Secrets: DECLARED in secretspec.toml, PROVIDED per environment.
+# dotenv (.env) is the low-friction local default (gitignored).
+# Switch per machine/CI:
+#   devenv --secretspec-provider env shell
+#   devenv --secretspec-provider keyring --secretspec-profile stage shell
+#   secretspec run -- just tag ...
+# Align profile with SIGNALS_KRB_ENV (dev → DEV.VISTA.ZNDX.ORG).
+# See docs/current/src/operations/secrets.md
+secretspec:
+  enable: true
+  provider: dotenv
+  profile: default
+
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true
 

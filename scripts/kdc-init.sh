@@ -153,6 +153,11 @@ if [[ ! -f "$KDC_DIR/principal" ]]; then
     KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
         kadmin.local -r "$REALM" -q "add_principal -pw signals signals@$REALM"
 
+    # User keytab for headless FDW / secretspec (SIGNALS_KRB_USER_KEYTAB)
+    KRB5_CONFIG="$KDC_DIR/krb5.conf" \
+    KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
+        kadmin.local -r "$REALM" -q "ktadd -k $KDC_DIR/signals.keytab signals@$REALM"
+
     # Optional admin principal for kadmind ACL experiments
     KRB5_CONFIG="$KDC_DIR/krb5.conf" \
     KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
@@ -163,9 +168,10 @@ if [[ ! -f "$KDC_DIR/principal" ]]; then
     echo "  Host:     $KRB_HOST"
     echo "  Port:     $KDC_PORT (127.0.0.1)"
     echo "  Data:     $KDC_DIR"
-    echo "  Keytabs:  $KDC_DIR/{postgres,impala,http,kudu}.keytab"
-    echo "  User:     signals@$REALM (password: signals)"
+    echo "  Keytabs:  $KDC_DIR/{postgres,impala,http,kudu,signals}.keytab"
+    echo "  User:     signals@$REALM (password: signals; also signals.keytab)"
     echo "  PG role:  signals  ←  signals@$REALM  (see pg_ident.map.example)"
+    echo "  SecretSpec: optional SIGNALS_KRB_USER_KEYTAB=$KDC_DIR/signals.keytab in .env"
     echo "  Hint:     echo '127.0.0.1 $KRB_HOST' | sudo tee -a /etc/hosts"
 else
     echo "KDC database already exists at $KDC_DIR (use --reset to recreate)."

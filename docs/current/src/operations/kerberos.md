@@ -39,8 +39,9 @@ Examples:
 | KDC port | `8848` (127.0.0.1) |
 | Data directory | `.devenv/kdc/` (gitignored) |
 | Env overrides | `KRB5_REALM`, `SIGNALS_KRB_ENV`, `SIGNALS_KRB_LOCATION`, `SIGNALS_KRB_HOST`, `KRB5_KDC_PORT` |
+| Keytab paths (secrets) | SecretSpec: `SIGNALS_KRB_USER_KEYTAB`, `POSTGRES_KRB_KEYTAB`, … — see [Secrets](./secrets.md) |
 
-`kdc-init.sh` builds the default realm from `SIGNALS_KRB_ENV` + `SIGNALS_KRB_LOCATION` unless `KRB5_REALM` is set explicitly.
+`kdc-init.sh` builds the default realm from `SIGNALS_KRB_ENV` + `SIGNALS_KRB_LOCATION` unless `KRB5_REALM` is set explicitly. It also writes `signals.keytab` for headless/FDW use (optional SecretSpec path).
 
 ### Local DNS
 

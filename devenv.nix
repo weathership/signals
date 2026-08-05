@@ -773,6 +773,9 @@ in
 
     echo "signals-360 development environment"
     echo ""
+    echo "Secrets: secretspec.toml (provider=dotenv via devenv.yaml) — see docs/operations/secrets.md"
+    echo "  secretspec run -- <cmd>   # inject declared secrets without shell export"
+    echo ""
     echo "Core services (start with 'devenv up'):"
     echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron"
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
