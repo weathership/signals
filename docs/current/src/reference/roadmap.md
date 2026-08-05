@@ -28,7 +28,7 @@ Atlas with the AGE backend is running and the catalog bridge is validated:
 - devenv environment with PostgreSQL (AGE, pg_cron, pg_trgm), Kerberos KDC
 - HMS, Polaris, Kudu processes defined in devenv.nix
 - Atlas with AGE backend (replacing JanusGraph/HBase/Solr)
-- 7 ASF component submodules on `rch/signals` branches
+- ASF component submodules on shared **`rch/devenv`** branches (`rch/asf-*`)
 - BDD feature specifications across 16 features with tier-0 and tier-1 coverage
 - Air-gap isolation (`HF_HUB_OFFLINE=1`, model cache, zero external network calls)
 - CI workflow for catalog unit + integration tests

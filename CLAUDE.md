@@ -247,7 +247,7 @@ uv run python -m tests.workload.lifecycle --phase all --rows 1000 --partitions 1
 
 ### ASF Components (submodules in `components/`)
 
-All tracked on `rch/signals` branch from `rch` GitHub forks:
+All tracked on **`rch/devenv`** branch from `rch` GitHub forks (shared devenv/Nix line for non-signals consumers too):
 
 | Component | Purpose |
 |-----------|---------|

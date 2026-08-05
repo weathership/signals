@@ -26,7 +26,7 @@ Kerberos (when enabled): realm `DEV.VISTA.ZNDX.ORG`, host
 ## Status
 
 **Near-term / in progress** — submodule at `components/ranger` (`rch/asf-ranger`,
-branch `rch/signals`). Config scaffold under `config/ranger/`. Full admin +
+branch **`rch/devenv`**). Config scaffold under `config/ranger/`. Full admin +
 TagSync + Impala plugin wiring is part of the current stack plan.
 
 ## Build (local, not Impala CDP package)

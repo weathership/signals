@@ -1,6 +1,8 @@
 # Components Overview
 
-Apache components are tracked as git submodules in `components/`, all on the `rch/signals` branch from `rch` GitHub forks.
+Apache components are tracked as git submodules in `components/`, on the
+**`rch/devenv`** branch from `rch` GitHub forks (`rch/asf-*`). That branch is the
+shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 
 | Component | Purpose | Status |
 |-----------|---------|--------|

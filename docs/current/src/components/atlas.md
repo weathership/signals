@@ -21,7 +21,7 @@ Atlas uses PostgreSQL with the Apache AGE graph extension as its backend (replac
 
 ## AGE Backend
 
-The Atlas fork (`rch/signals` branch) includes a custom graph database backend that uses Apache AGE (A Graph Extension for PostgreSQL):
+The Atlas fork (`rch/asf-atlas`, **`rch/devenv`** line; AGE work may land here or as host config) includes a graph database backend that uses Apache AGE (A Graph Extension for PostgreSQL):
 
 - **Module**: `components/atlas/graphdb/age/` — 26 Java files implementing all `graphdb/api` interfaces
 - **Backend class**: `AtlasAgeGraphDatabase` loaded via `atlas.graphdb.backend` config property

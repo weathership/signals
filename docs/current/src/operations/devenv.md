@@ -25,21 +25,24 @@ devenv up             # Start PostgreSQL + Kerberos KDC (+ Atlas, Kudu, Impala o
 
 ## ASF submodules and nested devenv
 
-Atlas, Ranger, Kudu, and Impala live under `components/*` as git submodules
-(`rch/asf-*` forks, usually branch `rch/signals`). **Build knowledge should
-prefer to live next to those trees**; the host devenv owns **ports, realm,
-process graph, and product config**.
+Atlas, Ranger, Kudu, and Impala live under `components/*` as git submodules of
+`rch/asf-*` (and similar) forks. **Tracked branch: `rch/devenv`** — the line
+non-signals products should consume for Nix/devenv buildability. Optional
+`rch/signals` overlays (if any) rebase onto `rch/devenv`; prefer promoting
+shared tree fixes into `rch/devenv` instead of product-named branches.
+
+**Build knowledge lives next to those trees**; the host devenv owns **ports,
+realm, process graph, and product config**.
 
 | Layer | Responsibility |
 |-------|----------------|
-| Component (`components/kudu/devenv*.nix`, …) | How to compile that ASF tree on Nix (packages, `*:build-*` tasks) |
+| Component on **`rch/devenv`** (`devenv*.nix`) | How to compile that ASF tree on Nix (packages, `*:build-*` tasks) |
 | Host (repo-root `devenv.nix`) | PG `:5455`, KDC, Atlas `:21010`, wiring, SecretSpec |
 | Product config (`config/`) | `install.properties`, Impala HMS-free, AGE JDBC, local overrides |
 
-**Kudu** already ships a full nested devenv (`components/kudu` on `rch/devenv`).
-Treat that as the reference: split a **library module** (packages + build tasks)
-from optional **standalone** processes so the host can import without starting a
-second KDC/cluster.
+**Kudu** already ships a full nested devenv on `rch/devenv`. Treat that as the
+reference: split a **library module** (packages + build tasks) from optional
+**standalone** processes so hosts can import without starting a second KDC/cluster.
 
 **Maven isolation:** do not install SNAPSHOTs into `~/.m2`. devenv sets
 `SIG_MAVEN_REPO=$PWD/.devenv/m2` and `MAVEN_ARGS=-Dmaven.repo.local=…`. Ranger →

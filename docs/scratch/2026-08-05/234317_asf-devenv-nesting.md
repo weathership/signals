@@ -12,7 +12,7 @@
 | Host imports raw component devenv | Risk: duplicate PG/KDC, port wars, package bloat |
 | Maven SNAPSHOTs leaked to `~/.m2` | Fixed: `SIG_MAVEN_REPO=$PWD/.devenv/m2` |
 | Impala pulled CDP Ranger admin tarball | Fixed for *future* bootstrap via `impala-config-local.sh` |
-| Branch skew | `.gitmodules` → `rch/signals`; Kudu checkout on `rch/devenv` |
+| Branch skew (historical) | Host pinned `rch/signals` while Kudu devenv lived on `rch/devenv` |
 
 Naive `imports: [ ./components/kudu ]` is **not** enough: Kudu’s devenv owns Kerberos, BIND, Aeron, and a full cluster process — fine standalone, hostile as a silent merge into signals.
 
@@ -172,25 +172,39 @@ and product-local files under `config/` that are **not** forked into ASF trees (
 
 This is what makes multi-project devenv adoption safe: two checkouts on one machine no longer fight over SNAPSHOT coordinates in the user home.
 
-## Branch strategy for forks
+## Branch strategy for forks (canonical: `rch/devenv`)
+
+Non-signals consumers (aegir, other platforms) should **not** have to pull a
+signals-named branch to get Nix/devenv buildability. Converge on:
 
 | Branch | Role |
 |--------|------|
-| `rch/signals` | Product patches (AGE, HMS-free, …) — what signals pins in `.gitmodules` |
-| `rch/devenv` | Optional pure-devenv work (Kudu today) |
-| **Target** | Merge devenv module + build fixes into **`rch/signals`** so one pin carries both product and Nix buildability |
+| **`rch/devenv`** | **Canonical.** devenv modules, Nix/GCC/Maven build fixes, library + standalone shells. What `.gitmodules` tracks. What other products should vendor. |
+| `rch/signals` | **Optional product overlay** only when a change is truly signals-specific (and not yet generalized). Rebase/merge **onto** `rch/devenv` regularly. Prefer promoting useful patches into `rch/devenv` instead. |
 
-Until merge: host may `imports` path to a known file on `rch/devenv` only if both branches are kept in sync — prefer single branch.
+```
+apache/trunk ──► rch/devenv (devenv + build-on-Nix, shared)
+                    │
+                    ├── vendor into aegir / other hosts
+                    └── rch/signals (rare product-only delta) ──► signals host if needed
+```
+
+**Rules of thumb**
+
+- New work that makes an ASF tree buildable under devenv → commit on **`rch/devenv`**.
+- Product wiring (AGE JDBC port, SIGDG policies, HMS-free Impala flags) → **host** `config/` + root devenv first; only fork if the Apache tree itself must change.
+- If the tree must change for signals *and* the change is generally useful → land on **`rch/devenv`** (not `rch/signals`).
+- signals pins submodule **SHAs**; `branch = rch/devenv` in `.gitmodules` only guides `git submodule update --remote`.
 
 ## Adoption story for “others”
 
 Anyone (or aegir) can:
 
-1. Vendor `rch/asf-kudu` (or later apache/* once upstreamed).
+1. Vendor `rch/asf-kudu` (etc.) at branch **`rch/devenv`** (or a SHA on that line).
 2. Either:
    - **Nested:** `cd components/kudu && devenv up` for Kudu-only, or  
    - **Compose:** host `devenv.yaml` imports `./components/kudu` library module + own platform.
-3. Share Nix/GCC/Maven lessons without copying a 1k-line product `devenv.nix`.
+3. Share Nix/GCC/Maven lessons by bumping the submodule pin — no copy of signals’ root `devenv.nix`.
 
 Optional later extract: small `github.com/weathership/asf-devenv-modules` if multiple products need the same import without the full ASF tree — only if copy-paste across forks becomes painful.
 
@@ -201,11 +215,13 @@ Optional later extract: small `github.com/weathership/asf-devenv-modules` if mul
 - [x] Impala local Ranger overrides (`config/impala/impala-config-local.sh`)
 - [x] Capture this design note
 
-### Phase 1 — Kudu as the reference nested module
-1. On `components/kudu` (`rch/devenv` → merge to `rch/signals`):
+### Phase 1 — Kudu as the reference nested module (on `rch/devenv`)
+1. On `components/kudu` **`rch/devenv`**:
    - Split `devenv.module.nix` (packages + build tasks, Nix/GCC 15 fixes from host).
    - Standalone `devenv.nix` imports module + optional processes.
+   - Ensure `rch/signals` (if kept) is rebased onto this tip or deleted once obsolete.
 2. Host:
+   - `.gitmodules` `branch = rch/devenv` (done).
    - `devenv.yaml`: `imports: [ ./components/kudu ]` **only after** library profile defaults disable Kudu’s KDC/PG-like extras.
    - Thin process wrappers keep signals ports.
    - Delete duplicated `kudu:build-cpp` body from host once task names match.
@@ -236,17 +252,17 @@ Optional later extract: small `github.com/weathership/asf-devenv-modules` if mul
 
 ## Open questions
 
-1. **Single vs dual branch** on kudu (`rch/devenv` vs `rch/signals`) — recommend merge.
-2. **Nested `devenv up`**: one process-compose (host) only; components never start their own compose when imported as library.
-3. **Impala toolchain size** (~10GB+): keep bootstrap in Impala module; host disk hygiene docs (purge `thirdparty/build` intermediates, optional CDP ranger tarball removal when local).
-4. **Upstream to Apache**: eventual PR of `devenv.module.nix` may be welcome as “unsupported experimental”; until then forks are the distribution channel.
+1. **Nested `devenv up`**: one process-compose (host) only; components never start their own compose when imported as library.
+2. **Impala toolchain size** (~10GB+): keep bootstrap in Impala module; host disk hygiene docs (purge `thirdparty/build` intermediates, optional CDP ranger tarball removal when local).
+3. **Upstream to Apache**: eventual PR of `devenv.module.nix` may be welcome as “unsupported experimental”; until then **`rch/devenv` on the forks** is the distribution channel.
+4. **Promoting AGE / HMS-free**: prefer landing generically useful tree changes on `rch/devenv` so non-signals hosts benefit; keep true one-offs in host `config/`.
 
 ## Immediate next PR (small)
 
-1. Extract Kudu build-task + Nix packages into `components/kudu/devenv.module.nix` (no behavior change standalone).
+1. Extract Kudu build-task + Nix packages into `components/kudu/devenv.module.nix` on **`rch/devenv`** (no behavior change standalone).
 2. Host import of that module behind a comment / feature flag.
 3. Point host `kudu:build-cpp` at the shared task definition (or call through).
-4. Align `.gitmodules` branch with the branch that carries the module.
+4. For each other ASF fork: create/update **`rch/devenv`** (even if initially = build baseline + empty module stub) so consumers have a stable branch name.
 
 ## References
 

@@ -1,35 +1,35 @@
 [submodule "components/atlas"]
 	path = components/atlas
 	url = git@github.com:rch/asf-atlas.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/ranger"]
 	path = components/ranger
 	url = git@github.com:rch/asf-ranger.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/kudu"]
 	path = components/kudu
 	url = git@github.com:rch/asf-kudu.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/impala"]
 	path = components/impala
 	url = git@github.com:rch/asf-impala.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/iceberg"]
 	path = components/iceberg
 	url = git@github.com:rch/asf-iceberg.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/airflow"]
 	path = components/airflow
 	url = git@github.com:rch/asf-airflow.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/nifi"]
 	path = components/nifi
 	url = git@github.com:rch/asf-nifi.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/openph"]
 	path = components/openph
 	url = git@github.com:rch/oss-openph.git
-	branch = rch/signals
+	branch = rch/devenv
 [submodule "components/impala_fdw"]
 	path = components/impala_fdw
 	url = git@github.com:weathership/impala_fdw.git
