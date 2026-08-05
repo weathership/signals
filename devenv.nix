@@ -70,7 +70,10 @@ in
 
     # Database
     dbmate
-
+    # impala_fdw HS2 thrift client
+    thrift
+    boost
+    boost.dev
     # Documentation
     mdbook
     mdbook-d2
@@ -564,13 +567,20 @@ in
           echo "components/impala_fdw not initialized. Run: git submodule update --init components/impala_fdw"
           exit 1
         fi
+        # Thrift + boost from devenv packages (ABI-matched HS2 client)
+        export THRIFT_HOME="${pkgs.thrift}"
+        export BOOST_HOME="${pkgs.boost.dev}"
         cd components/impala_fdw
         make clean 2>/dev/null || true
-        make
-        echo "impala_fdw built. Install into PG prefix with: make install"
-        echo "Then: psql -p 5455 -d signals -c 'CREATE EXTENSION IF NOT EXISTS impala_fdw'"
+        make with_llvm=no \
+          THRIFT_HOME="$THRIFT_HOME" \
+          BOOST_HOME="$BOOST_HOME" \
+          PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp"
+        echo "impala_fdw.so built (HS2 thrift client; NOSASL ready, Kerberos next)."
+        echo "Smoke (Impala up): make hs2-smoke && ./tools/hs2_smoke 127.0.0.1 21050"
+        echo "Install: make install && psql -p 5455 -d signals -c 'CREATE EXTENSION impala_fdw'"
       '';
-      description = "Build PostgreSQL Impala FDW extension (components/impala_fdw)";
+      description = "Build PostgreSQL Impala FDW with HS2 thrift client";
     };
 
     "hms:install" = {
