@@ -249,13 +249,15 @@ All tracked on `rch/signals` branch from `rch` GitHub forks:
 
 | Component | Purpose |
 |-----------|---------|
-| `atlas` | Metadata governance — consumes sigint classifications as tags |
+| `atlas` | Metadata governance — consumes sigint classifications as tags (AGE backend) |
 | `ranger` | Tag-based access control policies |
-| `kudu` | Columnar storage engine |
+| `kudu` | Columnar storage engine (build from submodule) |
 | `impala` | Distributed SQL query engine (HMS-free mode) |
+| `impala_fdw` | PostgreSQL FDW → Impala HS2 (`weathership/impala_fdw`) |
 | `iceberg` | Table format for analytic datasets |
 | `airflow` | Workflow orchestration |
 | `nifi` | Data flow routing |
+| `openph` | Optional reference for CUDA PH (CPU path uses Ripser via `signals.persistence`) |
 
 Build dependencies for C++ components (Kudu, Impala): cmake, ninja, gcc, protobuf, flatbuffers.
 

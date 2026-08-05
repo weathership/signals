@@ -49,6 +49,7 @@
     - [Ranger](./components/ranger.md)
     - [Kudu](./components/kudu.md)
     - [Impala](./components/impala.md)
+    - [Impala FDW](./components/impala_fdw.md)
     - [Iceberg](./components/iceberg.md)
     - [Airflow](./components/airflow.md)
     - [NiFi](./components/nifi.md)

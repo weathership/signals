@@ -30,3 +30,7 @@
 	path = components/openph
 	url = git@github.com:rch/oss-openph.git
 	branch = rch/signals
+[submodule "components/impala_fdw"]
+	path = components/impala_fdw
+	url = git@github.com:weathership/impala_fdw.git
+	branch = trunk

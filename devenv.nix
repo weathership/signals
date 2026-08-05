@@ -554,6 +554,21 @@ in
       description = "Build Atlas webapp with AGE backend";
     };
 
+    "impala-fdw:build" = {
+      exec = ''
+        if [ ! -f components/impala_fdw/Makefile ]; then
+          echo "components/impala_fdw not initialized. Run: git submodule update --init components/impala_fdw"
+          exit 1
+        fi
+        cd components/impala_fdw
+        make clean 2>/dev/null || true
+        make
+        echo "impala_fdw built. Install into PG prefix with: make install"
+        echo "Then: psql -p 5455 -d signals -c 'CREATE EXTENSION IF NOT EXISTS impala_fdw'"
+      '';
+      description = "Build PostgreSQL Impala FDW extension (components/impala_fdw)";
+    };
+
     "hms:install" = {
       exec = ''
         HMS_HOME="$PWD/.devenv/hms"

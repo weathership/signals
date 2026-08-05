@@ -85,6 +85,10 @@ impala-build:
 atlas-build:
     devenv tasks run atlas:build
 
+# Build PostgreSQL Impala FDW extension
+impala-fdw-build:
+    devenv tasks run impala-fdw:build
+
 # Reset local KDC (required after Kerberos realm renames)
 kdc-reset:
     devenv tasks run signals:kdc-reset
