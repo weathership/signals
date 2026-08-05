@@ -1,12 +1,15 @@
 """Behave environment hooks — tier-aware scenario filtering.
 
-Tier system:
-  tier-0: Pure Python, no external services. Runs anywhere (CI, local).
-  tier-1: Requires the full devenv stack (PG, KDC, Atlas, Kudu, Impala).
-  tier-2/3: Not yet implemented — auto-skipped.
+Tier system (same split as synth and other constellation projects):
+  tests/     — pytest units
+  features/  — behave BDD
 
-Tier-0 tests execute immediately with no stack checks.
-Tier-1 tests verify process-compose health and application readiness
+  @tier-0  Pure Python, no external services. Runs anywhere (CI, local).
+  @tier-1  Full devenv stack (PG, KDC, Atlas, Kudu, Impala). Opt in with
+           SIGNALS_BDD_TIER1=1 (default skip so `just behave` stays hermetic).
+  @tier-2/3  Not yet implemented — auto-skipped.
+
+Tier-1 scenarios verify process-compose health and application readiness
 before running (cached per session so the check happens only once).
 """
 
@@ -170,6 +173,12 @@ def before_scenario(context, scenario):
         return
 
     if tier >= 1:
+        if not os.environ.get("SIGNALS_BDD_TIER1"):
+            scenario.skip(
+                "tier-1 needs devenv services — set SIGNALS_BDD_TIER1=1 "
+                "(and run 'devenv up')"
+            )
+            return
         _ensure_stack_healthy(context)
 
 

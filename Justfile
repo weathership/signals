@@ -100,10 +100,26 @@ stack-build:
     devenv tasks run impala:build
 
 # ── Tests ─────────────────────────────────────────────────────────
+# Layout matches constellation projects (e.g. synth):
+#   tests/     — unit / hermetic pytest (testpaths in pyproject.toml)
+#   features/  — Gherkin BDD (behave); @tier-0 hermetic, @tier-1 needs stack
 
-# Run all Python tests (includes preflight config check)
-test:
-    uv run pytest tests/sigint/ -v
+# Unit tests (pytest under tests/; preflight via conftest)
+test *args:
+    uv run pytest tests/ -v {{args}}
+
+# BDD (default: tier-0 only). For stack scenarios: SIGNALS_BDD_TIER1=1 just behave
+behave *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$#" -eq 0 ]; then
+      uv run behave --tags=tier-0
+    else
+      uv run behave "$@"
+    fi
+
+# Unit + hermetic BDD
+test-all: test behave
 
 # ── Documentation ─────────────────────────────────────────────────
 

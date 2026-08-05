@@ -200,36 +200,38 @@ just tag / just tag-dry-run <tables>
 just docs-build / just docs-serve
 ```
 
-### Python tests
+### Test layout (constellation standard)
+
+| Path | Role |
+|------|------|
+| `tests/` | **Unit / hermetic pytest** (`testpaths` in pyproject.toml). `tests/sigint/` pipeline units; `tests/workload/` stack lifecycle harness |
+| `features/` | **BDD (behave)** Gherkin + steps. Domains: `classification/`, `platform/`, `tagging/`. Retired specs in `features_archive/` |
+
+Same split as synth (`tests/` + `features/`).
+
+### Python unit tests
 
 ```bash
-# Full sigint suite (25 modules under tests/sigint/, includes preflight config validation)
+just test                    # uv run pytest tests/ -v  (all units + preflight)
 uv run pytest tests/sigint/ -v
-
-# Single module / single test
-uv run pytest tests/sigint/test_features.py -v
-uv run pytest tests/sigint/test_belief.py::TestBeliefAssignment::test_normalization -v  # tests are class-grouped
-
-# Related module groups
-uv run pytest tests/sigint/test_belief.py tests/sigint/test_mass_functions.py -v
+uv run pytest tests/sigint/test_belief.py::TestBeliefAssignment::test_normalization -v
 ```
 
 ### BDD suite (behave)
 
-`features/` holds the Gherkin suite, tiered by tag and gated in `features/environment.py`:
+Tier tags in `features/environment.py`:
 
-- `@tier-0` — pure Python, no external services; runs anywhere
-- `@tier-1` — requires the full `devenv up` stack; the hook waits on process-compose health for postgres, kdc, atlas, kudu-master, kudu-tserver, impala-{statestore,catalogd,impalad}, then application readiness (120s budget, cached per session)
+- `@tier-0` — pure Python, no services (default for `just behave`)
+- `@tier-1` — full `devenv up` stack; **opt in** with `SIGNALS_BDD_TIER1=1` (then hook waits on process-compose + Atlas/Impala readiness)
 - tier-2/3 — not implemented, auto-skipped
 
 ```bash
-uv run behave --tags=tier-0                              # no services needed
-uv run behave features/classification/                   # classification domain
-uv run behave --tags="@data-lifecycle and @ci" --no-capture \
-    features/platform/data_lifecycle.feature             # tier-1, needs devenv up
+just behave                  # --tags=tier-0
+just behave features/classification/
+SIGNALS_BDD_TIER1=1 just behave --tags=tier-1 --no-capture \
+    features/platform/data_lifecycle.feature
+just test-all                # unit + hermetic BDD
 ```
-
-Domains: `features/classification/` (feature extraction, embedding classification, evidence fusion, taxonomy/vocabulary, benchmarks, config lifecycle), `features/platform/` (per-service health, catalog sync, meta-tagging integration, data lifecycle), `features/tagging/`. `features_archive/` holds retired specs — don't treat it as live.
 
 ### Workload harness
 
