@@ -70,11 +70,9 @@ in
 
     # Database
     dbmate
-    # impala_fdw HS2 thrift client
+    # impala_fdw HS2 thrift client (headers: pkgs.boost.dev in build task)
     thrift
-    boost
-    boost.dev
-    # Documentation
+    boost    # Documentation
     mdbook
     mdbook-d2
     mdbook-katex
