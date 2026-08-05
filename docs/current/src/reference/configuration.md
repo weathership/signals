@@ -29,7 +29,9 @@
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KRB5_REALM` | `VISTA.ZNDX.ORG` | Kerberos realm (location-oriented) |
+| `KRB5_REALM` | `DEV.VISTA.ZNDX.ORG` | Kerberos realm `{ENV}.{LOCATION}.ZNDX.ORG` |
+| `SIGNALS_KRB_ENV` | `dev` | Env segment → `DEV` in realm |
+| `SIGNALS_KRB_LOCATION` | `vista` | Location segment → `VISTA` in realm |
 | `SIGNALS_KRB_HOST` | `tinybox.dev.vista.zndx.org` | Kerberos SPN host FQDN |
 | `KRB5_KDC_PORT` | `8848` | KDC listener port |
 | `KRB5_CONFIG` | `.devenv/kdc/krb5.conf` | krb5 client config (set by shell) |

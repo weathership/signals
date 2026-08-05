@@ -104,11 +104,15 @@ in
   languages.typescript = { enable = true; };
 
   # ── Environment ────────────────────────────────────────────────────────────
-  # Kerberos: location realm VISTA.ZNDX.ORG; host FQDN tinybox.dev.vista.zndx.org
-  # (host.posture.location.tld). KDC stays on loopback :8848.
+  # Kerberos: realm includes env segment — DEV.VISTA.ZNDX.ORG
+  # ({ENV}.{LOCATION}.ZNDX.ORG). Host FQDN tinybox.dev.vista.zndx.org.
+  # User principal signals@DEV.VISTA.ZNDX.ORG → PG role "signals".
+  # KDC stays on loopback :8848.
   env = {
-    KRB5_REALM = "VISTA.ZNDX.ORG";
+    KRB5_REALM = "DEV.VISTA.ZNDX.ORG";
     KRB5_KDC_PORT = "8848";
+    SIGNALS_KRB_ENV = "dev";
+    SIGNALS_KRB_LOCATION = "vista";
     SIGNALS_KRB_HOST = "tinybox.dev.vista.zndx.org";
   };
 
@@ -771,7 +775,7 @@ in
     echo ""
     echo "Core services (start with 'devenv up'):"
     echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron"
-    echo "  Kerberos KDC      — realm: VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
+    echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE backend → signals DB)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"

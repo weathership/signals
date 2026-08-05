@@ -7,7 +7,7 @@ Scaffold for Apache Ranger against signals Postgres + Atlas.
 | Postgres | `localhost:5455`, database **`ranger`** |
 | Admin UI | `http://localhost:6080` (planned) |
 | Atlas (TagSync source) | `http://localhost:21010` |
-| Kerberos realm | `VISTA.ZNDX.ORG` |
+| Kerberos realm | `DEV.VISTA.ZNDX.ORG` |
 | TagSync Atlas user | `rangertagsync` (see `config/atlas/users-credentials.properties`) |
 
 ## Status

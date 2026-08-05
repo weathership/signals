@@ -20,7 +20,7 @@ See [Metadata Tagging](../architecture/meta-tagging.md) for the Atlas → Ranger
 | TagSync | background process | REST source → Atlas `:21010` |
 | Postgres | `localhost:5455/ranger` | admin + audit schema |
 
-Kerberos (when enabled): realm `VISTA.ZNDX.ORG`, host
+Kerberos (when enabled): realm `DEV.VISTA.ZNDX.ORG`, host
 `tinybox.dev.vista.zndx.org` (HTTP SPN for SPNEGO).
 
 ## Status

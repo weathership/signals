@@ -268,7 +268,7 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 | Service | Endpoint / notes |
 |---------|------------------|
 | PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry); extensions Apache AGE (graph), pg_cron, pg_trgm |
-| Kerberos KDC | realm `VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
+| Kerberos KDC | realm `DEV.VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
 | Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` |
 | Ranger | port **6080** (admin; when configured) |
 | Kudu | master webserver 8051, tserver 8050 |
