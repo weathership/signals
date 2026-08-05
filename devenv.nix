@@ -39,10 +39,24 @@ in
     cmake
     ninja
     gcc
+    gnumake
+    autoconf
+    automake
+    libtool
+    pkg-config
     protobuf
     flatbuffers
     zlib  # needed by numpy C extensions in pip wheels
-
+    curl
+    python3
+    # Kudu thirdparty / common
+    bison
+    flex
+    krb5.dev
+    openssl.dev
+    zlib.dev
+    snappy
+    cyrus_sasl.dev
     # Kubernetes / Orchestration
     kubectl
     kubernetes-helm
