@@ -57,6 +57,7 @@ in
     zlib.dev
     snappy
     cyrus_sasl.dev
+    libxcrypt  # crypt.h for LLVM 11 compiler-rt (sanitizer_platform_limits_posix)
     # Kubernetes / Orchestration
     kubectl
     kubernetes-helm
@@ -542,6 +543,18 @@ in
 
     "signals:catalog-init" = {
       exec = ''
+        # Ensure app role exists (devenv postgres only creates OS-user role by default)
+        psql -p 5455 -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'signals') THEN
+    CREATE ROLE signals LOGIN SUPERUSER PASSWORD 'signals';
+  END IF;
+END$$;
+SQL
+        for db in signals signals_catalog ranger polaris; do
+          psql -p 5455 -d postgres -c "ALTER DATABASE $db OWNER TO signals;" 2>/dev/null || true
+        done
         psql -p 5455 -d signals_catalog -f config/impala/catalog_schema.sql
       '';
       description = "Initialize the signals catalog registry schema in PostgreSQL";
@@ -671,12 +684,22 @@ in
           echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
           exit 1
         fi
-        # GCC 15 defaults to C23; bundled thirdparty postgres typedefs bool (pre-C23).
-        # Force GNU11/C++17 for thirdparty + main build.
-        export EXTRA_CFLAGS="''${EXTRA_CFLAGS:-} -std=gnu11"
-        export EXTRA_CXXFLAGS="''${EXTRA_CXXFLAGS:-} -std=gnu++17"
-        export CFLAGS="''${CFLAGS:-} -std=gnu11"
-        export CXXFLAGS="''${CXXFLAGS:-} -std=gnu++17"
+        # GCC 15: C23 bool breaks bundled thirdparty postgres; libstdc++ no longer
+        # transitively provides uint*_t in LLVM 11 headers. Force GNU11/C++17 and
+        # pre-include stdint.h (not cstdint — compiler-rt uses -nostdinc++).
+        export EXTRA_CFLAGS="''${EXTRA_CFLAGS:-} -std=gnu11 -include stdint.h"
+        export EXTRA_CXXFLAGS="''${EXTRA_CXXFLAGS:-} -std=gnu++17 -include stdint.h"
+        export CFLAGS="''${CFLAGS:-} -std=gnu11 -include stdint.h"
+        export CXXFLAGS="''${CXXFLAGS:-} -std=gnu++17 -include stdint.h"
+        # Nix gcc is configured with a fake --prefix=/nix/store/eeee...; Kudu's
+        # build_llvm() passes that to -DGCC_INSTALL_PREFIX and clang later fails
+        # with "cannot find -lgcc". Override with the real store path.
+        _libgcc="$(gcc -print-file-name=libgcc.a)"
+        _real_gcc_prefix="''${_libgcc%%/lib/gcc/*}"
+        # Drop sanitizers/xray: not needed for Kudu IR codegen; LLVM 11 + modern
+        # glibc (no termio/crypt) fails to compile compiler-rt sanitizers.
+        export EXTRA_CMAKE_FLAGS="''${EXTRA_CMAKE_FLAGS:-} -DGCC_INSTALL_PREFIX=$_real_gcc_prefix -DCOMPILER_RT_BUILD_SANITIZERS=OFF -DCOMPILER_RT_BUILD_XRAY=OFF"
+        echo "Kudu build: GCC_INSTALL_PREFIX=$_real_gcc_prefix (sanitizers off)"
 
         mkdir -p "$KUDU_SRC/build/release"
         cd "$KUDU_SRC/build/release"
@@ -689,10 +712,10 @@ in
             rm -f CMakeCache.txt
           fi
         fi
-        # Ensure thirdparty is built with the CFLAGS above (cmake may invoke it)
-        if [ ! -f "$KUDU_SRC/thirdparty/installed/common/bin/protoc" ] && \
-           [ ! -d "$KUDU_SRC/thirdparty/installed/uninstrumented" ]; then
-          echo "Building Kudu thirdparty (long)..."
+        # thirdparty complete when llvm-config is present (not merely uninstrumented/)
+        if [ ! -x "$KUDU_SRC/thirdparty/installed/uninstrumented/bin/llvm-config" ] && \
+           [ ! -x "$KUDU_SRC/thirdparty/installed/common/bin/llvm-config" ]; then
+          echo "Building Kudu thirdparty (long; LLVM 11 is the slow step)..."
           (cd "$KUDU_SRC/thirdparty" && ./build-if-necessary.sh)
         fi
         cmake -DCMAKE_BUILD_TYPE=Release -GNinja -DNO_TESTS=1 \
