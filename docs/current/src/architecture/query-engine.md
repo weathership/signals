@@ -62,7 +62,7 @@ When `-Dsignals.hms_free_mode=true` is set, the catalog server bypasses HMS enti
 
 ### Modified Components
 
-Eight Java files implement HMS-free mode in the Impala fork (`rch/signals` branch):
+Eight Java files implement HMS-free mode in the Impala fork (`rch/asf-impala` on the **`rch/devenv`** line):
 
 | File | Role |
 |------|------|

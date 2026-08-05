@@ -21,16 +21,17 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 # Clone with all submodules
 git clone --recurse-submodules git@github.com:cldr-research/signals-360.git
 
-# Update submodules to latest rch/signals branch
+# Update submodules to latest rch/devenv tip (see .gitmodules branch=)
 git submodule update --remote
 
 # Initialize after shallow clone
 git submodule update --init --depth 1
 ```
 
-Core ASF forks use `rch` GitHub remotes with `branch = rch/signals` in `.gitmodules`.
-`impala_fdw` is `weathership/impala_fdw` on branch `trunk`. Openph is optional reference
-only (CPU PH uses Ripser via `signals.persistence`).
+Core ASF forks use `rch` GitHub remotes with **`branch = rch/devenv`** in
+`.gitmodules` (shared devenv/Nix line for any host). `impala_fdw` is
+`weathership/impala_fdw` on branch `trunk`. Openph is optional reference only
+(CPU PH uses Ripser via `signals.persistence`).
 
 ## Build Dependencies
 
