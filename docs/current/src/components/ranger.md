@@ -37,9 +37,21 @@ We build `components/ranger` and point Impala at it:
 ```bash
 git submodule update --init components/ranger
 devenv tasks run ranger:db-setup
-devenv tasks run ranger:build      # devenv jdk11 → install into .devenv/m2
+devenv tasks run ranger:build      # today: devenv jdk11 → .devenv/m2
 devenv tasks run ranger:install    # .devenv/ranger/admin (not a system package)
 ```
 
 `config/impala/impala-config-local.sh` sets `RANGER_VERSION_OVERRIDE` + `RANGER_HOME_OVERRIDE`
 so bootstrap skips the CDP tarball and the FE resolves plugins from **`.devenv/m2`**.
+
+## JDK / Nashorn (interim)
+
+**Today:** `ranger:build` pins devenv **JDK 11** because parts of the current Ranger
+tree still rely on **Nashorn** (`jdk.scripting.nashorn`), which was removed from the
+JDK after 14. That is a *local build constraint*, not a product goal.
+
+**Direction:** when appropriate, move the `rch/asf-ranger` / **`rch/devenv`** line
+forward to **drop Nashorn** and build/run on **modern JDKs** (align with host
+Java 21 / the rest of asf-signals). Until then, treat jdk11 as an explicit
+exception in devenv tasks—do not normalize “Ranger needs system JDK 11” as the
+long-term model.

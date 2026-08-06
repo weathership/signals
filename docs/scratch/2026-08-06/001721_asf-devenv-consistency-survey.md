@@ -38,6 +38,7 @@ ASF components (Atlas, Ranger, Kudu, Impala, impala_fdw) build and install
 | Upstream bootstrap scripts in submodules | Still document apt/`~/.m2` — ignore; use host tasks |
 | Impala `impala_python3` target | Can fail under devenv if venv pip SSL glitches; C++ may still complete |
 | Ranger admin running `:6080` | After `ranger:install` + `setup.sh` |
+| **Ranger JDK / Nashorn** | **Interim jdk11 only.** When appropriate: drop Nashorn on `rch/devenv`, build on modern JDKs (host 21 / stack default)—not a permanent special case |
 | impala_fdw | After Impala binaries + HS2 up |
 
 ### Build state (updated)

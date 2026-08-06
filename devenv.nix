@@ -49,7 +49,7 @@ in
     zlib  # needed by numpy C extensions in pip wheels
     curl
     python3
-    jdk11  # Ranger Nashorn builds; full JDK (not system JRE-only)
+    jdk11  # Ranger only (interim Nashorn); plan: ditch Nashorn → modern JDKs
     jdk17  # Kudu Java / Gradle wrapper (not system)
     # Kudu thirdparty / common
     bison
@@ -606,13 +606,14 @@ SQL
           echo "components/ranger not initialized. Run: git submodule update --init components/ranger"
           exit 1
         fi
-        # JDK 11 from devenv packages (not system JRE). Prefer derivation layout with jmods.
+        # Interim: JDK 11 for Nashorn (removed post-JDK 14). Not the long-term target —
+        # when ready, ditch Nashorn on rch/devenv and build on modern JDKs (see docs/components/ranger.md).
         export JAVA_HOME="${pkgs.jdk11}"
         if [ ! -x "$JAVA_HOME/bin/javac" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/javac" ]; then
           export JAVA_HOME="$JAVA_HOME/lib/openjdk"
         fi
         export PATH="$JAVA_HOME/bin:$PATH"
-        echo "ranger:build using JAVA_HOME=$JAVA_HOME (devenv jdk11)"
+        echo "ranger:build using JAVA_HOME=$JAVA_HOME (devenv jdk11, interim Nashorn)"
         java -version 2>&1 | head -1
         # Project-local Maven only (.devenv/m2 at host root) — set before cd
         _sig_root="$PWD"
@@ -628,7 +629,7 @@ SQL
         echo "Ranger modules installed to $SIG_MAVEN_REPO (typically 3.0.0-SNAPSHOT)"
         ls -1 distro/target/ranger-*-admin.tar.gz 2>/dev/null || true
       '';
-      description = "Build Ranger into .devenv/m2 (devenv jdk11; for Impala FE)";
+      description = "Build Ranger into .devenv/m2 (interim jdk11/Nashorn; for Impala FE)";
     };
 
     "ranger:install" = {

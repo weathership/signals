@@ -56,7 +56,8 @@ Do **not** require distro packages like `apt install openjdk-11-jdk` or
   toolchain thrift 0.16. FDW task pins them via `${pkgs.thrift}` only.
 - `impala:build` filters thrift/boost from PATH and CMAKE_*_PATH; FindThriftCpp
   uses `NO_DEFAULT_PATH` when `THRIFT_CPP_HOME` is set.
-- JDKs: `${pkgs.jdk11}` (Ranger), `${pkgs.jdk17}` (Kudu Gradle), not store greps.
+- JDKs: `${pkgs.jdk11}` (Ranger **interim** — Nashorn; plan to ditch and modernize),
+  `${pkgs.jdk17}` (Kudu Gradle), not store greps.
 
 ## Next
 
