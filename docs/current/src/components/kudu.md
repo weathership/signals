@@ -45,6 +45,6 @@ AS SELECT * FROM db.events WHERE ts < 1710000000;
 Kudu requires both C++ binaries and a Java client:
 
 - **C++ binaries**: Built from `components/kudu/` with cmake/ninja. The Impala toolchain includes a pre-built Kudu client for ABI compatibility.
-- **Java client**: `kudu-client-1.19.0-SNAPSHOT` published to `~/.m2/` from `components/kudu/java/`.
+- **Java client**: `kudu-client` via `devenv tasks run kudu:install-java` into **`.devenv/m2`** (project Maven repo), not `~/.m2`.
 
 Build dependencies: cmake, ninja, gcc, protobuf, flatbuffers, cyrus_sasl, openssl.

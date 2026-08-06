@@ -35,9 +35,32 @@ After **Impala `buildall`** (post-bootstrap) **and** Ranger admin install/setup:
 **Naming intent:** call the five-component set **asf-signals**; do not fold
 sigint classification Python or full k8s/zarf product packaging into that name.
 
+## devenv orientation (not system installs)
+
+| Concern | Location |
+|---------|----------|
+| Tooling (cmake, jdk11/17, gcc, …) | devenv `packages` / `languages.*` |
+| Maven artifacts (Ranger, Atlas, Kudu client) | `$SIG_MAVEN_REPO` = `$PWD/.devenv/m2` |
+| Ranger admin tree | `.devenv/ranger/admin` |
+| Impala toolchain | `components/impala/toolchain/` (bootstrap task) |
+| Kudu / Impala binaries | `components/*/build/…` (not `/usr/local`) |
+| Runtime processes | `devenv up` / process-compose |
+
+Do **not** require distro packages like `apt install openjdk-11-jdk` or
+`mvn install` into `~/.m2` for asf-signals work.
+
+## Isolation rules (learned)
+
+- Do **not** put `pkgs.thrift` / `pkgs.boost` in host `packages` — they poison
+  `CMAKE_INCLUDE_PATH` / PATH so Impala resolves Nix thrift 0.22 instead of
+  toolchain thrift 0.16. FDW task pins them via `${pkgs.thrift}` only.
+- `impala:build` filters thrift/boost from PATH and CMAKE_*_PATH; FindThriftCpp
+  uses `NO_DEFAULT_PATH` when `THRIFT_CPP_HOME` is set.
+- JDKs: `${pkgs.jdk11}` (Ranger), `${pkgs.jdk17}` (Kudu Gradle), not store greps.
+
 ## Next
 
-1. `devenv tasks run impala:build` (long)
-2. `ranger:install` + `setup.sh` → start ranger-admin
+1. Finish `impala:build` (or `devenv shell -- ./scripts/impala-build-isolated.sh`)
+2. `ranger:install` + `setup.sh` → start ranger-admin under `.devenv/`
 3. `devenv up` / process health for full graph
 4. **impala_fdw** build/install against HS2 + Kudu-only path

@@ -35,7 +35,7 @@ in
     cyrus_sasl
     openssl
 
-    # ASF build dependencies (Kudu, Impala)
+    # ASF build dependencies (Kudu, Impala, Ranger) — prefer these over system packages
     cmake
     ninja
     gcc
@@ -49,6 +49,8 @@ in
     zlib  # needed by numpy C extensions in pip wheels
     curl
     python3
+    jdk11  # Ranger Nashorn builds; full JDK (not system JRE-only)
+    jdk17  # Kudu Java / Gradle wrapper (not system)
     # Kudu thirdparty / common
     bison
     flex
@@ -85,9 +87,11 @@ in
 
     # Database
     dbmate
-    # impala_fdw HS2 thrift client (headers: pkgs.boost.dev in build task)
-    thrift
-    boost    # Documentation
+    # NOTE: do NOT add pkgs.thrift / pkgs.boost here. They pollute
+    # CMAKE_INCLUDE_PATH / PKG_CONFIG_PATH and Impala BE then compiles against
+    # Nix thrift/boost instead of the Impala toolchain. impala_fdw:build pins
+    # ${pkgs.thrift} and ${pkgs.boost.dev} explicitly for that extension only.
+    # Documentation
     mdbook
     mdbook-d2
     mdbook-katex
@@ -578,20 +582,22 @@ SQL
 
     "atlas:build" = {
       exec = ''
+        # Resolve project-local Maven *before* cd (never components/*/.devenv/m2, never ~/.m2)
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
+        mkdir -p "$SIG_MAVEN_REPO"
         cd components/atlas
         # Create empty apidocs dir so WAR plugin succeeds when enunciate is skipped
         mkdir -p webapp/target/api/v2/apidocs/ui
         # mockito.version is referenced by test-jar deps but not defined in root pom;
         # pin it so remote-resources can resolve without hitting expired java.net certs.
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
-        mkdir -p "$SIG_MAVEN_REPO"
         mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" package -pl webapp -am \
           -Dmaven.test.skip=true -DskipUTs=true \
           -DGRAPH-PROVIDER=age -Dcheckstyle.skip=true -DskipEnunciate=true \
           -Dmockito.version=3.5.10 \
           --no-transfer-progress
       '';
-      description = "Build Atlas webapp with AGE backend";
+      description = "Build Atlas webapp with AGE backend into .devenv/m2";
     };
 
     "ranger:build" = {
@@ -600,27 +606,19 @@ SQL
           echo "components/ranger not initialized. Run: git submodule update --init components/ranger"
           exit 1
         fi
-        # Nashorn removed in JDK 15+. Need a full JDK 11 *with* jdk.scripting.nashorn.jmod
-        # (Ubuntu often ships JRE-only; Nix openjdk-11/*/lib/openjdk has jmods).
-        export JAVA_HOME=""
-        for _jhome in /nix/store/*openjdk-11*/lib/openjdk; do
-          if [ -f "$_jhome/jmods/jdk.scripting.nashorn.jmod" ] && [ -x "$_jhome/bin/javac" ]; then
-            export JAVA_HOME="$_jhome"
-            break
-          fi
-        done
-        if [ -z "$JAVA_HOME" ]; then
-          echo "No OpenJDK 11 with nashorn jmod found. Install openjdk-11-jdk or Nix jdk11."
-          exit 1
+        # JDK 11 from devenv packages (not system JRE). Prefer derivation layout with jmods.
+        export JAVA_HOME="${pkgs.jdk11}"
+        if [ ! -x "$JAVA_HOME/bin/javac" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/javac" ]; then
+          export JAVA_HOME="$JAVA_HOME/lib/openjdk"
         fi
         export PATH="$JAVA_HOME/bin:$PATH"
-        echo "ranger:build using JAVA_HOME=$JAVA_HOME"
+        echo "ranger:build using JAVA_HOME=$JAVA_HOME (devenv jdk11)"
         java -version 2>&1 | head -1
-        cd components/ranger
-        # Install into project-local repo only (.devenv/m2) — Impala FE resolves from there.
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        # Project-local Maven only (.devenv/m2 at host root) — set before cd
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         mkdir -p "$SIG_MAVEN_REPO"
-        # rat.skip: JVM crash dumps / local noise must not fail devenv builds
+        cd components/ranger
         rm -f core.* hs_err_pid*.log 2>/dev/null || true
         mvn -pl security-admin,tagsync,distro -am install -DskipTests -Drat.skip=true \
           -Dmaven.repo.local="$SIG_MAVEN_REPO" \
@@ -630,22 +628,30 @@ SQL
         echo "Ranger modules installed to $SIG_MAVEN_REPO (typically 3.0.0-SNAPSHOT)"
         ls -1 distro/target/ranger-*-admin.tar.gz 2>/dev/null || true
       '';
-      description = "Build Ranger into .devenv/m2 (JDK 11; for local Impala FE)";
+      description = "Build Ranger into .devenv/m2 (devenv jdk11; for Impala FE)";
     };
 
     "ranger:install" = {
       exec = ''
-        # Stable path for Impala RANGER_HOME_OVERRIDE: .devenv/ranger/admin/setup.sh
-        ADMIN_SRC=$(find components/ranger -path '*/target/*' -name setup.sh 2>/dev/null \
-          | head -1 | xargs -r dirname || true)
-        if [ -z "$ADMIN_SRC" ]; then
+        # Prefer distro admin tarball (3.0.0-SNAPSHOT from ranger:build) over CDP leftovers
+        # or source-tree scripts. Destination: .devenv/ranger/admin (Impala RANGER_HOME_OVERRIDE).
+        TAR=$(ls -1t components/ranger/target/ranger-*-admin.tar.gz \
+                   components/ranger/distro/target/ranger-*-admin.tar.gz 2>/dev/null | head -1 || true)
+        if [ -z "$TAR" ]; then
           TAR=$(find components/ranger -name 'ranger-*-admin.tar.gz' 2>/dev/null | head -1 || true)
-          if [ -n "$TAR" ]; then
-            mkdir -p .devenv/ranger/unpack
-            rm -rf .devenv/ranger/unpack/*
-            tar -xzf "$TAR" -C .devenv/ranger/unpack
-            ADMIN_SRC=$(find .devenv/ranger/unpack -name setup.sh | head -1 | xargs -r dirname)
-          fi
+        fi
+        ADMIN_SRC=""
+        if [ -n "$TAR" ] && [ -f "$TAR" ]; then
+          echo "Unpacking $TAR → .devenv/ranger/unpack"
+          mkdir -p .devenv/ranger/unpack
+          rm -rf .devenv/ranger/unpack/*
+          tar -xzf "$TAR" -C .devenv/ranger/unpack
+          ADMIN_SRC=$(find .devenv/ranger/unpack -name setup.sh | head -1 | xargs -r dirname)
+        fi
+        if [ -z "$ADMIN_SRC" ]; then
+          # Fallback: assembled admin under target (not source scripts/)
+          ADMIN_SRC=$(find components/ranger -path '*/target/*-admin' -name setup.sh 2>/dev/null \
+            | head -1 | xargs -r dirname || true)
         fi
         if [ -z "$ADMIN_SRC" ] || [ ! -f "$ADMIN_SRC/setup.sh" ]; then
           echo "No ranger-admin package found. Run: devenv tasks run ranger:build"
@@ -655,6 +661,12 @@ SQL
         rm -rf .devenv/ranger/admin
         mkdir -p .devenv/ranger/admin
         cp -a "$ADMIN_SRC"/. .devenv/ranger/admin/
+        # Drop any CDP-named leftover admin trees under .devenv/ranger/
+        for _old in .devenv/ranger/ranger-*-admin; do
+          [ -e "$_old" ] || continue
+          echo "Removing leftover $_old (use .devenv/ranger/admin only)"
+          rm -rf "$_old"
+        done
         cp -f .devenv/ranger/conf/install.properties .devenv/ranger/admin/install.properties
         mkdir -p .devenv/ranger/admin/ews/webapp/WEB-INF/lib 2>/dev/null || true
         cp -f .devenv/ranger/lib/postgresql.jar .devenv/ranger/admin/ews/webapp/WEB-INF/lib/ 2>/dev/null \
@@ -674,13 +686,12 @@ SQL
         sed -e "s|SIG_RANGER_HOME|$RANGER_HOME|g" \
             -e "s|SIG_PROJECT_ROOT|$PWD|g" \
           "$PWD/config/ranger/install.properties" > "$RANGER_HOME/conf/install.properties"
-        # PostgreSQL JDBC: prefer project repo, then user cache, else download
+        # PostgreSQL JDBC: project-local Maven only, else download into .devenv (never ~/.m2)
         SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
-        PGJAR=$(ls -1 "$SIG_MAVEN_REPO"/org/postgresql/postgresql/*/postgresql-*.jar \
-                     "$HOME"/.m2/repository/org/postgresql/postgresql/*/postgresql-*.jar 2>/dev/null \
+        PGJAR=$(ls -1 "$SIG_MAVEN_REPO"/org/postgresql/postgresql/*/postgresql-*.jar 2>/dev/null \
           | grep -v 'sources\|javadoc' | sort -V | tail -1 || true)
         if [ -z "$PGJAR" ] || [ ! -f "$PGJAR" ]; then
-          echo "Downloading PostgreSQL JDBC driver..."
+          echo "Downloading PostgreSQL JDBC driver into .devenv/ranger/lib..."
           curl -fsSL -o "$RANGER_HOME/lib/postgresql.jar" \
             "https://jdbc.postgresql.org/download/postgresql-42.7.4.jar"
         else
@@ -790,15 +801,22 @@ SQL
           echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
           exit 1
         fi
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         mkdir -p "$SIG_MAVEN_REPO"
+        # Gradle 7.x needs <= JDK 17; pin devenv jdk17 over host JAVA_HOME
+        export JAVA_HOME="${pkgs.jdk17}"
+        if [ ! -x "$JAVA_HOME/bin/java" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+          export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+        fi
+        export PATH="$JAVA_HOME/bin:$PATH"
         cd components/kudu/java
         # Publish into project-local Maven layout (not ~/.m2)
         ./gradlew :kudu-client:publishToMavenLocal \
           -Dmaven.repo.local="$SIG_MAVEN_REPO" \
           -Pmaven.repo.local="$SIG_MAVEN_REPO"
       '';
-      description = "Install Kudu Java client into .devenv/m2";
+      description = "Install Kudu Java client into .devenv/m2 (devenv jdk17)";
     };
 
     "kudu:build-cpp" = {
@@ -824,19 +842,17 @@ SQL
         # glibc (no termio/crypt) fails to compile compiler-rt sanitizers.
         export EXTRA_CMAKE_FLAGS="''${EXTRA_CMAKE_FLAGS:-} -DGCC_INSTALL_PREFIX=$_real_gcc_prefix -DCOMPILER_RT_BUILD_SANITIZERS=OFF -DCOMPILER_RT_BUILD_XRAY=OFF"
         echo "Kudu build: GCC_INSTALL_PREFIX=$_real_gcc_prefix (sanitizers off)"
-        # Gradle 7.6 (Kudu Java wrapper) does not support class file major 65 (Java 21).
-        # Prefer JDK 17 on PATH when available for gradle-wrapper / kudu-proto jar.
+        # Gradle 7.6 does not support class file major 65 (Java 21). Prefer devenv jdk17
+        # over scanning /nix/store or system JVMs.
         if command -v java >/dev/null 2>&1; then
           _jv="$(java -version 2>&1 | head -1 || true)"
           if echo "$_jv" | grep -qE 'version "2[1-9]'; then
-            for _jhome in /nix/store/*openjdk-17*/lib/openjdk /nix/store/*openjdk-17*; do
-              if [ -x "$_jhome/bin/java" ]; then
-                export JAVA_HOME="$_jhome"
-                export PATH="$JAVA_HOME/bin:$PATH"
-                echo "Kudu build: using JAVA_HOME=$JAVA_HOME (Gradle needs <=17)"
-                break
-              fi
-            done
+            export JAVA_HOME="${pkgs.jdk17}"
+            if [ ! -x "$JAVA_HOME/bin/java" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+              export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+            fi
+            export PATH="$JAVA_HOME/bin:$PATH"
+            echo "Kudu build: JAVA_HOME=$JAVA_HOME (devenv jdk17 for Gradle)"
           fi
         fi
 
@@ -872,6 +888,14 @@ SQL
       exec = ''
         # Local Ranger/Kudu overrides — skip CDP ranger-admin tarball download
         cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
+        # Drop thrift/boost from path pollution (keep sasl/krb5/openssl).
+        # Bash vars escaped for Nix multi-line strings via doubled single-quote.
+        PATH="$(printf '%s' "''${PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_INCLUDE_PATH="$(printf '%s' "''${CMAKE_INCLUDE_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_LIBRARY_PATH="$(printf '%s' "''${CMAKE_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_PREFIX_PATH="$(printf '%s' "''${CMAKE_PREFIX_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        PKG_CONFIG_PATH="$(printf '%s' "''${PKG_CONFIG_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        export PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH CMAKE_PREFIX_PATH PKG_CONFIG_PATH
         cd components/impala
         source bin/impala-config.sh
         echo "RANGER_HOME=$RANGER_HOME  IMPALA_RANGER_VERSION=$IMPALA_RANGER_VERSION"
@@ -883,37 +907,65 @@ SQL
     "impala:build" = {
       exec = ''
         cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         mkdir -p "$SIG_MAVEN_REPO"
         export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
+        # Isolate from Nix/direnv thrift+boost without dropping krb5/openssl/sasl.
+        # Parent PATH often still has thrift-0.22 from an older devenv profile.
+        # Bash vars escaped for Nix multi-line strings via doubled single-quote.
+        PATH="$(printf '%s' "''${PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_INCLUDE_PATH="$(printf '%s' "''${CMAKE_INCLUDE_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_LIBRARY_PATH="$(printf '%s' "''${CMAKE_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CMAKE_PREFIX_PATH="$(printf '%s' "''${CMAKE_PREFIX_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        PKG_CONFIG_PATH="$(printf '%s' "''${PKG_CONFIG_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        LIBRARY_PATH="$(printf '%s' "''${LIBRARY_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CPATH="$(printf '%s' "''${CPATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        CPLUS_INCLUDE_PATH="$(printf '%s' "''${CPLUS_INCLUDE_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
+        export PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH CMAKE_PREFIX_PATH PKG_CONFIG_PATH LIBRARY_PATH CPATH CPLUS_INCLUDE_PATH
         cd components/impala
         source bin/impala-config.sh
+        # Prefer toolchain thrift on PATH for any accidental discovery
+        if [ -n "''${THRIFT_CPP_HOME:-}" ] && [ -d "$THRIFT_CPP_HOME/bin" ]; then
+          export PATH="$THRIFT_CPP_HOME/bin:$PATH"
+        fi
         # FE needs ranger-plugins-* at IMPALA_RANGER_VERSION in *project* m2
         if ! ls "$SIG_MAVEN_REPO"/org/apache/ranger/ranger-plugins-common/"$IMPALA_RANGER_VERSION"/*.jar >/dev/null 2>&1; then
           echo "Ranger jars missing in $SIG_MAVEN_REPO for version $IMPALA_RANGER_VERSION."
           echo "Run: devenv tasks run ranger:build"
           exit 1
         fi
+        # If a prior devenv shell left Nix thrift/boost in CMakeCache, reconfigure.
+        # Object trees under be/build/ are kept (-noclean); only cache is dropped.
+        if [ -f CMakeCache.txt ] && grep -qE '/nix/store/[^ ]*thrift|/nix/store/[^ ]*boost' CMakeCache.txt; then
+          echo "WARNING: CMakeCache references Nix thrift/boost — removing cache to re-pick toolchain"
+          rm -f CMakeCache.txt
+          rm -rf CMakeFiles
+        fi
+        echo "THRIFT_CPP_HOME=$THRIFT_CPP_HOME"
+        echo "thrift=$(command -v thrift || echo none)"
         ./buildall.sh -notests -noclean
       '';
-      description = "Full Impala build (uses .devenv/m2 for local Ranger)";
+      description = "Full Impala build (toolchain + .devenv/m2 Ranger; no system thrift/boost)";
     };
 
     "impala:build-fe" = {
       exec = ''
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
         cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
         cd components/impala
         source bin/impala-config.sh
         cd java && mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" compile -pl ../fe -am -DskipTests --no-transfer-progress
       '';
-      description = "Incremental Impala frontend build (Java only)";
+      description = "Incremental Impala frontend build (Java only; .devenv/m2)";
     };
 
     "impala:test-fe" = {
       exec = ''
-        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
+        _sig_root="$PWD"
+        export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
         cd components/impala
         source bin/impala-config.sh

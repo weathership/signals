@@ -50,6 +50,14 @@ Impala FE resolution uses that store; Impala skips the CDP Ranger admin tarball
 via `config/impala/impala-config-local.sh` (`RANGER_VERSION_OVERRIDE` /
 `RANGER_HOME_OVERRIDE`).
 
+**JDK isolation:** Ranger builds use devenv `jdk11` (Nashorn); Kudu Java/Gradle
+uses devenv `jdk17`. Prefer `${pkgs.jdkN}` in tasks over scanning `/nix/store`
+or `/usr/lib/jvm`.
+
+**Impala toolchain isolation:** do not add `pkgs.thrift` or `pkgs.boost` to host
+`packages` — they leak into CMake and pull the wrong thrift. Impala uses its
+downloaded toolchain; only `impala_fdw:build` pins Nix thrift/boost for the FDW.
+
 Design detail and phased rollout:
 [`docs/scratch/2026-08-05/234317_asf-devenv-nesting.md`](../../../scratch/2026-08-05/234317_asf-devenv-nesting.md)
 (and devenv’s [monorepo guide](https://devenv.sh/guides/monorepo/)).

@@ -13,8 +13,22 @@
 export RANGER_VERSION_OVERRIDE="${RANGER_VERSION_OVERRIDE:-3.0.0-SNAPSHOT}"
 
 # Runtime / minicluster admin tree (setup.sh layout). Materialized by ranger:install.
-_signals_root="$(cd "${IMPALA_HOME}/../.." && pwd)"
+# Resolve signals repo root without depending on a pre-set IMPALA_HOME (devenv-safe).
+if [ -n "${IMPALA_HOME:-}" ] && [ -d "${IMPALA_HOME}" ]; then
+  _signals_root="$(cd "${IMPALA_HOME}/../.." && pwd)"
+else
+  # This file lives at components/impala/bin/ when installed
+  _signals_root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../../.." && pwd)"
+fi
 export RANGER_HOME_OVERRIDE="${RANGER_HOME_OVERRIDE:-${_signals_root}/.devenv/ranger/admin}"
+# Project Maven store for FE (never ~/.m2). devenv tasks and enterShell set the same.
+export SIG_MAVEN_REPO="${SIG_MAVEN_REPO:-${_signals_root}/.devenv/m2}"
+# Maven 3.9+ honors MAVEN_ARGS; ensure FE resolve/installs stay under .devenv/m2 even
+# when buildall is invoked outside `devenv tasks run impala:build`.
+case " ${MAVEN_ARGS:-} " in
+  *" -Dmaven.repo.local="*) ;;
+  *) export MAVEN_ARGS="${MAVEN_ARGS:-} -Dmaven.repo.local=${SIG_MAVEN_REPO}" ;;
+esac
 
 # --- Kudu (optional local C++ build) ---------------------------------------------
 # When components/kudu is built, prefer it for native linkage notes / tooling.
