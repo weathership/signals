@@ -9,7 +9,10 @@ let
     NIX_GLIBC="${pkgs.glibc}/lib"
     GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
     NIX_KRB5="${pkgs.krb5.lib}/lib"
-    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu"
+    NIX_SASL="${pkgs.cyrus_sasl.out}/lib"
+    NIX_SSL="${pkgs.openssl.out}/lib"
+    # Order: toolchain gcc libs, then devenv security libs, then system multiarch
+    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$NIX_SASL:$NIX_SSL''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:/lib/x86_64-linux-gnu"
   '';
 
   # JVM flags for HMS-free catalog mode
@@ -279,6 +282,77 @@ in
     };
   };
 
+  # ── Ranger Admin (Postgres :5455/ranger; HTTP :6080) ─────────────────────
+  # Requires: devenv tasks run ranger:install && ranger:setup (or process self-setup).
+  processes.ranger-admin = {
+    exec = ''
+      RANGER_HOME="$PWD/.devenv/ranger"
+      RANGER_ADMIN="$RANGER_HOME/admin"
+      EWS="$RANGER_ADMIN/ews"
+      PGPORT="''${PGPORT:-5455}"
+
+      if [ ! -f "$EWS/ranger-admin-services.sh" ]; then
+        echo "Ranger admin not installed under .devenv/ranger/admin."
+        echo "Run: devenv tasks run ranger:install && devenv tasks run ranger:setup"
+        exit 1
+      fi
+
+      # Wait for Postgres
+      for _i in $(seq 1 90); do
+        pg_isready -h localhost -p "$PGPORT" -q && break
+        sleep 1
+      done
+
+      # JDK 11 for Ranger (interim Nashorn-era tree)
+      export JAVA_HOME="${pkgs.jdk11}"
+      if [ ! -x "$JAVA_HOME/bin/java" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+        export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+      fi
+      export PATH="$JAVA_HOME/bin:$PATH"
+
+      mkdir -p "$RANGER_HOME/logs" "$RANGER_HOME/run"
+      export RANGER_ADMIN_LOG_DIR="$RANGER_HOME/logs"
+      export RANGER_PID_DIR_PATH="$RANGER_HOME/run"
+
+      # One-shot setup if conf not materialised
+      if [ ! -f "$EWS/webapp/WEB-INF/classes/conf/ranger-admin-site.xml" ]; then
+        echo "Ranger not set up yet; run: devenv tasks run ranger:setup"
+        exit 1
+      fi
+
+      # Ensure JDBC driver on classpath (setup puts it in WEB-INF/lib)
+      if [ -f "$RANGER_HOME/lib/postgresql.jar" ]; then
+        cp -f "$RANGER_HOME/lib/postgresql.jar" "$EWS/webapp/WEB-INF/lib/" 2>/dev/null || true
+      fi
+
+      echo "Starting Ranger Admin on http://localhost:6080 (Postgres ranger DB, pg :$PGPORT)..."
+      cd "$EWS"
+      # Foreground EmbeddedServer (process-compose owns the process; not nohup)
+      exec java -Dproc_rangeradmin \
+        -XX:MetaspaceSize=100m -XX:MaxMetaspaceSize=200m -Xmx1g -Xms512m \
+        -Duser.timezone=UTC \
+        -Dlogback.configurationFile=file:$EWS/webapp/WEB-INF/classes/conf/logback.xml \
+        -Dservername=rangeradmin \
+        -Dlogdir="$RANGER_ADMIN_LOG_DIR" \
+        -Dcatalina.base="$EWS" \
+        -cp "$EWS/webapp/WEB-INF/classes/conf:$EWS/lib/*:$EWS/webapp/WEB-INF/lib/*:$EWS/ranger_jaas/*:$JAVA_HOME/lib/*" \
+        org.apache.ranger.server.tomcat.EmbeddedServer
+    '';
+    process-compose = {
+      depends_on = {
+        postgres = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        exec.command = "curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/ | grep -qE '200|302|401|403'";
+        initial_delay_seconds = 15;
+        period_seconds = 10;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 18;
+      };
+    };
+  };
+
   # ── Kudu Master Process ──────────────────────────────────────────────────
   processes.kudu-master = {
     exec = ''
@@ -381,6 +455,7 @@ in
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/statestored" ]; then
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
+      cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
       source "$IMPALA_HOME/bin/impala-config.sh"
       . "$IMPALA_HOME/bin/set-ld-library-path.sh"
       ${impalaLdLibraryPath}
@@ -418,6 +493,7 @@ in
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/catalogd" ]; then
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
+      cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
       source "$IMPALA_HOME/bin/impala-config.sh"
       . "$IMPALA_HOME/bin/set-classpath.sh"
       . "$IMPALA_HOME/bin/set-ld-library-path.sh"
@@ -475,6 +551,7 @@ in
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/impalad" ]; then
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
+      cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
       source "$IMPALA_HOME/bin/impala-config.sh"
       . "$IMPALA_HOME/bin/set-classpath.sh"
       . "$IMPALA_HOME/bin/set-ld-library-path.sh"
@@ -687,9 +764,103 @@ SQL
           || cp -f .devenv/ranger/lib/postgresql.jar .devenv/ranger/admin/ || true
         echo "Ranger admin tree: $PWD/.devenv/ranger/admin"
         echo "Impala: RANGER_HOME_OVERRIDE points here via config/impala/impala-config-local.sh"
-        echo "Next: (cd .devenv/ranger/admin && ./setup.sh) then start ranger-admin"
+        echo "Next: devenv tasks run ranger:setup   (or start process ranger-admin after setup)"
       '';
       description = "Install local Ranger admin package under .devenv/ranger/admin";
+    };
+
+    "ranger:setup" = {
+      exec = ''
+        set -euo pipefail
+        if [ ! -f .devenv/ranger/admin/setup.sh ]; then
+          echo "Run: devenv tasks run ranger:install first"
+          exit 1
+        fi
+        bash -c 'devenv tasks run ranger:db-setup'
+        # Full install.properties: stock template + signals overrides (Postgres :5455)
+        python3 - <<'PY'
+from pathlib import Path
+import os
+root = Path(".").resolve()
+stock_p = root / "components/ranger/security-admin/scripts/install.properties"
+ours_p = root / "config/ranger/install.properties"
+out_p = root / ".devenv/ranger/conf/install.properties"
+stock = stock_p.read_text().splitlines()
+ours = {}
+for line in ours_p.read_text().splitlines():
+    s = line.strip()
+    if not s or s.startswith("#") or "=" not in s:
+        continue
+    k, v = s.split("=", 1)
+    ours[k.strip()] = v
+ours.update({
+    "LOGFILE": str(root / ".devenv/ranger/logs/setup.log"),
+    "LOGFILES": str(root / ".devenv/ranger/logs/setup.log"),
+    "TMPFILE": str(root / ".devenv/ranger/logs/setup.tmp"),
+    "RANGER_ADMIN_LOG_DIR": str(root / ".devenv/ranger/logs"),
+    "RANGER_PID_DIR_PATH": str(root / ".devenv/ranger/run"),
+    "JAVA_VERSION_REQUIRED": "1.8",
+    "SQL_CONNECTOR_JAR": str(root / ".devenv/ranger/lib/postgresql.jar"),
+    "hadoop_conf": str(root / "config/impala"),
+    "unix_user": os.environ.get("USER", "rch"),
+    "unix_group": os.popen("id -gn").read().strip() or "rch",
+    "db_host": "localhost:5455",
+    "db_root_user": "signals",
+    "db_root_password": "signals",
+    "db_name": "ranger",
+    "db_user": "rangeradmin",
+    "db_password": "rangeradmin1",
+    "DB_FLAVOR": "POSTGRES",
+    "audit_store": "none",
+    "audit_solr_bootstrap_enabled": "false",
+    "authentication_method": "NONE",
+    "policymgr_external_url": "http://localhost:6080",
+    "policymgr_supportedcomponents": "impala",
+    "rangerAdmin_password": "Admin123",
+    "rangerTagsync_password": "Admin123",
+    "rangerUsersync_password": "Admin123",
+    "keyadmin_password": "Admin123",
+    "PYTHON_COMMAND_INVOKER": "python3",
+    "CONNECTION_STRING_ADDITIONAL_PARAMS": "",
+    "sso_enabled": "false",
+    "setup_mode": "",
+})
+out, seen = [], set()
+for line in stock:
+    if not line.strip() or line.strip().startswith("#") or "=" not in line:
+        out.append(line)
+        continue
+    k = line.split("=", 1)[0].strip()
+    if k in ours:
+        out.append(f"{k}={ours[k]}")
+        seen.add(k)
+    else:
+        out.append(line)
+for k, v in ours.items():
+    if k not in seen:
+        out.append(f"{k}={v}")
+out_p.parent.mkdir(parents=True, exist_ok=True)
+out_p.write_text("\n".join(out) + "\n")
+print("Wrote", out_p)
+PY
+        mkdir -p .devenv/ranger/logs .devenv/ranger/run
+        cp -f .devenv/ranger/conf/install.properties .devenv/ranger/admin/install.properties
+        if [ ! -f .devenv/ranger/lib/postgresql.jar ]; then
+          curl -fsSL -o .devenv/ranger/lib/postgresql.jar \
+            "https://jdbc.postgresql.org/download/postgresql-42.7.4.jar"
+        fi
+        mkdir -p .devenv/ranger/admin/ews/webapp/WEB-INF/lib
+        cp -f .devenv/ranger/lib/postgresql.jar .devenv/ranger/admin/ews/webapp/WEB-INF/lib/
+        export JAVA_HOME="${pkgs.jdk11}"
+        if [ ! -x "$JAVA_HOME/bin/java" ] && [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+          export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+        fi
+        export PATH="$JAVA_HOME/bin:$PATH"
+        (cd .devenv/ranger/admin && ./setup.sh)
+        touch .devenv/ranger/admin/.setup-done
+        echo "Ranger setup complete. Start with: devenv up (process ranger-admin)"
+      '';
+      description = "Materialize install.properties + run Ranger setup.sh against Postgres :5455";
     };
 
     "ranger:db-setup" = {
@@ -1118,6 +1289,7 @@ SQL
     echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
     echo "  devenv tasks run ranger:build         — Ranger → .devenv/m2 + distro"
     echo "  devenv tasks run ranger:install       — .devenv/ranger/admin"
+    echo "  devenv tasks run ranger:setup         — setup.sh → Postgres ranger DB"
     echo ""
     echo "Maven: SIG_MAVEN_REPO=\$SIG_MAVEN_REPO (project-local; not ~/.m2)"
     echo ""

@@ -14,8 +14,9 @@ Scaffold for Apache Ranger against signals Postgres + Atlas.
 
 - [x] Postgres `ranger` DB declared in `devenv.nix`
 - [x] `config/ranger/install.properties` (Postgres :5455, SIMPLE auth, Atlas TagSync target)
-- [x] `devenv` tasks: `ranger:build`, `ranger:db-setup`
-- [ ] processes: `ranger-admin`, `ranger-tagsync`
+- [x] `devenv` tasks: `ranger:build`, `ranger:db-setup`, `ranger:install`, `ranger:setup`
+- [x] process: `ranger-admin` (HTTP `:6080`, Postgres-backed)
+- [ ] process: `ranger-tagsync` (Atlas → Ranger tags)
 - [ ] Impala plugin + SIGDG tag policies
 
 ## Day-one setup (local Ranger, not Impala CDP tarball)
@@ -29,10 +30,10 @@ or use the CDP `ranger-*-admin` package. Instead:
 | `RANGER_HOME_OVERRIDE` | `$PWD/.devenv/ranger/admin` |
 
 ```bash
-devenv tasks run ranger:db-setup   # install.properties + JDBC + roles
-devenv tasks run ranger:build      # JDK 11 → install into .devenv/m2 (project-local)
+devenv tasks run ranger:build      # JDK 11 → .devenv/m2 (project-local)
 devenv tasks run ranger:install    # unpack admin under .devenv/ranger/admin
-(cd .devenv/ranger/admin && ./setup.sh)
+devenv tasks run ranger:setup      # setup.sh → Postgres ranger DB + site.xml
+devenv up -d                       # process ranger-admin on :6080
 ```
 
 **Maven isolation:** devenv sets `SIG_MAVEN_REPO=$PWD/.devenv/m2` and `MAVEN_ARGS=-Dmaven.repo.local=…`

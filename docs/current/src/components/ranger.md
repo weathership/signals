@@ -36,11 +36,11 @@ We build `components/ranger` and point Impala at it:
 
 ```bash
 git submodule update --init components/ranger
-devenv tasks run ranger:db-setup
 devenv tasks run ranger:build      # today: devenv jdk11 → .devenv/m2
 devenv tasks run ranger:install    # .devenv/ranger/admin (not a system package)
+devenv tasks run ranger:setup      # Postgres :5455/ranger + site.xml
+devenv up -d                       # process ranger-admin → :6080
 ```
-
 `config/impala/impala-config-local.sh` sets `RANGER_VERSION_OVERRIDE` + `RANGER_HOME_OVERRIDE`
 so bootstrap skips the CDP tarball and the FE resolves plugins from **`.devenv/m2`**.
 
