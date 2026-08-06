@@ -2,6 +2,11 @@
 
 The query engine stack provides SQL access to analytical data without depending on the Hive Metastore (HMS), HDFS, or HBase. This is the core data infrastructure for Signals 360.
 
+**Storage target for asf-signals / tags path:** **Kudu only** (Impala `STORED AS KUDU`).
+Iceberg via Polaris is a later warm tier — still not HDFS. Upstream Impala’s
+*build* may still pull a Hadoop **client** tarball (libhdfs / jars); that is
+build coupling, not a runtime service. See [Impala](../components/impala.md#hadoop-is-a-build-tax--not-a-signals-storage-tier).
+
 ## Stack
 
 ```d2

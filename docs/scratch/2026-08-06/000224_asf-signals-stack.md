@@ -43,8 +43,9 @@ sigint classification Python or full k8s/zarf product packaging into that name.
 | Maven artifacts (Ranger, Atlas, Kudu client) | `$SIG_MAVEN_REPO` = `$PWD/.devenv/m2` |
 | Ranger admin tree | `.devenv/ranger/admin` |
 | Impala toolchain | `components/impala/toolchain/` (bootstrap task) |
+| Hadoop client tarball | Under Impala toolchain only — **build link tax**, not a stack service |
 | Kudu / Impala binaries | `components/*/build/…` (not `/usr/local`) |
-| Runtime processes | `devenv up` / process-compose |
+| Runtime processes | `devenv up` / process-compose (no HDFS/YARN for Kudu-only) |
 
 Do **not** require distro packages like `apt install openjdk-11-jdk` or
 `mvn install` into `~/.m2` for asf-signals work.

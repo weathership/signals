@@ -62,14 +62,38 @@ The following have been tested end-to-end in HMS-free mode:
 
 ## Build
 
-Impala is built from source using its toolchain (GCC 10.4.0, Thrift, LLVM, etc.):
+Prefer host tasks so Maven/Ranger isolation stays under `.devenv/`:
 
 ```bash
-cd components/impala
-source bin/impala-config.sh
-./buildall.sh -notests -noclean
+devenv tasks run impala:bootstrap   # toolchain (long first time)
+devenv tasks run impala:build       # or scripts/impala-build-isolated.sh
 ```
 
-The build produces four binaries: `impalad`, `catalogd`, `statestored`, `admissiond` in `be/build/latest/service/`.
+Produces `impalad`, `catalogd`, `statestored`, `admissiond` under
+`be/build/latest/service/`.
 
-Build dependencies: cmake, ninja, gcc, protobuf, flatbuffers. The Impala toolchain downloads additional dependencies (~5-10 GB) via `bootstrap_toolchain.py`.
+### Hadoop is a build tax — not a signals storage tier
+
+**Runtime product path:** Kudu (and later Iceberg via Polaris). No HDFS NameNode,
+DataNode, YARN, or HBase. HMS-free catalog lives in PostgreSQL. That is the
+asf-signals intent; see [Query Engine](../architecture/query-engine.md).
+
+**Build reality (upstream Impala):** the tree is still **HDFS-first**. CMake does
+`find_package(HDFS REQUIRED)` (libhdfs), packaging expects `libhadoop.so`, and the
+FE still compiles against Hadoop client jars. Bootstrap therefore materializes a
+Hadoop **client/native tarball** (CDP or Apache under `toolchain/`) even though
+signals never runs a Hadoop cluster for Kudu-only tables.
+
+| Layer | Still wants Hadoop | Signals need |
+|-------|--------------------|--------------|
+| BE link | libhdfs | Unwanted for pure Kudu; hard-linked today |
+| Package check | `libhadoop.so` | Distro packaging leftover |
+| FE Maven | hadoop-hdfs / client APIs | Only if HDFS table types compile in |
+| Runtime services | HDFS/YARN | **None** for Kudu-only |
+
+Treat the tarball as a **link-time SDK**, not a product component. Do not document
+“running Hadoop” as part of devenv services.
+
+**Direction (when appropriate, on `rch/devenv`):** optional Kudu-only / no-HDFS
+build profile that stubs or drops HDFS BE I/O and fails closed if anything opens
+`hdfs://`. Same class of interim debt as Ranger JDK 11/Nashorn — not the end state.
