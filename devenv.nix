@@ -18,6 +18,19 @@ let
     "-Dsignals.catalog.jdbc_url=jdbc:postgresql://localhost:5455/signals_catalog"
     "-Dsignals.kudu.master_addresses=127.0.0.1:7051"
   ];
+
+  # Portable Kerberos/SASL/OpenSSL paths for ASF C++ links under Nix (Impala, Kudu).
+  # FindKerberos registers full-path gssapi_krb5; this still supplies -L / find_library.
+  asfNativeLinkEnv = ''
+    export SIG_KRB5_LIB="${pkgs.krb5.lib}/lib"
+    export SIG_KRB5_INC="${pkgs.krb5.dev}/include"
+    export SIG_SASL_LIB="${pkgs.cyrus_sasl.out}/lib"
+    export SIG_SASL_INC="${pkgs.cyrus_sasl.dev}/include"
+    export SIG_SSL_LIB="${pkgs.openssl.out}/lib"
+    export SIG_SSL_INC="${pkgs.openssl.dev}/include"
+    # shellcheck source=/dev/null
+    . "$PWD/config/asf/native-link-env.sh"
+  '';
 in
 {
   dotenv.enable = true;
@@ -827,6 +840,7 @@ SQL
           echo "components/kudu not initialized. Run: git submodule update --init components/kudu"
           exit 1
         fi
+        ${asfNativeLinkEnv}
         # GCC 15: C23 bool breaks bundled thirdparty postgres; libstdc++ no longer
         # transitively provides uint*_t in LLVM 11 headers. Force GNU11/C++17 and
         # pre-include stdint.h (not cstdint — compiler-rt uses -nostdinc++).
@@ -924,8 +938,16 @@ SQL
         CPATH="$(printf '%s' "''${CPATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
         CPLUS_INCLUDE_PATH="$(printf '%s' "''${CPLUS_INCLUDE_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
         export PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH CMAKE_PREFIX_PATH PKG_CONFIG_PATH LIBRARY_PATH CPATH CPLUS_INCLUDE_PATH
+        ${asfNativeLinkEnv}
         cd components/impala
         source bin/impala-config.sh
+        # Toolchain gcc/g++ MUST win over Nix gcc (C++20 breaks gutil with -Werror)
+        if [ -n "''${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ] && \
+           [ -x "$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/g++" ]; then
+          export PATH="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin:$PATH"
+          export CC="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/gcc"
+          export CXX="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/g++"
+        fi
         # Prefer toolchain thrift on PATH for any accidental discovery
         if [ -n "''${THRIFT_CPP_HOME:-}" ] && [ -d "$THRIFT_CPP_HOME/bin" ]; then
           export PATH="$THRIFT_CPP_HOME/bin:$PATH"
@@ -936,18 +958,26 @@ SQL
           echo "Run: devenv tasks run ranger:build"
           exit 1
         fi
-        # If a prior devenv shell left Nix thrift/boost in CMakeCache, reconfigure.
-        # Object trees under be/build/ are kept (-noclean); only cache is dropped.
-        if [ -f CMakeCache.txt ] && grep -qE '/nix/store/[^ ]*thrift|/nix/store/[^ ]*boost' CMakeCache.txt; then
-          echo "WARNING: CMakeCache references Nix thrift/boost — removing cache to re-pick toolchain"
-          rm -f CMakeCache.txt
-          rm -rf CMakeFiles
+        # Drop CMakeCache if poisoned (wrong thrift/boost, bare gssapi, or Nix gcc 15)
+        if [ -f CMakeCache.txt ]; then
+          _need_reconf=0
+          grep -qE '/nix/store/[^ ]*thrift|/nix/store/[^ ]*boost' CMakeCache.txt && _need_reconf=1
+          grep -qE 'gcc-wrapper-1[5-9]|gcc-1[5-9]' CMakeCache.txt && _need_reconf=1
+          if [ -f be/src/service/CMakeFiles/impalad.dir/link.txt ] && \
+             grep -qE '(^|[^-])-lgssapi_krb5' be/src/service/CMakeFiles/impalad.dir/link.txt 2>/dev/null; then
+            _need_reconf=1
+          fi
+          if [ "$_need_reconf" = 1 ]; then
+            echo "WARNING: CMakeCache not devenv-portable — reconfigure (keep object trees)"
+            rm -f CMakeCache.txt; rm -rf CMakeFiles
+          fi
         fi
+        echo "CXX=$CXX ($(command -v g++ || true))"
         echo "THRIFT_CPP_HOME=$THRIFT_CPP_HOME"
-        echo "thrift=$(command -v thrift || echo none)"
+        echo "SIG_KRB5_LIB=$SIG_KRB5_LIB"
         ./buildall.sh -notests -noclean
       '';
-      description = "Full Impala build (toolchain + .devenv/m2 Ranger; no system thrift/boost)";
+      description = "Full Impala build (toolchain gcc + portable krb5/gssapi; .devenv/m2 Ranger)";
     };
 
     "impala:build-fe" = {
@@ -1025,6 +1055,18 @@ SQL
     export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$PWD/.devenv/m2}"
     mkdir -p "$SIG_MAVEN_REPO"
     export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
+
+    # ASF C++ portable link paths (krb5/gssapi/sasl/openssl) — see config/asf/native-link-env.sh
+    export SIG_KRB5_LIB="${pkgs.krb5.lib}/lib"
+    export SIG_KRB5_INC="${pkgs.krb5.dev}/include"
+    export SIG_SASL_LIB="${pkgs.cyrus_sasl.out}/lib"
+    export SIG_SASL_INC="${pkgs.cyrus_sasl.dev}/include"
+    export SIG_SSL_LIB="${pkgs.openssl.out}/lib"
+    export SIG_SSL_INC="${pkgs.openssl.dev}/include"
+    if [ -f "$PWD/config/asf/native-link-env.sh" ]; then
+      # shellcheck source=/dev/null
+      . "$PWD/config/asf/native-link-env.sh"
+    fi
 
     # Air-gap safe: use local model cache, no HuggingFace phone-home
     export HF_HUB_OFFLINE=1

@@ -18,11 +18,22 @@ for _v in PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH CMAKE_PREFIX_PATH \
   export "$_v=$_filtered"
 done
 
+# Portable krb5/gssapi/sasl/ssl discovery (devenv sets SIG_* when available)
+# shellcheck source=/dev/null
+. "$ROOT/config/asf/native-link-env.sh"
+
 cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
 cd components/impala
 # shellcheck source=/dev/null
 source bin/impala-config.sh
 
+# Toolchain gcc before Nix gcc (gutil breaks under GCC 15 / C++20 -Werror)
+if [ -n "${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ] && \
+   [ -x "$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/g++" ]; then
+  export PATH="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin:$PATH"
+  export CC="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/gcc"
+  export CXX="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/g++"
+fi
 if [ -n "${THRIFT_CPP_HOME:-}" ] && [ -d "$THRIFT_CPP_HOME/bin" ]; then
   export PATH="$THRIFT_CPP_HOME/bin:$PATH"
 fi
@@ -38,9 +49,17 @@ if [ -f CMakeCache.txt ] && grep -qE '/nix/store/[^ ]*thrift|/nix/store/[^ ]*boo
   rm -f CMakeCache.txt
   rm -rf CMakeFiles
 fi
+# Bare -lgssapi_krb5 cannot link under Nix gold; force reconfigure for full-path target
+if [ -f be/src/service/CMakeFiles/impalad.dir/link.txt ] && \
+   grep -qE '(^|[^-])-lgssapi_krb5' be/src/service/CMakeFiles/impalad.dir/link.txt 2>/dev/null; then
+  echo "WARNING: bare -lgssapi_krb5 in link line — reconfigure cmake"
+  rm -f CMakeCache.txt
+  rm -rf CMakeFiles
+fi
 
 echo "THRIFT_CPP_HOME=$THRIFT_CPP_HOME"
 echo "thrift=$(command -v thrift || echo none)"
+echo "SIG_KRB5_LIB=${SIG_KRB5_LIB:-}"
 echo "SIG_MAVEN_REPO=$SIG_MAVEN_REPO"
 echo "IMPALA_RANGER_VERSION=$IMPALA_RANGER_VERSION"
 echo "RANGER_HOME=$RANGER_HOME"
