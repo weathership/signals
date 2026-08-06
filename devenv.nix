@@ -15,8 +15,25 @@ let
   # Darwin: never forced (mkIf isLinux on processes).
   # Headless: ~8 NEEDED on libjvm vs ~15 for full JDK (no gtk/cups/X11).
   # Full GUI jdk pulls host-incompatible transitive deps into catalogd JNI.
+  # Build and runtime must share this — BE RUNPATH is baked at link time.
   impalaJdkHome =
     if pkgs.stdenv.isLinux then "${pkgs.jdk21_headless.home}" else "";
+
+  # Pin JAVA_HOME for Impala build + process-compose (same store path).
+  impalaJdkEnv = ''
+    export JAVA_HOME="${impalaJdkHome}"
+    if [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+      export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+    fi
+    if [ ! -x "$JAVA_HOME/bin/java" ] || [ ! -x "$JAVA_HOME/bin/javac" ]; then
+      echo "ERROR: Impala requires jdk21_headless (java+javac): $JAVA_HOME"
+      exit 1
+    fi
+    export PATH="$JAVA_HOME/bin:$PATH"
+    export JAVA="$JAVA_HOME/bin/java"
+    echo "Impala JAVA_HOME=$JAVA_HOME (jdk21_headless)"
+    java -version 2>&1 | head -1
+  '';
 
   # Nix libstdc++ for both BE and JVM (never pull toolchain/kudu's bundled one).
   impalaStdcxxLib = "${pkgs.stdenv.cc.cc.lib}/lib";
@@ -33,16 +50,7 @@ let
     fi
 
     # Pin headless devenv JDK (override host detection in impala-config.sh)
-    export JAVA_HOME="${impalaJdkHome}"
-    if [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
-      export JAVA_HOME="$JAVA_HOME/lib/openjdk"
-    fi
-    if [ ! -x "$JAVA_HOME/bin/java" ]; then
-      echo "ERROR: devenv JAVA_HOME not usable: $JAVA_HOME"
-      exit 1
-    fi
-    export PATH="$JAVA_HOME/bin:$PATH"
-    export JAVA="$JAVA_HOME/bin/java"
+    ${impalaJdkEnv}
 
     # .devenv shims only (no host /lib): sasl so.2 for toolchain kudu + kudu client
     # alone (do NOT add whole kudu/lib — it ships a conflicting libstdc++.so.6).
@@ -1219,8 +1227,12 @@ SQL
         CPLUS_INCLUDE_PATH="$(printf '%s' "''${CPLUS_INCLUDE_PATH:-}" | tr ':' '\n' | grep -vE '/thrift-|/boost-' | paste -sd: - || true)"
         export PATH CMAKE_INCLUDE_PATH CMAKE_LIBRARY_PATH CMAKE_PREFIX_PATH PKG_CONFIG_PATH LIBRARY_PATH CPATH CPLUS_INCLUDE_PATH
         ${asfNativeLinkEnv}
+        # jdk21_headless before impala-config so FindJNI / RUNPATH bake the right libjvm
+        ${impalaJdkEnv}
         cd components/impala
         source bin/impala-config.sh
+        # Re-assert headless after config (must match process-compose runtime)
+        ${impalaJdkEnv}
         # Toolchain gcc/g++ MUST win over Nix gcc (C++20 breaks gutil with -Werror)
         if [ -n "''${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ] && \
            [ -x "$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/bin/g++" ]; then
@@ -1231,6 +1243,15 @@ SQL
         # Prefer toolchain thrift on PATH for any accidental discovery
         if [ -n "''${THRIFT_CPP_HOME:-}" ] && [ -d "$THRIFT_CPP_HOME/bin" ]; then
           export PATH="$THRIFT_CPP_HOME/bin:$PATH"
+        fi
+        # Reconfigure if CMake still points at full GUI OpenJDK for libjvm
+        if [ -f CMakeCache.txt ]; then
+          if grep -q 'JAVA_JVM_LIBRARY:FILEPATH=.*openjdk' CMakeCache.txt \
+             && ! grep -q 'JAVA_JVM_LIBRARY:FILEPATH=.*headless' CMakeCache.txt; then
+            echo "WARNING: CMakeCache uses non-headless JAVA_JVM_LIBRARY — reconfigure"
+            rm -f CMakeCache.txt
+            rm -rf CMakeFiles
+          fi
         fi
         # FE needs ranger-plugins-* at IMPALA_RANGER_VERSION in *project* m2
         if ! ls "$SIG_MAVEN_REPO"/org/apache/ranger/ranger-plugins-common/"$IMPALA_RANGER_VERSION"/*.jar >/dev/null 2>&1; then
@@ -1255,9 +1276,20 @@ SQL
         echo "CXX=$CXX ($(command -v g++ || true))"
         echo "THRIFT_CPP_HOME=$THRIFT_CPP_HOME"
         echo "SIG_KRB5_LIB=$SIG_KRB5_LIB"
+        echo "JAVA_JVM expected under headless: $JAVA_HOME/lib/server/libjvm.so"
+        ls -la "$JAVA_HOME/lib/server/libjvm.so"
         ./buildall.sh -notests -noclean
+        # Prove link used headless libjvm
+        if [ -x be/build/latest/service/impalad ]; then
+          echo "=== impalad RUNPATH (must contain headless) ==="
+          readelf -d be/build/latest/service/impalad | grep -E 'RUNPATH|RPATH' || true
+          if ! readelf -d be/build/latest/service/impalad | grep -q headless; then
+            echo "ERROR: impalad RUNPATH does not reference openjdk-headless"
+            exit 1
+          fi
+        fi
       '';
-      description = "Full Impala build (toolchain gcc + portable krb5/gssapi; .devenv/m2 Ranger)";
+      description = "Full Impala build (jdk21_headless JNI, toolchain gcc, portable krb5; .devenv/m2)";
     };
 
     "impala:build-fe" = {
@@ -1267,9 +1299,11 @@ SQL
         export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
         export IMPALA_HOME="$_sig_root/components/impala"
         cp -f config/impala/impala-config-local.sh "$IMPALA_HOME/bin/impala-config-local.sh"
+        ${impalaJdkEnv}
         # shellcheck source=/dev/null
         # impala-config.sh is set -u sensitive until IMPALA_HOME is exported
         source "$IMPALA_HOME/bin/impala-config.sh"
+        ${impalaJdkEnv}
         # Build FE + impala-package so package-classpath.txt exists for set-classpath.sh
         # (catalogd/impalad process-compose entries require it).
         cd "$IMPALA_HOME/java"
