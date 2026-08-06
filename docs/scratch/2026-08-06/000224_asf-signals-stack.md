@@ -43,9 +43,13 @@ sigint classification Python or full k8s/zarf product packaging into that name.
 | Maven artifacts (Ranger, Atlas, Kudu client) | `$SIG_MAVEN_REPO` = `$PWD/.devenv/m2` |
 | Ranger admin tree | `.devenv/ranger/admin` |
 | Impala toolchain | `components/impala/toolchain/` (bootstrap task) |
-| Hadoop client tarball | Under Impala toolchain only — **build link tax**, not a stack service |
+| Hadoop client tarball | Toolchain **only** until no-HDFS Impala default — not a stack service |
 | Kudu / Impala binaries | `components/*/build/…` (not `/usr/local`) |
-| Runtime processes | `devenv up` / process-compose (no HDFS/YARN for Kudu-only) |
+| Runtime processes | `devenv up` / process-compose (**Kudu-only / no-HDFS** default) |
+| Future object/block | **rustfs**, **Ceph** (not HDFS) as primary engines evolve |
+
+**Storage default:** Kudu-only / no-HDFS is the product and fork default — not an
+optional profile. HDFS is eliminated as a tier; build-time Hadoop client is debt.
 
 Do **not** require distro packages like `apt install openjdk-11-jdk` or
 `mvn install` into `~/.m2` for asf-signals work.

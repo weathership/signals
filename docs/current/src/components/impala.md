@@ -72,28 +72,34 @@ devenv tasks run impala:build       # or scripts/impala-build-isolated.sh
 Produces `impalad`, `catalogd`, `statestored`, `admissiond` under
 `be/build/latest/service/`.
 
-### Hadoop is a build tax — not a signals storage tier
+### Storage default: Kudu-only / no-HDFS
 
-**Runtime product path:** Kudu (and later Iceberg via Polaris). No HDFS NameNode,
-DataNode, YARN, or HBase. HMS-free catalog lives in PostgreSQL. That is the
-asf-signals intent; see [Query Engine](../architecture/query-engine.md).
+**Future (and product) default:** Impala is a SQL front end over **Kudu** (and later
+non-HDFS object/block stores). **HDFS is not a storage tier we run or design for.**
+There is no NameNode/DataNode/YARN in the signals service graph. Catalog is HMS-free
+(PostgreSQL registry). See [Query Engine](../architecture/query-engine.md).
 
-**Build reality (upstream Impala):** the tree is still **HDFS-first**. CMake does
-`find_package(HDFS REQUIRED)` (libhdfs), packaging expects `libhadoop.so`, and the
-FE still compiles against Hadoop client jars. Bootstrap therefore materializes a
-Hadoop **client/native tarball** (CDP or Apache under `toolchain/`) even though
-signals never runs a Hadoop cluster for Kudu-only tables.
+Longer-term object/block storage for the platform is moving toward **rustfs** and
+**Ceph** — not “more Hadoop.” Iceberg warm tier (when present) sits on object
+storage via modern catalogs (e.g. Polaris), not HDFS.
 
-| Layer | Still wants Hadoop | Signals need |
-|-------|--------------------|--------------|
-| BE link | libhdfs | Unwanted for pure Kudu; hard-linked today |
+**Build reality today (upstream Impala debt):** the tree is still **HDFS-first**.
+CMake does `find_package(HDFS REQUIRED)` (libhdfs), packaging expects
+`libhadoop.so`, and the FE still compiles against Hadoop client jars. Bootstrap
+therefore materializes a Hadoop **client/native tarball** under `toolchain/` even
+though we never run a Hadoop cluster for Kudu-only tables.
+
+| Layer | Still wants Hadoop | Product default |
+|-------|--------------------|-----------------|
+| BE link | libhdfs | Should not; link tax until no-HDFS default lands |
 | Package check | `libhadoop.so` | Distro packaging leftover |
-| FE Maven | hadoop-hdfs / client APIs | Only if HDFS table types compile in |
-| Runtime services | HDFS/YARN | **None** for Kudu-only |
+| FE Maven | hadoop-hdfs / client APIs | Gate/remove for Kudu-only profile |
+| Runtime services | HDFS/YARN | **None** |
 
-Treat the tarball as a **link-time SDK**, not a product component. Do not document
-“running Hadoop” as part of devenv services.
+Treat any Hadoop tarball as a **temporary link-time SDK**, not a product component.
+Do not document “running Hadoop” as part of devenv services.
 
-**Direction (when appropriate, on `rch/devenv`):** optional Kudu-only / no-HDFS
-build profile that stubs or drops HDFS BE I/O and fails closed if anything opens
-`hdfs://`. Same class of interim debt as Ranger JDK 11/Nashorn — not the end state.
+**Fork direction (`rch/devenv`):** **Kudu-only / no-HDFS is the intended default
+build and runtime profile** — not an optional niche. Stub or drop HDFS BE I/O;
+fail closed on `hdfs://`; stop requiring libhdfs/`libhadoop.so` for daemon builds.
+Same class of interim debt as Ranger JDK 11/Nashorn.

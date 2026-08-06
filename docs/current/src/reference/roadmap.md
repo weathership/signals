@@ -112,16 +112,21 @@ Scenarios are organized by implementation tier:
 
 ## Eliminated Dependencies
 
-The following components are intentionally excluded from the stack:
+The following components are intentionally excluded from the **runtime** stack:
 
 | Component | Replacement | Reason |
 |-----------|-------------|--------|
 | Hive Metastore | PG catalog registry + KuduMetaProvider | Eliminate Thrift dependency, simplify deployment |
-| HDFS | Local filesystem / S3 | No distributed filesystem needed for Kudu + Iceberg |
+| **HDFS** | **Kudu** (primary); Iceberg/object later; **rustfs / Ceph** for future engines | Not a storage tier we run; product default is **Kudu-only / no-HDFS** |
 | HBase | PostgreSQL + AGE | Atlas backend simplified to single database |
 | Solr | PostgreSQL full-text search | Atlas search simplified |
 | ZooKeeper | Kudu's built-in Raft consensus | No external coordination service |
 | Trino | Impala | Kudu connector removed from Trino 473 |
+| YARN / MapReduce | — | Not part of interactive SQL + Kudu path |
+
+**Note:** Upstream Impala still *builds* against Hadoop client/native libraries
+(libhdfs, jars). That is temporary link-time debt until the `rch/devenv` default is
+a no-HDFS Impala build — not a commitment to operate Hadoop.
 
 ## Backlog
 
