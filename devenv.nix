@@ -1,8 +1,15 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  # Shared LD_LIBRARY_PATH setup for all Impala processes.
-  # Nix glibc must come FIRST so libc.so.6 resolves to glibc 2.42.
+  # Shared native-lib path for Impala processes (Linux only).
+  # Exec via: ld-linux --library-path "$IMPALA_LIBPATH" <daemon>
+  # so the Impala binary (+ in-process JVM) resolve Nix glibc / OpenSSL / SASL,
+  # WITHOUT exporting LD_LIBRARY_PATH. Catalogd/impalad fork+exec absolute
+  # /bin/sh during JVM bootstrap; a Nix libc in LD_LIBRARY_PATH kills that sh:
+  #   __tunable_is_initialized, version GLIBC_PRIVATE → minidump.
+  #
+  # Order: nix glibc, openssl (before toolchain libcrypto.so.3 symlink to host),
+  # krb5, sasl, toolchain libstdc++, host multiarch (libsasl2.so.2).
   # This binding is only forced on Linux (impala processes are gated by mkIf below);
   # on Darwin pkgs.glibc is never evaluated, so the ${pkgs.glibc} reference is safe.
   impalaLdLibraryPath = ''
@@ -11,8 +18,17 @@ let
     NIX_KRB5="${pkgs.krb5.lib}/lib"
     NIX_SASL="${pkgs.cyrus_sasl.out}/lib"
     NIX_SSL="${pkgs.openssl.out}/lib"
-    # Order: toolchain gcc libs, then devenv security libs, then system multiarch
-    export LD_LIBRARY_PATH="$NIX_GLIBC:$GCC_LIB64:$NIX_KRB5:$NIX_SASL:$NIX_SSL''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:/lib/x86_64-linux-gnu"
+    # JAVA_HOME is set by impala-config.sh (sourced above this snippet)
+    JAVA_LIB=""
+    if [ -n "''${JAVA_HOME:-}" ]; then
+      for _jdir in "$JAVA_HOME/lib/server" "$JAVA_HOME/lib" "$JAVA_HOME/lib/jli"; do
+        [ -d "$_jdir" ] && JAVA_LIB="$JAVA_LIB:$_jdir"
+      done
+    fi
+    export IMPALA_LIBPATH="$NIX_GLIBC:$NIX_SSL:$NIX_KRB5:$NIX_SASL:$GCC_LIB64''${JAVA_LIB}:/lib/x86_64-linux-gnu"
+    # Clear any inherited LD_LIBRARY_PATH so child /bin/sh uses host glibc only
+    unset LD_LIBRARY_PATH
+    export IMPALA_LD_LINUX="${pkgs.glibc}/lib/ld-linux-x86-64.so.2"
   '';
 
   # JVM flags for HMS-free catalog mode
@@ -456,14 +472,15 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
-      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
+      # Do not source set-ld-library-path.sh: it prepends toolchain lib64 (bad libcrypto).
       ${impalaLdLibraryPath}
 
       mkdir -p "$PWD/.devenv/impala/statestore/logs"
 
       echo "Starting Impala Statestore on port 24000..."
-      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+      exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
         "$IMPALA_HOME/be/build/latest/service/statestored" \
         --state_store_port=24000 \
         --webserver_port=25010 \
@@ -494,9 +511,15 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
+      if [ ! -s "$IMPALA_HOME/java/impala-package/target/package-classpath.txt" ]; then
+        echo "Impala FE package classpath missing. Run: devenv tasks run impala:build-fe"
+        echo "(or full: devenv tasks run impala:build)"
+        exit 1
+      fi
+      # shellcheck source=/dev/null
       . "$IMPALA_HOME/bin/set-classpath.sh"
-      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
       ${impalaLdLibraryPath}
 
       # Add project config (hive-site.xml, core-site.xml) to classpath
@@ -510,7 +533,7 @@ in
       mkdir -p "$PWD/.devenv/impala/catalogd/logs"
 
       echo "Starting Impala Catalog Server on port 26000 (HMS-free)..."
-      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+      exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
         "$IMPALA_HOME/be/build/latest/service/catalogd" \
         --catalog_service_port=26000 \
         --state_store_subscriber_port=23020 \
@@ -552,9 +575,15 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
+      if [ ! -s "$IMPALA_HOME/java/impala-package/target/package-classpath.txt" ]; then
+        echo "Impala FE package classpath missing. Run: devenv tasks run impala:build-fe"
+        echo "(or full: devenv tasks run impala:build)"
+        exit 1
+      fi
+      # shellcheck source=/dev/null
       . "$IMPALA_HOME/bin/set-classpath.sh"
-      . "$IMPALA_HOME/bin/set-ld-library-path.sh"
       ${impalaLdLibraryPath}
 
       # Add project config (hive-site.xml, core-site.xml) to classpath
@@ -565,7 +594,7 @@ in
       mkdir -p "$PWD/.devenv/impala/impalad/logs"
 
       echo "Starting Impala Daemon on hs2://localhost:21050..."
-      exec ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
+      exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
         "$IMPALA_HOME/be/build/latest/service/impalad" \
         --hs2_port=21050 \
         --beeswax_port=21001 \
@@ -711,11 +740,36 @@ SQL
         mkdir -p "$SIG_MAVEN_REPO"
         cd components/ranger
         rm -f core.* hs_err_pid*.log 2>/dev/null || true
-        mvn -pl security-admin,tagsync,distro -am install -DskipTests -Drat.skip=true \
+        mvn -pl security-admin,tagsync,distro,agents-audit -am install -DskipTests -Drat.skip=true \
           -Dmaven.repo.local="$SIG_MAVEN_REPO" \
           -Dmaven.compiler.fork=true \
           -Dmaven.compiler.executable="$JAVA_HOME/bin/javac" \
           --no-transfer-progress
+        # Impala FE still depends on ranger-plugins-audit:jar, but Ranger 3.0 split that
+        # into a pom aggregator + ranger-audit-core. Publish a jar shim for Impala.
+        _ver=3.0.0-SNAPSHOT
+        _core="$SIG_MAVEN_REPO/org/apache/ranger/ranger-audit-core/$_ver/ranger-audit-core-$_ver.jar"
+        _shim_dir="$SIG_MAVEN_REPO/org/apache/ranger/ranger-plugins-audit/$_ver"
+        if [ -f "$_core" ]; then
+          mkdir -p "$_shim_dir"
+          cp -f "$_core" "$_shim_dir/ranger-plugins-audit-$_ver.jar"
+          cat > "$_shim_dir/ranger-plugins-audit-$_ver.pom" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.ranger</groupId>
+  <artifactId>ranger-plugins-audit</artifactId>
+  <version>$_ver</version>
+  <packaging>jar</packaging>
+  <name>Ranger Plugins Audit (compat shim → ranger-audit-core)</name>
+</project>
+EOF
+          echo "Installed ranger-plugins-audit jar shim from ranger-audit-core → $_shim_dir"
+        else
+          echo "WARNING: $_core missing; Impala FE may fail to resolve ranger-plugins-audit"
+        fi
         echo "Ranger modules installed to $SIG_MAVEN_REPO (typically 3.0.0-SNAPSHOT)"
         ls -1 distro/target/ranger-*-admin.tar.gz 2>/dev/null || true
       '';
@@ -1156,12 +1210,23 @@ SQL
         _sig_root="$PWD"
         export SIG_MAVEN_REPO="''${SIG_MAVEN_REPO:-$_sig_root/.devenv/m2}"
         export MAVEN_ARGS="''${MAVEN_ARGS:-} -Dmaven.repo.local=$SIG_MAVEN_REPO"
-        cp -f config/impala/impala-config-local.sh components/impala/bin/impala-config-local.sh
-        cd components/impala
-        source bin/impala-config.sh
-        cd java && mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" compile -pl ../fe -am -DskipTests --no-transfer-progress
+        export IMPALA_HOME="$_sig_root/components/impala"
+        cp -f config/impala/impala-config-local.sh "$IMPALA_HOME/bin/impala-config-local.sh"
+        # shellcheck source=/dev/null
+        # impala-config.sh is set -u sensitive until IMPALA_HOME is exported
+        source "$IMPALA_HOME/bin/impala-config.sh"
+        # Build FE + impala-package so package-classpath.txt exists for set-classpath.sh
+        # (catalogd/impalad process-compose entries require it).
+        cd "$IMPALA_HOME/java"
+        mvn -Dmaven.repo.local="$SIG_MAVEN_REPO" package \
+          -pl ../fe,impala-package -am -DskipTests --no-transfer-progress
+        if [ ! -s impala-package/target/package-classpath.txt ]; then
+          echo "ERROR: package-classpath.txt not produced under java/impala-package/target/"
+          exit 1
+        fi
+        echo "OK: $(wc -c < impala-package/target/package-classpath.txt) bytes package-classpath.txt"
       '';
-      description = "Incremental Impala frontend build (Java only; .devenv/m2)";
+      description = "Impala FE + impala-package (package-classpath for catalogd/impalad; .devenv/m2)";
     };
 
     "impala:test-fe" = {
