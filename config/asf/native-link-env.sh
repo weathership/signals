@@ -61,11 +61,27 @@ if [ -n "${SIG_SSL_LIB:-}" ]; then
   case " ${LDFLAGS:-} " in *" -L${SIG_SSL_LIB} "*) ;; *) export LDFLAGS="-L${SIG_SSL_LIB} ${LDFLAGS:-}" ;; esac
 fi
 
-# Multiarch system libs (librt, libdl) for cmake find_library under Nix
+# Multiarch system libs (librt, libdl) — APPEND so SIG_SSL/KRB5 stay preferred for
+# find_library (prepending caused OpenSSL headers from Nix + libs from /lib → link fail).
+_asf_append() {
+  local var="$1"
+  local val="$2"
+  [ -z "$val" ] || [ ! -e "$val" ] && return 0
+  eval "local cur=\"\${$var:-}\""
+  case ":$cur:" in
+    *":$val:"*) ;;
+    *) export "$var=${cur:+$cur:}$val" ;;
+  esac
+}
 for _syslib in /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
-  _asf_prepend CMAKE_LIBRARY_PATH "$_syslib"
-  _asf_prepend LIBRARY_PATH "$_syslib"
+  _asf_append CMAKE_LIBRARY_PATH "$_syslib"
+  _asf_append LIBRARY_PATH "$_syslib"
 done
 
+# CMake FindOpenSSL respects OPENSSL_ROOT_DIR when set
+if [ -n "${SIG_SSL_LIB:-}" ] && [ -z "${OPENSSL_ROOT_DIR:-}" ]; then
+  export OPENSSL_ROOT_DIR="$(cd "${SIG_SSL_LIB}/.." 2>/dev/null && pwd || true)"
+fi
+
 export LIBRARY_PATH CMAKE_LIBRARY_PATH LD_LIBRARY_PATH CMAKE_INCLUDE_PATH CPATH LDFLAGS
-unset -f _asf_prepend
+unset -f _asf_prepend _asf_append
