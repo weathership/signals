@@ -10,6 +10,11 @@ object/block — still not HDFS. Upstream Impala’s *build* may still pull a Ha
 `rch/devenv` default is a no-HDFS daemon build. See
 [Impala](../components/impala.md#storage-default-kudu-only--no-hdfs).
 
+**Access default (product):** **FDW-only / no-JDBC.** Consumers use PostgreSQL +
+[impala_fdw](../components/impala_fdw.md) rather than treating Impala JDBC/HS2 as
+the primary API. HS2 remains the transport behind the FDW; we slim dual client
+stacks once that path is solid.
+
 ## Stack
 
 ```d2

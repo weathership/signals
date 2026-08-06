@@ -9,7 +9,7 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Impala](./impala.md) | Distributed SQL query engine (HMS-free) | **Running** — DDL, DML, JOINs, aggregations |
 | [Kudu](./kudu.md) | Columnar storage engine (hot tier) | **Running** — master + tserver (build from `components/kudu`) |
 | [Atlas](./atlas.md) | Metadata catalog + AI-driven classification | **Running** — AGE backend on `:21010` |
-| [Impala FDW](./impala_fdw.md) | Postgres → Impala HS2 → **Kudu only** | Scaffold — HS2 scans not yet implemented |
+| [Impala FDW](./impala_fdw.md) | Postgres → Impala HS2 → **Kudu only**; **FDW-only / no-JDBC** access default | Scaffold — HS2 scans not yet implemented |
 | [Iceberg](./iceberg.md) | Table format via Polaris REST catalog (warm tier) | Near-term — REST API implemented |
 | [Ranger](./ranger.md) | Tag-based access control via Atlas classifications | Near-term — config scaffold in place |
 | [Airflow](./airflow.md) | Workflow orchestration | Planned |

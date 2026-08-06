@@ -4,7 +4,8 @@
 
 ### Core Query Stack (complete)
 
-HMS-free Impala + Kudu is operational. The full table lifecycle works without the Hive Metastore, HDFS, or HBase:
+HMS-free Impala + **Kudu** is operational. Product default is **Kudu-only / no-HDFS**
+(no HDFS/YARN as services). Full table lifecycle without Hive Metastore, HDFS, or HBase:
 
 - **Impala** built from source (statestore, catalogd, impalad)
 - **Kudu** master + tablet server running
@@ -127,6 +128,11 @@ The following components are intentionally excluded from the **runtime** stack:
 **Note:** Upstream Impala still *builds* against Hadoop client/native libraries
 (libhdfs, jars). That is temporary link-time debt until the `rch/devenv` default is
 a no-HDFS Impala build — not a commitment to operate Hadoop.
+
+**Access slim-down:** product default is **FDW-only / no-JDBC** — apps and agents
+reach Kudu data through Postgres + impala_fdw, not a first-class Impala JDBC
+surface. HS2 stays internal to the FDW path until that is the only consumer API
+we optimize for.
 
 ## Backlog
 

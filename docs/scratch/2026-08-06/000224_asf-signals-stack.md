@@ -51,6 +51,9 @@ sigint classification Python or full k8s/zarf product packaging into that name.
 **Storage default:** Kudu-only / no-HDFS is the product and fork default — not an
 optional profile. HDFS is eliminated as a tier; build-time Hadoop client is debt.
 
+**Access default:** **FDW-only / no-JDBC** — Postgres + impala_fdw is the consumer
+API; Impala HS2 is transport behind the FDW. Further slim-down after no-HDFS.
+
 Do **not** require distro packages like `apt install openjdk-11-jdk` or
 `mvn install` into `~/.m2` for asf-signals work.
 

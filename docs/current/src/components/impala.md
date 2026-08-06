@@ -20,13 +20,17 @@ Web UIs: statestore `:25010`, catalogd `:25020`, impalad `:25000`.
 
 ## Connecting
 
+**Product default (direction):** [impala_fdw](./impala_fdw.md) from PostgreSQL —
+**FDW-only / no-JDBC** for apps and agents. HS2 remains the engine wire protocol
+behind the FDW and for cluster bring-up.
+
 ```bash
-# JDBC (recommended — works with Python 3.12)
+# Interim / ops: direct HS2 (not the long-term app contract)
 jdbc:hive2://localhost:21050/default;auth=noSasl
 
+# Prefer: Postgres + CREATE SERVER / FOREIGN TABLE via impala_fdw (see that page)
 # impala-shell is broken with Python 3.12 (PY_SSIZE_T_CLEAN)
 ```
-
 ## HMS-Free DDL
 
 ```sql
