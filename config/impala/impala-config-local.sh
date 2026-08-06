@@ -3,6 +3,23 @@
 #
 # Prefer in-tree ASF components over CDP-bundled Ranger (and friends) where we build them.
 
+# --- Component distros (CDP vs Apache) ------------------------------------------
+# bin/impala-config-branch.sh sets USE_APACHE_COMPONENTS=true (Hadoop 3.4.1, …).
+# Only honor that when the Apache trees exist under toolchain/apache_components/;
+# otherwise force CDP so cmake does not look for a missing libhadoop.so.
+# Sourced after impala-config-branch.sh and before USE_APACHE_* is applied.
+# After a full apache bootstrap, this override no-ops and branch defaults apply.
+_ac="${IMPALA_HOME}/toolchain/apache_components"
+if [ ! -d "${_ac}/hadoop-3.4.1" ]; then
+  export USE_APACHE_COMPONENTS=false
+  export USE_APACHE_HADOOP=false
+  export USE_APACHE_HIVE_3=false
+  export USE_APACHE_HBASE=false
+  export USE_APACHE_TEZ=false
+  export USE_APACHE_OZONE=false
+  # Ranger remains local via RANGER_*_OVERRIDE regardless
+fi
+
 # --- Ranger (components/ranger → .devenv/ranger/admin) ----------------------------
 # Non-empty RANGER_VERSION_OVERRIDE:
 #   1) skips CDP/Apache ranger-admin tarball download in bootstrap_toolchain.py
