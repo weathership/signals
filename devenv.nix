@@ -3,30 +3,75 @@
 let
   # Shared native-lib path for Impala processes (Linux only).
   # Exec via: ld-linux --library-path "$IMPALA_LIBPATH" <daemon>
-  # so the Impala binary (+ in-process JVM) resolve Nix glibc / OpenSSL / SASL,
-  # WITHOUT exporting LD_LIBRARY_PATH. Catalogd/impalad fork+exec absolute
-  # /bin/sh during JVM bootstrap; a Nix libc in LD_LIBRARY_PATH kills that sh:
-  #   __tunable_is_initialized, version GLIBC_PRIVATE → minidump.
+  # WITHOUT exporting LD_LIBRARY_PATH (child /bin/sh must not see Nix libc).
   #
-  # Order: nix glibc, openssl (before toolchain libcrypto.so.3 symlink to host),
-  # krb5, sasl, toolchain libstdc++, host multiarch (libsasl2.so.2).
-  # This binding is only forced on Linux (impala processes are gated by mkIf below);
-  # on Darwin pkgs.glibc is never evaluated, so the ${pkgs.glibc} reference is safe.
+  # Isolation rules (no host multiarch, no system JDK):
+  # - glibc/openssl/krb5/sasl from pkgs
+  # - JAVA_HOME from languages.java / pkgs.jdk21 (pinned before impala-config)
+  # - JDK RUNPATH dirs pulled from the java binary (fontconfig, cups, …)
+  # - Toolchain Kudu client still needs libsasl2.so.2; provide a devenv-local
+  #   soname shim → Nix libsasl2.so.3 under .devenv/impala/lib (not /lib/…)
+  # - Toolchain gcc lib64 for libstdc++ after security libs (libcrypto order)
+  # Darwin: never forced (mkIf isLinux on processes).
+  # Headless: ~8 NEEDED on libjvm vs ~15 for full JDK (no gtk/cups/X11).
+  # Full GUI jdk pulls host-incompatible transitive deps into catalogd JNI.
+  impalaJdkHome =
+    if pkgs.stdenv.isLinux then "${pkgs.jdk21_headless.home}" else "";
+
+  # Nix libstdc++ for both BE and JVM (never pull toolchain/kudu's bundled one).
+  impalaStdcxxLib = "${pkgs.stdenv.cc.cc.lib}/lib";
+
   impalaLdLibraryPath = ''
     NIX_GLIBC="${pkgs.glibc}/lib"
-    GCC_LIB64="$IMPALA_TOOLCHAIN_PACKAGES_HOME/gcc-10.4.0/lib64"
     NIX_KRB5="${pkgs.krb5.lib}/lib"
     NIX_SASL="${pkgs.cyrus_sasl.out}/lib"
     NIX_SSL="${pkgs.openssl.out}/lib"
-    # JAVA_HOME is set by impala-config.sh (sourced above this snippet)
-    JAVA_LIB=""
-    if [ -n "''${JAVA_HOME:-}" ]; then
-      for _jdir in "$JAVA_HOME/lib/server" "$JAVA_HOME/lib" "$JAVA_HOME/lib/jli"; do
-        [ -d "$_jdir" ] && JAVA_LIB="$JAVA_LIB:$_jdir"
-      done
+    NIX_STDCXX="${impalaStdcxxLib}"
+    KUDU_LIB_SRC="$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-''${IMPALA_KUDU_VERSION:-879a8f9e2}/debug/lib"
+    if [ ! -d "$KUDU_LIB_SRC" ]; then
+      KUDU_LIB_SRC="$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-''${IMPALA_KUDU_VERSION:-879a8f9e2}/release/lib"
     fi
-    export IMPALA_LIBPATH="$NIX_GLIBC:$NIX_SSL:$NIX_KRB5:$NIX_SASL:$GCC_LIB64''${JAVA_LIB}:/lib/x86_64-linux-gnu"
-    # Clear any inherited LD_LIBRARY_PATH so child /bin/sh uses host glibc only
+
+    # Pin headless devenv JDK (override host detection in impala-config.sh)
+    export JAVA_HOME="${impalaJdkHome}"
+    if [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+      export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+    fi
+    if [ ! -x "$JAVA_HOME/bin/java" ]; then
+      echo "ERROR: devenv JAVA_HOME not usable: $JAVA_HOME"
+      exit 1
+    fi
+    export PATH="$JAVA_HOME/bin:$PATH"
+    export JAVA="$JAVA_HOME/bin/java"
+
+    # .devenv shims only (no host /lib): sasl so.2 for toolchain kudu + kudu client
+    # alone (do NOT add whole kudu/lib — it ships a conflicting libstdc++.so.6).
+    SIG_IMPALA_LIB="$PWD/.devenv/impala/lib"
+    mkdir -p "$SIG_IMPALA_LIB"
+    ln -sfn "$NIX_SASL/libsasl2.so.3" "$SIG_IMPALA_LIB/libsasl2.so.2"
+    for _k in libkudu_client.so libkudu_client.so.0 libkudu_client.so.0.1.0; do
+      if [ -e "$KUDU_LIB_SRC/$_k" ]; then
+        ln -sfn "$KUDU_LIB_SRC/$_k" "$SIG_IMPALA_LIB/$_k"
+      fi
+    done
+
+    # libjsig: required for JVM signal chaining after Impala installs handlers
+    LIB_JSIG=$(find "$JAVA_HOME" -name libjsig.so 2>/dev/null | head -1 || true)
+    if [ -n "$LIB_JSIG" ]; then
+      export LD_PRELOAD="$LIB_JSIG"
+    fi
+
+    JAVA_RP=""
+    if command -v readelf >/dev/null 2>&1; then
+      JAVA_RP=$(readelf -d "$JAVA_HOME/bin/java" 2>/dev/null \
+        | sed -n 's/.*Library r\(un\)\?path: \[\(.*\)\]/\2/p' | tr -d '\n')
+    fi
+    JAVA_LIB="$JAVA_HOME/lib/server:$JAVA_HOME/lib"
+    [ -d "$JAVA_HOME/lib/jli" ] && JAVA_LIB="$JAVA_LIB:$JAVA_HOME/lib/jli"
+
+    # Order: glibc → security → nix libstdc++ → shims → jdk → jdk runpath
+    # (never toolchain gcc lib64 first: its libcrypto breaks OPENSSL_3.4)
+    export IMPALA_LIBPATH="$NIX_GLIBC:$NIX_SSL:$NIX_KRB5:$NIX_SASL:$NIX_STDCXX:$SIG_IMPALA_LIB:$JAVA_LIB''${JAVA_RP:+:$JAVA_RP}"
     unset LD_LIBRARY_PATH
     export IMPALA_LD_LINUX="${pkgs.glibc}/lib/ld-linux-x86-64.so.2"
   '';
@@ -83,6 +128,8 @@ in
     python3
     jdk11  # Ranger only (interim Nashorn); plan: ditch Nashorn → modern JDKs
     jdk17  # Kudu Java / Gradle wrapper (not system)
+    jdk21_headless  # Impala catalogd/impalad JNI (no gtk/cups; devenv-only)
+    bubblewrap  # optional: bind nix sh over /bin/sh for Impala child processes
     # Kudu thirdparty / common
     bison
     flex
@@ -472,9 +519,11 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      # Pin JDK before impala-config (avoid host/system java detection)
+      ${impalaLdLibraryPath}
       # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
-      # Do not source set-ld-library-path.sh: it prepends toolchain lib64 (bad libcrypto).
+      # Re-apply libpath after config (impala-config may mutate env)
       ${impalaLdLibraryPath}
 
       mkdir -p "$PWD/.devenv/impala/statestore/logs"
@@ -511,6 +560,8 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      # Pin devenv JDK + libpath before config/classpath
+      ${impalaLdLibraryPath}
       # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
       if [ ! -s "$IMPALA_HOME/java/impala-package/target/package-classpath.txt" ]; then
@@ -533,6 +584,7 @@ in
       mkdir -p "$PWD/.devenv/impala/catalogd/logs"
 
       echo "Starting Impala Catalog Server on port 26000 (HMS-free)..."
+      echo "JAVA_HOME=$JAVA_HOME IMPALA_LIBPATH(head)=''${IMPALA_LIBPATH:0:200}"
       exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
         "$IMPALA_HOME/be/build/latest/service/catalogd" \
         --catalog_service_port=26000 \
@@ -544,7 +596,8 @@ in
         --hostname=localhost \
         --kudu_master_hosts=127.0.0.1:7051 \
         --abort_on_config_error=false \
-        --hms_event_polling_interval_s=0
+        --hms_event_polling_interval_s=0 \
+        --java_weigher=sizeof
     '';
     process-compose = {
       depends_on = {
@@ -575,6 +628,7 @@ in
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
       cp -f "$PWD/config/impala/impala-config-local.sh" "$IMPALA_HOME/bin/impala-config-local.sh"
+      ${impalaLdLibraryPath}
       # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
       if [ ! -s "$IMPALA_HOME/java/impala-package/target/package-classpath.txt" ]; then
@@ -610,7 +664,8 @@ in
         --kudu_master_hosts=127.0.0.1:7051 \
         --use_local_catalog=true \
         --abort_on_config_error=false \
-        --hms_event_polling_interval_s=0
+        --hms_event_polling_interval_s=0 \
+        --java_weigher=sizeof
     '';
     process-compose = {
       depends_on = {
