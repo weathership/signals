@@ -33,16 +33,18 @@ ASF components (Atlas, Ranger, Kudu, Impala, impala_fdw) build and install
 
 | Item | Status |
 |------|--------|
-| Impala submodule branch | Currently `rch/signals` (not yet `rch/devenv`); promote devenv fixes |
+| Impala submodule | Fix pushed to **`rch/signals`** and **`rch/devenv`** |
 | Nested Kudu `devenv.nix` | Still installdir `usr/local` *under* build tree — OK for Kudu layout |
 | Upstream bootstrap scripts in submodules | Still document apt/`~/.m2` — ignore; use host tasks |
+| Impala `impala_python3` target | Can fail under devenv if venv pip SSL glitches; C++ may still complete |
 | Ranger admin running `:6080` | After `ranger:install` + `setup.sh` |
 | impala_fdw | After Impala binaries + HS2 up |
 
-### Build state at survey
+### Build state (updated)
 
-- Impala `buildall -notests -noclean` failed at ~64% on `boost::scoped_array` after CMake had locked Nix thrift into `THRIFT_CPP_INCLUDE_DIR` / `THRIFT_CPP_LIB`.
-- Restart planned with cache scrub + header fix + no global thrift/boost packages.
+1. **First attempt:** failed ~64% — Nix thrift 0.22 in CMakeCache + missing `boost/scoped_array.hpp`.
+2. **After isolation:** thrift correctly toolchain **0.16.0**; cyrus_sasl from devenv; C++ compiling past 60%+.
+3. **Python side:** `impala_python3` custom target hit pip SSL during reinstall; venv python itself imports OpenSSL 3.0.2 — may need re-run of that target only after C++ finishes.
 
 ## Task map (host `devenv.nix`)
 
