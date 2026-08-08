@@ -6,9 +6,13 @@
 
 signals-protocol work multiplies concurrent federation clients. Postgres+AGE
 cannot absorb bulk entity/tag/object traffic from Gaius + Aegir + Atelier +
-Hermes simultaneously. Scale plane:
+Hermes simultaneously.
 
-- **Kudu projections** — Atlas (`atlas.*` existing) + Ranger denorm (new)
+**Correct engineering path:** Atlas **and** Ranger keep connecting to **pglite**
+(Postgres :5455). pglite uses **impala_fdw** to leverage **Kudu** for scale.
+Not “engines talk to Kudu instead of Atlas.”
+
+- **Kudu projections** — Atlas (`atlas.*`) + Ranger denorm; **foreign tables on pglite**
 - **RustFS** — objects on `$SIGNALS_DATA_ROOT/rustfs` (:9010)
 - **AGE/PG** — thin topology + Ranger **admin** SoR only
 

@@ -23,10 +23,26 @@ abandoning Hermes-compatible plugins or an official memory-provider path.
 | **Memory provider** (`plugins/memory/<name>/`) | Reasoning-enabled long-term memory over Signals (AGE + OL + optional DST outcomes); path to **official memory service provider** listing | [Memory providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers) · [Memory provider plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin) |
 | **Context engine** (`plugins/context_engine/<name>/`) | Compaction that preserves lineage, tags, and authz-scoped context | [Plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins) · [Context engine plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/context-engine-plugin) |
 | General plugins / tools | Atlas/OL/Ranger tools via discovery; OIP model ops with provenance | [Plugins overview](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins) |
+| **Signal (messenger)** | `signal-cli` in devenv packages; phone via secretspec `SIGNAL_CLI_PHONE` | Hermes gateway/platform once number is linked |
 
 Target product name for the official provider: **Weathership** (Signals-backed
 reasoning-enabled memory), alongside providers such as Honcho, Mem0, OpenViking,
 Hindsight, etc. in Hermes’s memory ecosystem.
+
+### Signal CLI (operator messaging)
+
+`pkgs.signal-cli` is on the devenv package set so Hermes can message operators
+over [Signal](https://signal.org/) once the account is registered:
+
+```bash
+# declare in .env / secretspec provider (never commit the number)
+# SIGNAL_CLI_PHONE=+1…
+# SIGNAL_CLI_CONFIG_DIR=$DEVENV_STATE/signal-cli   # optional
+signal-cli -a "$SIGNAL_CLI_PHONE" …               # link device / send as per signal-cli docs
+```
+
+Hermes platform wiring is follow-on; the CLI is available in-shell after
+`devenv shell`.
 
 ## Federation superset (why “for now”)
 
