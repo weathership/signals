@@ -590,7 +590,8 @@ in
     '';
     process-compose = {
       readiness_probe = {
-        exec.command = "curl -sf -o /dev/null http://127.0.0.1:9010/minio/health/live || curl -sf -o /dev/null http://127.0.0.1:9010/ || true";
+        # TCP-level: S3 root may 403 without auth; process listening is enough for lab.
+        exec.command = "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9010'";
         initial_delay_seconds = 2;
         period_seconds = 5;
         timeout_seconds = 3;
