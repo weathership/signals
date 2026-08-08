@@ -46,3 +46,7 @@
 	path = components/signals-protocol
 	url = git@github.com:zndx/signals-protocol.git
 	branch = trunk
+[submodule "components/hermes-agent"]
+	path = components/hermes-agent
+	url = git@github.com:zndx/oss-hermes-agent.git
+	branch = main

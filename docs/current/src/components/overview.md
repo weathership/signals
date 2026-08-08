@@ -14,6 +14,7 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Ranger](./ranger.md) | Tag-based access control via Atlas classifications | Near-term — config scaffold in place |
 | [Marquez](./marquez.md) | OL **UI** only (oss-marquez); proxies Atlas `/api/v1` — no Marquez DB | **Default stack** process |
 | [signals-protocol](./signals-protocol.md) | Shared federation protos (`zndx.engine.v1`, discovery, OIP mapping) | Submodule pin `trunk` |
+| [Hermes Agent](./hermes-agent.md) | Agent runtime; Weathership memory + context-engine plugins | Submodule pin (`zndx/oss-hermes-agent`) |
 | [Airflow](./airflow.md) | Workflow orchestration | Planned |
 | [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 
@@ -34,8 +35,10 @@ Core ASF forks use `rch` GitHub remotes with **`branch = rch/devenv`** in
 `.gitmodules` (shared devenv/Nix line for any host). `impala_fdw` is
 `weathership/impala_fdw` on branch `trunk`. Marquez is `zndx/oss-marquez` on
 `main`. **signals-protocol** is `zndx/signals-protocol` on `trunk` (federation
-wire contracts — not an ASF fork). Openph is optional reference only
-(CPU PH uses Ripser via `signals.persistence`).
+wire contracts — not an ASF fork). **hermes-agent** is
+`zndx/oss-hermes-agent` (Hermes Agent fork/pin for memory and compaction
+plugins). Openph is optional reference only (CPU PH uses Ripser via
+`signals.persistence`).
 
 ## Build Dependencies
 

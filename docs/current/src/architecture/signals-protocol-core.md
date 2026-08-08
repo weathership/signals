@@ -5,6 +5,9 @@ zndx federation: lineage, governance metadata, and authz decision inputs live
 here. Federated engines (Ægir, Atelier, Gaius, and **external** peers such as
 Metabase) operate on the fleet; they **discover and call** centralized services
 instead of each growing a private catalog, lineage store, or policy engine.
+**Hermes Agent** is the multi-agent runtime we plugin into for
+**reasoning-enabled memory** and **context compaction**, with Weathership as the
+path to an [official Hermes memory provider](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers).
 
 Wire contracts live in the shared submodule
 [`components/signals-protocol`](https://github.com/zndx/signals-protocol)
@@ -30,8 +33,15 @@ bump — one proto, every adopter.
   │  · Ranger        tag/resource authz from Atlas tags         │
   │  · Marquez-web   OL UI (proxy only; no Marquez DB)          │
   │  · components/signals-protocol  shared protos + specs       │
+  │  · components/hermes-agent      agent runtime (plugins)     │
   │  · PG/AGE + Kudu/FDW scale path                             │
   └────────────────────────────────────────────────────────────┘
+         ▲
+         │  MemoryProvider + context engine plugins
+         │  (Weathership → official Hermes memory service)
+  ┌──────┴───────┐
+  │ Hermes Agent │  tools / hooks / multi-agent ops
+  └──────────────┘
 
   * AGPL Metabase (and similar) are *external* federation peers: they consume
     catalog/lineage/authz discovery; they do not become SoR.
@@ -43,6 +53,7 @@ bump — one proto, every adopter.
 | Runtime lineage (Job/Run/Dataset) | **Same Atlas process** + `signals_ol` | `/api/v1/*` (OpenLineage + Marquez-compat) |
 | Authorization decisions | **Ranger** (Atlas tags as input) | Ranger REST / plugins; policy evaluate via discovery |
 | Human OL UI | **Marquez-web** | `:3000` → proxies `/api/v1` only |
+| Agent memory + compaction | **Weathership** plugins on Hermes | `MemoryProvider` + context engine ([plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)) |
 | Engine-to-engine inference | **`zndx.engine.v1`** | `Complete` / `Status` / `Remediate` |
 | Heterogeneous model serving | **KServe OIP** + signals-protocol mapping | `ModelInfer` / readiness; authz + provenance on the wire |
 | GPU co-tenancy | Advisory leases + `Status.gpu_ids` | `/tmp/zndx-gpu-leases` + protocol |
@@ -167,10 +178,35 @@ See [OpenLineage + Atlas](./openlineage-atlas.md).
 | **P4** | OIP mapping + authz/provenance fields in protocol; model-op RunEvents |
 | **P5** | External peer pack: Metabase (and similar) discovery + lineage participation |
 | **P6** | Kudu/FDW scale for OL/governance projections; Gaius/Aegir drop private facades |
+| **P7** | Hermes: Weathership **memory provider** + **context engine** plugins; path to official listing |
+
+## Hermes / Weathership memory
+
+Hermes discovers memory providers under `plugins/memory/<name>/` and context
+engines under `plugins/context_engine/<name>/` ([plugin system](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)).
+Only one external memory provider is active at a time
+(`memory.provider` in config), additive to built-in MEMORY.md / USER.md
+([memory providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers)).
+
+**Weathership** (Signals-backed) should:
+
+1. Implement `MemoryProvider` with prefetch, turn sync, session extract, and
+   agent tools (search/store) — backed by Signals AGE/OL (and optional belief
+   facets), not a greenfield DB.
+2. Implement a **context engine** that compacts with lineage-aware retention
+   (pre-compression extract into Weathership memory, similar spirit to
+   ByteRover’s pre-compression extraction).
+3. Use federation **discovery** for Atlas/Ranger/OL bases; emit OpenLineage for
+   memory writes and model ops (authz + provenance).
+4. Ship as installable Hermes plugins; eventually qualify as an **official**
+   reasoning-enabled memory service provider in the Hermes ecosystem.
+
+Submodule: [`components/hermes-agent`](../components/hermes-agent.md).
 
 ## Related
 
 - Submodule: `components/signals-protocol`
+- Submodule: `components/hermes-agent`
 - [OpenLineage + Atlas](./openlineage-atlas.md)
 - [Identity and access](./identity-and-access.md)
 - [Atlas → Kudu outbox](./atlas-kudu-outbox.md)
