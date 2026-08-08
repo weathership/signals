@@ -55,6 +55,8 @@ HTTPS as the default**, not a late bolt-on.
 | WebRTC A/V | DTLS/SRTP assumes proper HTTPS origin and stable identity for signaling |
 | Nvidia-class **omni** models | Multi-modal streams (A/V + text) across federated sites — cannot run on ad-hoc open ports |
 | Signals governance UIs | Atlas/Ranger/Marquez-web and future OL surfaces behind the same edge discipline |
+| Federated engines + OIP | Discovery of Atlas/Ranger/OL; model invoke carries authz context and leaves OL provenance — see [Signals protocol core](./signals-protocol-core.md) |
+| External peers (e.g. Metabase) | Same edge + Ranger discipline; consume discovery, never become a second SoR |
 
 Federation of multi-modal agent features should assume:
 

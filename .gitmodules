@@ -42,3 +42,7 @@
 	path = components/marquez
 	url = git@github.com:zndx/oss-marquez.git
 	branch = main
+[submodule "components/signals-protocol"]
+	path = components/signals-protocol
+	url = git@github.com:zndx/signals-protocol.git
+	branch = trunk

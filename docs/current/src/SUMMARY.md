@@ -12,6 +12,8 @@
     - [WASM Terminal](./architecture/wasm-terminal.md)
     - [Visualization Pipeline](./architecture/visualization.md)
 - [Identity and access](./architecture/identity-and-access.md)
+- [Signals protocol core](./architecture/signals-protocol-core.md)
+- [OpenLineage + Atlas](./architecture/openlineage-atlas.md)
 - [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
@@ -55,6 +57,8 @@
     - [Iceberg](./components/iceberg.md)
     - [Airflow](./components/airflow.md)
     - [NiFi](./components/nifi.md)
+    - [Marquez](./components/marquez.md)
+    - [signals-protocol](./components/signals-protocol.md)
 
 # Operations
 

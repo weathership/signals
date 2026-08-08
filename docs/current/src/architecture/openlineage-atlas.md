@@ -113,11 +113,14 @@ BDD `@tier-1` (planned): `features/platform/lineage_flink_ol.feature`.
 | **M3** | Flink dual-path tests green (OL → Atlas `/api/v1`; Atlas clients still healthy) |
 | **M4** | Kudu/FDW projections for scale; logical backup via DataFusion Parquet; Gaius/Aegir → Signals |
 
-M2 lives in `components/atlas` (Jersey resources beside existing
-`/api/atlas` registration), not in Python.
+M2 lives in `components/atlas` (`OpenLineageServlet` on `/api/v1/*`), not in
+Python. Broader federation (discovery of Atlas/Ranger, OIP, external peers such
+as Metabase) is documented under
+[Signals protocol core](./signals-protocol-core.md).
 
 ## Related
 
+- [Signals protocol core](./signals-protocol-core.md) — submodule, discovery, OIP  
 - Scratch: `docs/scratch/2026-08-08/145328_marquez-composite-schema-direction.md`  
 - Scratch: `docs/scratch/2026-08-08/151502_no-marquez-db-composite-sor.md`  
 - Aegir: `gateway/marquez.py` (contract/shape reference only — not deployed here)  

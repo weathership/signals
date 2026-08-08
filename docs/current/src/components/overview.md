@@ -12,6 +12,8 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Impala FDW](./impala_fdw.md) | Postgres → Impala HS2 → **Kudu only**; **FDW-only / no-JDBC** access default | Scaffold — HS2 scans not yet implemented |
 | [Iceberg](./iceberg.md) | Table format via Polaris REST catalog (warm tier) | Near-term — REST API implemented |
 | [Ranger](./ranger.md) | Tag-based access control via Atlas classifications | Near-term — config scaffold in place |
+| [Marquez](./marquez.md) | OL **UI** only (oss-marquez); proxies Atlas `/api/v1` — no Marquez DB | **Default stack** process |
+| [signals-protocol](./signals-protocol.md) | Shared federation protos (`zndx.engine.v1`, discovery, OIP mapping) | Submodule pin `trunk` |
 | [Airflow](./airflow.md) | Workflow orchestration | Planned |
 | [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 
@@ -30,7 +32,9 @@ git submodule update --init --depth 1
 
 Core ASF forks use `rch` GitHub remotes with **`branch = rch/devenv`** in
 `.gitmodules` (shared devenv/Nix line for any host). `impala_fdw` is
-`weathership/impala_fdw` on branch `trunk`. Openph is optional reference only
+`weathership/impala_fdw` on branch `trunk`. Marquez is `zndx/oss-marquez` on
+`main`. **signals-protocol** is `zndx/signals-protocol` on `trunk` (federation
+wire contracts — not an ASF fork). Openph is optional reference only
 (CPU PH uses Ripser via `signals.persistence`).
 
 ## Build Dependencies
