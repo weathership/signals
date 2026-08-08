@@ -85,9 +85,27 @@ impala-build:
 atlas-build:
     devenv tasks run atlas:build
 
-# Build PostgreSQL Impala FDW extension
+# Build PostgreSQL Impala FDW extension (PG16 + thrift HS2 client)
 impala-fdw-build:
     devenv tasks run impala-fdw:build
+
+# Install FDW into devenv Postgres (:5455/signals) + default HS2 server
+impala-fdw-install:
+    devenv tasks run impala-fdw:install
+
+# HS2 + FDW object smoke (needs Impala HS2 up)
+impala-fdw-smoke:
+    devenv tasks run impala-fdw:smoke
+
+# Create atlas.* Kudu projection tables (HS2) + Postgres foreign tables
+atlas-kudu-projections-seed:
+    bash scripts/atlas_kudu_projections_seed.sh
+
+# Frontier batch harness (chunk × hop latency × EXPLAIN on edge_out/in)
+# Frontier hop bench (PR-K4). Prefer --compare --measure exec for gates.
+# Example: just atlas-frontier-bench --compare --skip-seed --batches 8,32,64,256
+atlas-frontier-bench *ARGS:
+    python3 scripts/atlas_frontier_bench.py --write-scratch {{ARGS}}
 
 # Reset local KDC (required after Kerberos realm renames)
 kdc-reset:

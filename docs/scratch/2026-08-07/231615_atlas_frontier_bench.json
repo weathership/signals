@@ -1,0 +1,590 @@
+{
+  "ts": "2026-08-07T23:16:11.501988+00:00",
+  "nodes": 100,
+  "fanout": 2,
+  "depth": 4,
+  "batches": [
+    8,
+    32,
+    64,
+    256
+  ],
+  "force_access": null,
+  "compare_mode": true,
+  "results_hs2": [
+    {
+      "access": "impala_sql",
+      "access_method": "impala_sql",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 8,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 542.981,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 131.628,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 131.628,
+          "chunk_ms_sum": 101.235,
+          "chunk_ms_max": 101.235,
+          "ms_per_id_in": 131.6278,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 135.035,
+          "chunk_ms_sum": 101.113,
+          "chunk_ms_max": 101.113,
+          "ms_per_id_in": 45.0117,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 137.767,
+          "chunk_ms_sum": 103.6,
+          "chunk_ms_max": 103.6,
+          "ms_per_id_in": 27.5533,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 138.41,
+          "chunk_ms_sum": 104.394,
+          "chunk_ms_max": 104.394,
+          "ms_per_id_in": 19.7728,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(8 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(8 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": false
+    },
+    {
+      "access": "impala_sql",
+      "access_method": "impala_sql",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 32,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 525.733,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 136.406,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 136.406,
+          "chunk_ms_sum": 102.215,
+          "chunk_ms_max": 102.215,
+          "ms_per_id_in": 136.4059,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 127.448,
+          "chunk_ms_sum": 92.648,
+          "chunk_ms_max": 92.648,
+          "ms_per_id_in": 42.4827,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 125.439,
+          "chunk_ms_sum": 100.038,
+          "chunk_ms_max": 100.038,
+          "ms_per_id_in": 25.0878,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 136.318,
+          "chunk_ms_sum": 105.267,
+          "chunk_ms_max": 105.267,
+          "ms_per_id_in": 19.4741,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(8 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(8 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": false
+    },
+    {
+      "access": "impala_sql",
+      "access_method": "impala_sql",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 64,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 546.332,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 136.821,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 136.821,
+          "chunk_ms_sum": 103.118,
+          "chunk_ms_max": 103.118,
+          "ms_per_id_in": 136.8211,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 136.651,
+          "chunk_ms_sum": 102.585,
+          "chunk_ms_max": 102.585,
+          "ms_per_id_in": 45.5502,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 138.786,
+          "chunk_ms_sum": 104.262,
+          "chunk_ms_max": 104.262,
+          "ms_per_id_in": 27.7571,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 133.922,
+          "chunk_ms_sum": 98.626,
+          "chunk_ms_max": 98.626,
+          "ms_per_id_in": 19.1318,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(8 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(8 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": false
+    },
+    {
+      "access": "impala_sql",
+      "access_method": "impala_sql",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 256,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 546.739,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 134.282,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 134.282,
+          "chunk_ms_sum": 101.008,
+          "chunk_ms_max": 101.008,
+          "ms_per_id_in": 134.2822,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 133.332,
+          "chunk_ms_sum": 100.964,
+          "chunk_ms_max": 100.964,
+          "ms_per_id_in": 44.4439,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 138.497,
+          "chunk_ms_sum": 104.652,
+          "chunk_ms_max": 104.652,
+          "ms_per_id_in": 27.6995,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(8 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 140.481,
+          "chunk_ms_sum": 107.5,
+          "chunk_ms_max": 107.5,
+          "ms_per_id_in": 20.0688,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(8 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(8 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: impala_sql\n   Impala AccessOption: impala_sql\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(8 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": false
+    }
+  ],
+  "results_kudu": [
+    {
+      "access": "kudu_scan",
+      "access_method": "kudu_scan",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 8,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 380.411,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 96.603,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 96.603,
+          "chunk_ms_sum": 63.457,
+          "chunk_ms_max": 63.457,
+          "ms_per_id_in": 96.6032,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 98.997,
+          "chunk_ms_sum": 64.475,
+          "chunk_ms_max": 64.475,
+          "ms_per_id_in": 32.9991,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 86.056,
+          "chunk_ms_sum": 51.994,
+          "chunk_ms_max": 51.994,
+          "ms_per_id_in": 17.2111,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 98.646,
+          "chunk_ms_sum": 65.803,
+          "chunk_ms_max": 65.803,
+          "ms_per_id_in": 14.0922,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(9 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(9 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": true
+    },
+    {
+      "access": "kudu_scan",
+      "access_method": "kudu_scan",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 32,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 377.599,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 102.015,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 102.015,
+          "chunk_ms_sum": 67.696,
+          "chunk_ms_max": 67.696,
+          "ms_per_id_in": 102.0152,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 91.038,
+          "chunk_ms_sum": 56.04,
+          "chunk_ms_max": 56.04,
+          "ms_per_id_in": 30.3462,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 86.243,
+          "chunk_ms_sum": 53.808,
+          "chunk_ms_max": 53.808,
+          "ms_per_id_in": 17.2487,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 98.196,
+          "chunk_ms_sum": 66.542,
+          "chunk_ms_max": 66.542,
+          "ms_per_id_in": 14.0281,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(9 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(9 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": true
+    },
+    {
+      "access": "kudu_scan",
+      "access_method": "kudu_scan",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 64,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 364.533,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 85.404,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 85.404,
+          "chunk_ms_sum": 53.784,
+          "chunk_ms_max": 53.784,
+          "ms_per_id_in": 85.404,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 98.415,
+          "chunk_ms_sum": 65.31,
+          "chunk_ms_max": 65.31,
+          "ms_per_id_in": 32.805,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 93.709,
+          "chunk_ms_sum": 60.144,
+          "chunk_ms_max": 60.144,
+          "ms_per_id_in": 18.7418,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 86.897,
+          "chunk_ms_sum": 55.099,
+          "chunk_ms_max": 55.099,
+          "ms_per_id_in": 12.4138,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(9 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(9 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": true
+    },
+    {
+      "access": "kudu_scan",
+      "access_method": "kudu_scan",
+      "shape_id": "gov.filtered_scan",
+      "batch_size": 256,
+      "depth": 4,
+      "seed_nodes": 100,
+      "total_ms": 396.297,
+      "visited": 25,
+      "final_frontier": 9,
+      "hop1_ms": 101.245,
+      "hops": [
+        {
+          "depth": 1,
+          "frontier_in": 1,
+          "frontier_out": 3,
+          "chunks": 1,
+          "hop_ms": 101.245,
+          "chunk_ms_sum": 67.666,
+          "chunk_ms_max": 67.666,
+          "ms_per_id_in": 101.2451,
+          "explain_sample": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 2,
+          "frontier_in": 3,
+          "frontier_out": 5,
+          "chunks": 1,
+          "hop_ms": 97.298,
+          "chunk_ms_sum": 63.512,
+          "chunk_ms_max": 63.512,
+          "ms_per_id_in": 32.4328,
+          "explain_sample": "                                                                                      QUERY PLAN                                                                                       \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000008', '0000000000000000000000000000000f', '00000000000000000000000000000001')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 3,
+          "frontier_in": 5,
+          "frontier_out": 7,
+          "chunks": 1,
+          "hop_ms": 97.942,
+          "chunk_ms_sum": 64.016,
+          "chunk_ms_max": 64.016,
+          "ms_per_id_in": 19.5884,
+          "explain_sample": "                                                                                                                          QUERY PLAN                                                                                                                           \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('0000000000000000000000000000001e', '00000000000000000000000000000017', '00000000000000000000000000000010', '00000000000000000000000000000009', '00000000000000000000000000000002')\n(9 rows)\n\n"
+        },
+        {
+          "depth": 4,
+          "frontier_in": 7,
+          "frontier_out": 9,
+          "chunks": 1,
+          "hop_ms": 99.688,
+          "chunk_ms_sum": 65.309,
+          "chunk_ms_max": 65.309,
+          "ms_per_id_in": 14.2411,
+          "explain_sample": "                                                                                                                                                              QUERY PLAN                                                                                                                                                               \n---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000018', '0000000000000000000000000000000a', '00000000000000000000000000000026', '0000000000000000000000000000002d', '0000000000000000000000000000001f', '00000000000000000000000000000003', '00000000000000000000000000000011')\n(9 rows)\n\n"
+        }
+      ],
+      "explain_any": "                                                  QUERY PLAN                                                   \n---------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` IN ('00000000000000000000000000000000')\n(9 rows)\n\n",
+      "explain_in": "                                                 QUERY PLAN                                                 \n------------------------------------------------------------------------------------------------------------\n Foreign Scan on public.atlas_edge_out\n   Output: dst\n   Impala ShapeId: gov.filtered_scan\n   Impala AccessMethod: kudu_scan\n   Impala AccessOption: kudu_scan\n   Impala KuduMasters: 127.0.0.1:7051\n   Impala KuduTable: impala::atlas.edge_out\n   Impala KuduNote: projection + remote predicates (kudu_scan)\n   Impala Remote SQL: SELECT `dst` FROM `atlas`.`edge_out` WHERE `src` = '00000000000000000000000000000000'\n(9 rows)\n\n",
+      "pushdown_any_ok": true,
+      "pushdown_in_ok": false,
+      "kudu_path": true
+    }
+  ],
+  "compare": {
+    "pairs": [
+      {
+        "batch_size": 8,
+        "hs2_hop1_ms": 131.628,
+        "kudu_hop1_ms": 96.603,
+        "speedup_hop1": 1.36,
+        "hs2_total_ms": 542.981,
+        "kudu_total_ms": 380.411,
+        "hs2_visited": 25,
+        "kudu_visited": 25,
+        "visited_match": true,
+        "hs2_method": "impala_sql",
+        "kudu_method": "kudu_scan",
+        "kudu_shape": "gov.filtered_scan"
+      },
+      {
+        "batch_size": 32,
+        "hs2_hop1_ms": 136.406,
+        "kudu_hop1_ms": 102.015,
+        "speedup_hop1": 1.34,
+        "hs2_total_ms": 525.733,
+        "kudu_total_ms": 377.599,
+        "hs2_visited": 25,
+        "kudu_visited": 25,
+        "visited_match": true,
+        "hs2_method": "impala_sql",
+        "kudu_method": "kudu_scan",
+        "kudu_shape": "gov.filtered_scan"
+      },
+      {
+        "batch_size": 64,
+        "hs2_hop1_ms": 136.821,
+        "kudu_hop1_ms": 85.404,
+        "speedup_hop1": 1.6,
+        "hs2_total_ms": 546.332,
+        "kudu_total_ms": 364.533,
+        "hs2_visited": 25,
+        "kudu_visited": 25,
+        "visited_match": true,
+        "hs2_method": "impala_sql",
+        "kudu_method": "kudu_scan",
+        "kudu_shape": "gov.filtered_scan"
+      },
+      {
+        "batch_size": 256,
+        "hs2_hop1_ms": 134.282,
+        "kudu_hop1_ms": 101.245,
+        "speedup_hop1": 1.33,
+        "hs2_total_ms": 546.739,
+        "kudu_total_ms": 396.297,
+        "hs2_visited": 25,
+        "kudu_visited": 25,
+        "visited_match": true,
+        "hs2_method": "impala_sql",
+        "kudu_method": "kudu_scan",
+        "kudu_shape": "gov.filtered_scan"
+      }
+    ],
+    "gates": {
+      "hop1_under_50ms": false,
+      "b32_under_100ms": false,
+      "visited_all_match": true,
+      "kudu_method_ok": true,
+      "min_speedup_hop1": 1.33,
+      "pass": false
+    }
+  }
+}

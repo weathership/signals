@@ -14,6 +14,7 @@
 - [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
+- [Atlas → Kudu outbox](./architecture/atlas-kudu-outbox.md)
 - [Context Engineering](./architecture/context-engineering.md)
 - [Classification Training](./architecture/classification-training.md)
 - [Heuristic Elucidation](./architecture/heuristic-elucidation.md)

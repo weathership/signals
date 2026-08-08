@@ -61,5 +61,19 @@ just impala-fdw-build
 
 ## Status
 
-Phase 0 scaffold: extension registers and validates options; scans raise until
-HS2/Kudu executors land (SPEC §14).
+**Phase 1a:** HS2 foreign scans with **column projection**, **eq/range predicates**,
+**IN / = ANY pushdown**, and EXPLAIN `ShapeId` / remote SQL. Atlas typed Kudu
+projections: `config/atlas/kudu_projections.sql` + `kudu_projections_fdw.sql`.
+Outbox: [Atlas → Kudu outbox](../architecture/atlas-kudu-outbox.md).
+
+**Phase 3 (lab-ready):** direct **`kudu_scan`** via `libkudu_client`
+([`kudu_scan.md`](https://github.com/weathership/impala_fdw/blob/trunk/docs/kudu_scan.md)).
+PR-K0–K4 + checkpoint-02 (LIMIT under agg/sort, multiset gates, warm-cache
+~0.5 ms, `hs2-smoke` link). Atlas FTs default `access=auto`. **PR-K5**
+Kerberos plan verified (staged K5a–K5e in `kudu_scan.md`); not yet implemented.
+
+```bash
+just impala-fdw-build && just impala-fdw-install
+just atlas-kudu-projections-seed
+just atlas-frontier-bench
+```
