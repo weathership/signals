@@ -4,8 +4,8 @@ Feature: Flink OpenLineage populates Atlas composite SoR (Marquez UI path)
   # (OL ingest + Marquez-compat read). Same signals PG/AGE. No Marquez DB.
   # No Python OL facade. Marquez-web is default stack (devenv up) and proxies /api/v1 → Atlas.
   #
-  # Blocked on M2: Atlas webapp Jersey resources for /api/v1 (components/atlas).
-  # Upstream Flink is the premier OL producer for dual-path validation.
+  # M2 landed: Atlas OpenLineageServlet on /api/v1/* (components/atlas).
+  # Still @wip: Flink dual-path steps + live producer validation (M3).
 
   Background:
     Given the Signals stack is ready for lineage tests

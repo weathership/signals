@@ -8,6 +8,7 @@ Tier system (same split as synth and other constellation projects):
   @tier-1  Full devenv stack (PG, KDC, Atlas, Kudu, Impala). Opt in with
            SIGNALS_BDD_TIER1=1 (default skip so `just behave` stays hermetic).
   @tier-2/3  Not yet implemented — auto-skipped.
+  @wip     Spec stubs / incomplete steps. Auto-skipped unless SIGNALS_BDD_WIP=1.
 
 Tier-1 scenarios verify process-compose health and application readiness
 before running (cached per session so the check happens only once).
@@ -167,6 +168,16 @@ def before_all(context):
 
 def before_scenario(context, scenario):
     """Per-scenario setup — tier-aware stack verification."""
+    tags = set(list(scenario.tags) + list(scenario.feature.tags))
+
+    # Spec stubs (undefined steps) stay out of default CI until implemented.
+    # Opt in: SIGNALS_BDD_WIP=1 just behave --tags=wip
+    if "wip" in tags and not os.environ.get("SIGNALS_BDD_WIP"):
+        scenario.skip(
+            "@wip — not implemented yet; set SIGNALS_BDD_WIP=1 to run deliberately"
+        )
+        return
+
     tier = _tier_from_scenario(scenario)
 
     if tier >= 2:
