@@ -107,6 +107,10 @@ atlas-kudu-projections-seed:
 atlas-frontier-bench *ARGS:
     python3 scripts/atlas_frontier_bench.py --write-scratch {{ARGS}}
 
+# PR-K5a: Kudu Kerberos keytab/principal checks (does not require MODE=1)
+kudu-kerberos-smoke:
+    devenv tasks run signals:kudu-kerberos-smoke
+
 # Reset local KDC (required after Kerberos realm renames)
 kdc-reset:
     devenv tasks run signals:kdc-reset

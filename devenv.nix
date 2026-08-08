@@ -512,11 +512,17 @@ in
   };
 
   # ── Kudu Master Process ──────────────────────────────────────────────────
+  # Kerberos (PR-K5a): set SIGNALS_KUDU_KERBEROS=1 to require RPC auth.
+  # Needs scripts/kdc-init.sh (kudu/$SIGNALS_KRB_HOST keytab). Default off so
+  # nosasl Impala/FDW keep working until K5b wires libkudu_client GSS.
   processes.kudu-master = {
     exec = ''
       KUDU_HOME="$PWD/.devenv/kudu"
       # Prefer submodule build; allow KUDU_BUILD override for emergency external trees
       KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
+      KDC_DIR="$PWD/.devenv/kdc"
+      KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
+      KUDU_KEYTAB="''${SIGNALS_KUDU_KEYTAB:-$KDC_DIR/kudu.keytab}"
 
       if [ ! -f "$KUDU_BUILD/bin/kudu-master" ]; then
         echo "Kudu not built. Run: devenv tasks run kudu:build-cpp"
@@ -524,6 +530,33 @@ in
       fi
 
       mkdir -p "$KUDU_HOME/master/data" "$KUDU_HOME/master/wal" "$KUDU_HOME/master/logs"
+
+      # Shared Kerberos args (empty when disabled)
+      KUDU_AUTH_ARGS=()
+      if [ "''${SIGNALS_KUDU_KERBEROS:-0}" = "1" ]; then
+        if [ ! -f "$KUDU_KEYTAB" ]; then
+          echo "ERROR: SIGNALS_KUDU_KERBEROS=1 but keytab missing: $KUDU_KEYTAB"
+          echo "Run: devenv tasks run signals:kdc-init"
+          exit 1
+        fi
+        if [ -f "$KDC_DIR/krb5.conf" ]; then
+          export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+        fi
+        # Lab: encrypt optional (loopback); auth required rejects anonymous clients.
+        KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
+        KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+        KUDU_AUTH_ARGS=(
+          --keytab_file="$KUDU_KEYTAB"
+          --principal="kudu/_HOST"
+          --rpc_authentication="$KUDU_RPC_AUTH"
+          --rpc_encryption="$KUDU_RPC_ENC"
+          --allow_world_readable_credentials=true
+        )
+        echo "Kudu Master Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC keytab=$KUDU_KEYTAB)"
+        echo "  principal template kudu/_HOST → kudu/$KRB_HOST (ensure /etc/hosts or DNS)"
+      else
+        echo "Kudu Master Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1) — nosasl clients OK"
+      fi
 
       echo "Starting Kudu Master on localhost:7051..."
       exec "$KUDU_BUILD/bin/kudu-master" \
@@ -533,7 +566,8 @@ in
         --webserver_port=8051 \
         --rpc_bind_addresses=127.0.0.1:7051 \
         --unlock_unsafe_flags \
-        --default_num_replicas=1
+        --default_num_replicas=1 \
+        "''${KUDU_AUTH_ARGS[@]}"
     '';
     process-compose = {
       readiness_probe = {
@@ -556,6 +590,9 @@ in
     exec = ''
       KUDU_HOME="$PWD/.devenv/kudu"
       KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
+      KDC_DIR="$PWD/.devenv/kdc"
+      KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
+      KUDU_KEYTAB="''${SIGNALS_KUDU_KEYTAB:-$KDC_DIR/kudu.keytab}"
 
       if [ ! -f "$KUDU_BUILD/bin/kudu-tserver" ]; then
         echo "Kudu not built. Run: devenv tasks run kudu:build-cpp"
@@ -563,6 +600,30 @@ in
       fi
 
       mkdir -p "$KUDU_HOME/tserver/data" "$KUDU_HOME/tserver/wal" "$KUDU_HOME/tserver/logs"
+
+      KUDU_AUTH_ARGS=()
+      if [ "''${SIGNALS_KUDU_KERBEROS:-0}" = "1" ]; then
+        if [ ! -f "$KUDU_KEYTAB" ]; then
+          echo "ERROR: SIGNALS_KUDU_KERBEROS=1 but keytab missing: $KUDU_KEYTAB"
+          echo "Run: devenv tasks run signals:kdc-init"
+          exit 1
+        fi
+        if [ -f "$KDC_DIR/krb5.conf" ]; then
+          export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+        fi
+        KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
+        KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+        KUDU_AUTH_ARGS=(
+          --keytab_file="$KUDU_KEYTAB"
+          --principal="kudu/_HOST"
+          --rpc_authentication="$KUDU_RPC_AUTH"
+          --rpc_encryption="$KUDU_RPC_ENC"
+          --allow_world_readable_credentials=true
+        )
+        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC)"
+      else
+        echo "Kudu TServer Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1)"
+      fi
 
       echo "Starting Kudu Tablet Server..."
       exec "$KUDU_BUILD/bin/kudu-tserver" \
@@ -572,7 +633,8 @@ in
         --tserver_master_addrs=127.0.0.1:7051 \
         --webserver_port=8050 \
         --rpc_bind_addresses=127.0.0.1:7050 \
-        --unlock_unsafe_flags
+        --unlock_unsafe_flags \
+        "''${KUDU_AUTH_ARGS[@]}"
     '';
     process-compose = {
       depends_on = {
@@ -803,6 +865,14 @@ in
         bash scripts/kdc-init.sh --reset
       '';
       description = "Reset KDC database (destroys all principals and keytabs)";
+    };
+
+    # PR-K5a: verify Kudu keytab + optional secured-cluster probes
+    "signals:kudu-kerberos-smoke" = {
+      exec = ''
+        bash scripts/kudu_kerberos_smoke.sh
+      '';
+      description = "PR-K5a: verify kudu keytab/principals; probe auth when SIGNALS_KUDU_KERBEROS=1";
     };
 
     "sigint:resolve-config" = {
@@ -1720,6 +1790,7 @@ SQL
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
     echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
+    echo "  Kudu Kerberos     — SIGNALS_KUDU_KERBEROS=0|1 (PR-K5a; default 0)"
     echo "  Impala Statestore — localhost:24000 (web UI: 25010)"
     echo "  Impala Catalogd   — localhost:26000 (web UI: 25020, HMS-free)"
     echo "  Impala Daemon     — hs2://localhost:21050 (web UI: 25000)"
@@ -1745,6 +1816,7 @@ SQL
     echo "  devenv tasks run sigint:cache-models   — Pre-download models for offline use"
     echo "  devenv tasks run signals:kdc-init     — Initialize KDC"
     echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
+    echo "  devenv tasks run signals:kudu-kerberos-smoke — PR-K5a keytab/auth probe"
     echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"
     echo "  devenv tasks run hms:install          — Download Hive Standalone Metastore"
     echo "  devenv tasks run hms:init-schema      — Initialize HMS schema in PostgreSQL"
