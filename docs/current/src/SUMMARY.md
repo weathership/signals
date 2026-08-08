@@ -44,6 +44,7 @@
     - [OpenTofu (AWS)](./infrastructure/tofu.md)
     - [Ansible Roles](./infrastructure/ansible.md)
     - [Air-Gap (Zarf)](./infrastructure/zarf.md)
+    - [signals-federation (Zarf)](./infrastructure/signals-federation-zarf.md)
     - [Dev Iteration (Tilt)](./infrastructure/tilt.md)
     - [Policy (OPA)](./infrastructure/policy.md)
 

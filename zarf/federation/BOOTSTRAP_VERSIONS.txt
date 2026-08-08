@@ -1,0 +1,14 @@
+# Freeze when first release kit is cut (match cybersec discipline).
+# Zarf binary, zarf-init, and package create MUST share the same Zarf version.
+
+ZARF_VERSION=TBD
+# Example once pinned: ZARF_VERSION=v0.70.1
+
+# Knative Serving (pin when charts vendored)
+KNATIVE_SERVING_VERSION=TBD
+
+# Apache YuniKorn (pin when chart vendored; source: components/yunikorn-core)
+YUNIKORN_CHART_VERSION=TBD
+
+# MiNiFi sentinel image (build from components/minifi-cpp)
+MINIFI_SENTINEL_IMAGE=localhost:5555/minifi-sentinel:TBD

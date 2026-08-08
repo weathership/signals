@@ -1,0 +1,49 @@
+# Federation namespaces — independent of cybersec dask/jupyterhub/panel-viz.
+# Knative and YuniKorn often install into their own system namespaces via charts;
+# application sentinel Services live under federation-*.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-system
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-aegir
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: aegir
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-atelier
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: atelier
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-gaius
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: gaius
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-signals
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: signals
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federation-hermes
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: hermes

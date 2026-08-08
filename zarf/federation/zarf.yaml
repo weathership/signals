@@ -1,0 +1,143 @@
+# signals-federation — dedicated control-plane package (not cybersec-dask).
+# Design: components/signals-protocol/specification/operations/minifi_sentinels.md
+# K8s-first: RKE2 + Knative Serving (scale-to-zero) + YuniKorn (admission) + MiNiFi sentinels.
+kind: ZarfPackageConfig
+metadata:
+  name: signals-federation
+  description: >-
+    Air-gap federation control plane: Knative Serving, YuniKorn, and MiNiFi C++
+    sentinels on RKE2. Host gRPC engines and cybersec-dask are out of scope.
+  version: "0.1.0-dev"
+  architecture: amd64
+  authors: Weathership / Signals
+  url: https://github.com/weathership/signals
+  documentation: zarf/federation/README.md
+
+constants:
+  - name: PACKAGE_NAME
+    value: signals-federation
+
+variables:
+  - name: REGISTRY_URL
+    description: External registry URL (empty = Zarf internal registry rewrite)
+    default: ""
+
+  - name: INGRESS_CLASS
+    description: Ingress class (RKE2 default nginx)
+    default: nginx
+
+  - name: INGRESS_DOMAIN
+    description: Base domain for optional ingress hostnames
+    default: federation.local
+
+  # YuniKorn queue roots for federation projects
+  - name: YK_QUEUE_AEGIR
+    description: YuniKorn queue name for Ægir
+    default: root.aegir
+  - name: YK_QUEUE_ATELIER
+    description: YuniKorn queue name for Atelier
+    default: root.atelier
+  - name: YK_QUEUE_GAIUS
+    description: YuniKorn queue name for Gaius
+    default: root.gaius
+  - name: YK_QUEUE_SIGNALS
+    description: YuniKorn queue name for Signals-owned sentinels
+    default: root.signals
+  - name: YK_QUEUE_HERMES
+    description: YuniKorn queue name for Hermes/ACP sentinels
+    default: root.hermes
+
+  # Knative autoscaler (cluster-wide enable-scale-to-zero is also set in manifests)
+  - name: KNATIVE_SCALE_TO_ZERO
+    description: Must remain true for product path (KPA)
+    default: "true"
+
+  - name: MINIFI_SENTINEL_IMAGE
+    description: MiNiFi C++ sentinel image (air-gap; no runtime pull from public nets)
+    default: "###ZARF_REGISTRY###/minifi-sentinel:0.1.0-dev"
+
+components:
+  # ===========================================================================
+  # 1. Knative Serving CRDs (must install before controllers)
+  # ===========================================================================
+  - name: knative-crds
+    required: true
+    description: Knative Serving CRDs (install before knative-serving)
+    # When ready: vendor upstream CRD YAML into manifests/knative/
+    # manifests:
+    #   - name: knative-serving-crds
+    #     files:
+    #       - manifests/knative/serving-crds.yaml
+    manifests:
+      - name: knative-crds-placeholder
+        files:
+          - manifests/PLACEHOLDER.md
+    # images: []  # CRDs only
+
+  # ===========================================================================
+  # 2. Knative Serving core (KPA, activator, enable-scale-to-zero)
+  # ===========================================================================
+  - name: knative-serving
+    required: true
+    description: >-
+      Knative Serving controllers + config-autoscaler with enable-scale-to-zero=true (KPA).
+      See https://knative.dev/docs/serving/autoscaling/scale-to-zero/
+    # charts or manifests: vendor knative serving release for air-gap
+    manifests:
+      - name: knative-serving-placeholder
+        files:
+          - manifests/PLACEHOLDER.md
+    # images:
+    #   - gcr.io/knative-releases/...  # pin digests in BOOTSTRAP_VERSIONS + create
+
+  # ===========================================================================
+  # 3. YuniKorn (admission / multi-tenant queues)
+  # ===========================================================================
+  - name: yunikorn
+    required: true
+    description: >-
+      Apache YuniKorn scheduler + web. Queues root.{project} for federation claims.
+      Source pin: components/yunikorn-core (chart vendored under charts/ when frozen).
+    manifests:
+      - name: yunikorn-placeholder
+        files:
+          - manifests/PLACEHOLDER.md
+    # charts:
+    #   - name: yunikorn
+    #     namespace: yunikorn
+    #     localPath: charts/yunikorn-….tgz
+
+  # ===========================================================================
+  # 4. MiNiFi sentinel images (Layer A — transport once)
+  # ===========================================================================
+  - name: minifi-sentinel-images
+    required: true
+    description: >-
+      MiNiFi C++ sentinel container image built from components/minifi-cpp.
+      FAIL package create if tag missing (air-gap: no runtime pull).
+    # images:
+    #   - ###ZARF_REGISTRY###/minifi-sentinel:0.1.0-dev
+    manifests:
+      - name: minifi-images-placeholder
+        files:
+          - manifests/PLACEHOLDER.md
+
+  # ===========================================================================
+  # 5. MiNiFi sentinel Knative Services (per-project templates)
+  # ===========================================================================
+  - name: minifi-sentinel-ksvc
+    required: true
+    description: >-
+      Knative Services for minifi-sentinel (tiny CPU/mem, no GPU).
+      Labels federation.project; scheduled under YK queues.
+    manifests:
+      - name: federation-namespaces
+        files:
+          - manifests/namespaces.yaml
+      - name: minifi-ksvc-placeholder
+        files:
+          - manifests/PLACEHOLDER.md
+    # actions:
+    #   onDeploy:
+    #     after:
+    #       - wait: … Knative Ready / scale-to-zero smoke
