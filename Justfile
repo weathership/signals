@@ -128,13 +128,45 @@ atlas-kudu-projections-seed:
 atlas-frontier-bench *ARGS:
     python3 scripts/atlas_frontier_bench.py --write-scratch {{ARGS}}
 
-# PR-K5a: Kudu Kerberos keytab/principal checks (does not require MODE=1)
+# PR-K5a: Kudu Kerberos keytab/principal checks
 kudu-kerberos-smoke:
     devenv tasks run signals:kudu-kerberos-smoke
 
 # Reset local KDC (required after Kerberos realm renames)
 kdc-reset:
     devenv tasks run signals:kdc-reset
+
+# ── Cloudflare WARP / Zero Trust client ───────────────────────────
+# Edge reachability (weathership org). Separate from lab Kerberos (just bootstrap).
+
+# Status + interactive connect/disconnect/upgrade prompts (default).
+# Subcommands: status | connect | disconnect | upgrade | upgrade --force
+warp *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/warp-ops.sh {{ARGS}}
+
+# ── Kerberos (required for all data-plane services — no NOSASL path) ─
+# Clients dial $SIGNALS_KRB_HOST (FQDN), never 127.0.0.1, so SPNs match keytabs.
+
+# Required first-run / machine setup: KDC keytabs, hosts check, kinit, .env FQDN
+bootstrap:
+    bash scripts/kerberos-migrate.sh
+
+# Alias kept for muscle memory
+kerberos-migrate: bootstrap
+
+# Obtain user ticket from signals.keytab (signals@REALM)
+kinit:
+    bash -c '. scripts/signals_kerberos.sh && signals_krb_kinit'
+
+# Show tickets, host resolution, GSSAPI HS2 probe
+kerberos-status:
+    bash scripts/kerberos-status.sh
+
+# KDC init/verify
+kdc-init:
+    devenv tasks run signals:kdc-init
 
 # Serial stack build: Atlas → Kudu → Impala (long wall-clock)
 stack-build:
@@ -163,6 +195,29 @@ behave *args:
 
 # Unit + hermetic BDD
 test-all: test behave
+
+# ── Stack backup / restore (only path: full portable all-services) ─
+# SIGNALS_DATA_ROOT (default /raid/signals). Stamps under $SIGNALS_DATA_ROOT/backups/.
+# No service subsets, no Kudu FS tars, no skip modes — one resilient portable path.
+
+# Full portable backup of every service (fail-closed).
+# Requires: just bootstrap, devenv up -d, valid Kerberos ticket (just kinit).
+# Impala export is GSSAPI only (FQDN SPN). Auto-builds signals-df if needed.
+backup *ARGS:
+    bash scripts/backup-stack.sh {{ARGS}}
+
+# Full portable restore + verify (fail-closed). Symmetric to just backup.
+#   just restore <stamp>
+#   just restore /raid/signals/backups/<stamp>
+restore STAMP *ARGS:
+    bash scripts/restore-stack.sh {{STAMP}} {{ARGS}}
+
+# DataFusion CLI for the logical plane (also auto-built by just backup)
+signals-df-build:
+    cargo build -p signals-df --release
+
+data-layout:
+    devenv tasks run signals:data-layout
 
 # ── Documentation ─────────────────────────────────────────────────
 

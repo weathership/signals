@@ -2,8 +2,8 @@
 # PR-K5c: forced kudu_scan as signals@REALM against Kerberos-required Kudu.
 #
 # Prerequisites:
-#   SIGNALS_KUDU_KERBEROS=1 and kudu-master/tserver with
-#     --principal=kudu/$SIGNALS_KRB_HOST  (explicit; not kudu/_HOST → uname)
+#   just bootstrap + devenv up -d (Kerberos-required Kudu/Impala)
+#   kudu-master/tserver with --principal=kudu/$SIGNALS_KRB_HOST
 #   impala_fdw with K5b/K5c (SASL + EXPLAIN Principal)
 #   Atlas FTs present (config/atlas/kudu_projections_fdw.sql)
 #
@@ -14,25 +14,21 @@
 #   and that hostname must resolve to the Kudu RPC address (lab: 127.0.0.1).
 #
 # Usage:
-#   SIGNALS_KUDU_KERBEROS=1 bash scripts/kudu_kerberos_fdw_smoke.sh
+#   bash scripts/kudu_kerberos_fdw_smoke.sh
 #
 set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KDC_DIR="${KDC_DIR:-$PROJECT_DIR/.devenv/kdc}"
-REALM="${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}"
-KRB_HOST="${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
-USER_KEYTAB="${SIGNALS_KRB_USER_KEYTAB:-$KDC_DIR/signals.keytab}"
-export KRB5_CONFIG="${KRB5_CONFIG:-$KDC_DIR/krb5.conf}"
+# shellcheck source=scripts/signals_kerberos.sh
+source "$PROJECT_DIR/scripts/signals_kerberos.sh"
+signals_krb_env "$PROJECT_DIR"
+KDC_DIR="${KDC_DIR}"
+REALM="${KRB5_REALM}"
+KRB_HOST="${SIGNALS_KRB_HOST}"
+USER_KEYTAB="${SIGNALS_KRB_USER_KEYTAB}"
 export KRB5CCNAME="${KRB5CCNAME:-$KDC_DIR/krb5cc_k5c_fdw}"
-export SIGNALS_KRB_USER_KEYTAB="$USER_KEYTAB"
 
 MASTERS="${KUDU_MASTERS:-${KRB_HOST}:7051}"
 PRINCIPAL="signals@${REALM}"
-
-MODE="${SIGNALS_KUDU_KERBEROS:-0}"
-if [[ "$MODE" != "1" ]]; then
-  echo "WARN: SIGNALS_KUDU_KERBEROS=$MODE — set to 1 and restart Kudu for required auth."
-fi
 
 echo "=== K5c FDW Kerberos smoke ==="
 echo "  KRB_HOST=$KRB_HOST  MASTERS=$MASTERS  PRINCIPAL=$PRINCIPAL"

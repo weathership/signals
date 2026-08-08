@@ -18,7 +18,7 @@ from pathlib import Path
 sys.modules.setdefault("thrift.protocol.fastbinary", None)
 sys.modules.setdefault("thrift.protocol.fastproto", None)
 
-from impala.dbapi import connect as impala_connect  # noqa: E402
+from signals.impala import impala_connect  # noqa: E402
 
 from sigint.atlas_client import AtlasClient  # noqa: E402
 from sigint.config import TaggingConfig  # noqa: E402
@@ -73,7 +73,7 @@ def csv_to_impala(
             col = f"col_{col}"
         columns.append((col, "STRING"))
 
-    conn = impala_connect(host=host, port=port, auth_mechanism="NOSASL")
+    conn = impala_connect(port=port)
     try:
         cur = conn.cursor()
 
@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Step 3: Sample and classify
         conn = impala_connect(
-            host=args.impala_host, port=args.impala_port, auth_mechanism="NOSASL"
+            host=args.impala_host, port=args.impala_port, 
         )
         try:
             cur = conn.cursor()

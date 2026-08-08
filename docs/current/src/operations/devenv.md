@@ -20,8 +20,28 @@ secretspec run -- just tag default.my_table   # inject declared secrets for a jo
 ## Starting Services
 
 ```bash
-devenv up             # Start PostgreSQL + Kerberos KDC (+ Atlas, Kudu, Impala on Linux)
+just bootstrap        # Required: Kerberos KDC keytabs + kinit + FQDN env (no NOSASL path)
+devenv up             # Start core stack (PG, KDC, Atlas, Marquez-web, … + Kerberos Kudu/Impala)
+devenv up -d          # Same, detached — marquez-web always included
+just kinit            # Refresh user ticket as needed
+just kerberos-status  # Expect: impala HS2 GSSAPI OK
 ```
+
+**Turn-key first run:** `devenv up [-d]` is the only entry point users need for the
+core stack. Marquez-web is bootstrapped like other heavy UI deps (cybersec pattern):
+
+1. `languages.javascript` points at `components/marquez/web` with
+   `npm.install.enable = true` (checksummed `npm clean-install` on shell enter).
+2. Task `marquez:build-web` has `before = [ "devenv:processes:marquez-web" ]`, so
+   process-compose runs submodule init + npm + webpack **before** the UI process.
+3. `processes.marquez-web` only serves (`setupProxy.js` → Atlas `/api/v1`).
+
+No separate “please run marquez:build-web first” step for a normal lab bring-up.
+
+**Data root:** durable services use `SIGNALS_DATA_ROOT` (lab default
+`/raid/signals` — `kudu/`, `rustfs/`, `flink/`, `backups/`). See
+[Storage and backup](./storage-and-backup.md). Preserve Atlas/Ranger with
+`just backup` / `just restore`.
 
 ## ASF submodules and nested devenv
 

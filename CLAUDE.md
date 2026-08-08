@@ -258,6 +258,7 @@ All tracked on **`rch/devenv`** branch from `rch` GitHub forks (shared devenv/Ni
 | `kudu` | Columnar storage engine (build from submodule) |
 | `impala` | Distributed SQL query engine (HMS-free mode) |
 | `impala_fdw` | PostgreSQL FDW → Impala HS2 → **Kudu only** (`weathership/impala_fdw`) |
+| `marquez` | OpenLineage **reference UI** (`zndx/oss-marquez`); SoR is Atlas OL extension — **no Marquez DB** |
 | `iceberg` | Table format for analytic datasets |
 | `airflow` | Workflow orchestration |
 | `nifi` | Data flow routing |
@@ -273,17 +274,29 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 |---------|------------------|
 | PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry); extensions Apache AGE (graph), pg_cron, pg_trgm |
 | Kerberos KDC | realm `DEV.VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
-| Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` |
+| Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` (OL SoR target) |
+| Marquez Web | port **3000** (default stack; turn-key via `marquez:build-web` before process + `languages.javascript.npm.install`) |
 | Ranger | port **6080** (admin; when configured) |
-| Kudu | master webserver 8051, tserver 8050 |
+| Kudu | master webserver 8051, tserver 8050; data under `$SIGNALS_DATA_ROOT/kudu` (default `/raid/signals/kudu`) |
 | Impala | HS2 **21050**, beeswax 21001, statestore 24000, catalogd 26000 (HMS-free, config from `config/impala/catalog_config_dir/`), webservers 25000/25010/25020 |
 
+**Data root:** `SIGNALS_DATA_ROOT` (default `/raid/signals`) — siblings `kudu/`, `rustfs/`, `flink/`, `backups/`. See `docs/current/src/operations/storage-and-backup.md`.
+
+**Kerberos required** for Impala + Kudu + backup (no NOSASL path). FQDN SPNs via `$SIGNALS_KRB_HOST`.
+Product edge identity: Cloudflare Zero Trust + Okta/GitHub (see Gaius); authz via Atlas → Ranger.
+Multi-modal agent UIs (synth WebRTC / omni) assume ZT + HTTPS — `architecture/identity-and-access.md`.
+
+**Backup/restore:** one portable all-services path (`just backup` / `just restore`). Kudu via DataFusion Parquet only.
+
 ```bash
-devenv up                               # Start all services
-devenv tasks run signals:kdc-init       # Initialize/verify KDC
-devenv tasks run signals:catalog-init   # Load catalog registry schema into PostgreSQL
-psql -p 5455 -d signals                 # Connect to database
-kinit signals                           # Get Kerberos ticket (pw: signals)
+just bootstrap                          # KDC keytabs + kinit + .env FQDN (required once)
+devenv up -d                            # Start all services (Kerberos processes)
+just kinit                              # refresh ticket
+just kerberos-status                    # expect: impala HS2 GSSAPI OK
+just backup                             # full portable stamp
+just restore <stamp>
+devenv tasks run signals:catalog-init
+psql -p 5455 -d signals
 ```
 
 ## Documentation

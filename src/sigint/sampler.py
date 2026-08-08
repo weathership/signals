@@ -47,11 +47,10 @@ class ImpalaSampler:
 
     def _get_conn(self):
         if self._conn is None:
-            self._conn = impala_connect(
-                host=self._cfg.impala_host,
-                port=self._cfg.impala_port,
-                auth_mechanism="NOSASL",
-            )
+            from signals.impala import impala_connect as krb_connect
+
+            # Kerberos GSSAPI only — host from $IMPALA_HS2_HOST / $SIGNALS_KRB_HOST
+            self._conn = krb_connect(port=self._cfg.impala_port)
         return self._conn
 
     def _execute(self, sql: str, fetch: bool = False):

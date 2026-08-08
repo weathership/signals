@@ -1,6 +1,13 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
+  # Durable data plane (user-chosen). Lab default /raid/signals — same idea as
+  # cybersec RUSTFS_DATA_DIR. Sibling layout: kudu/, rustfs/, flink/, backups/.
+  # Runtime also falls back via scripts/signals_data_root.sh if unwritable.
+  signalsDataRoot =
+    let v = builtins.getEnv "SIGNALS_DATA_ROOT";
+    in if v != "" then v else "/raid/signals";
+
   # Shared native-lib path for Impala processes (Linux only).
   # Exec via: ld-linux --library-path "$IMPALA_LIBPATH" <daemon>
   # WITHOUT exporting LD_LIBRARY_PATH (child /bin/sh must not see Nix libc).
@@ -225,6 +232,7 @@ in
     jdk17  # Kudu Java / Gradle wrapper (not system)
     jdk21_headless  # Impala catalogd/impalad JNI (no gtk/cups; devenv-only)
     bubblewrap  # optional: bind nix sh over /bin/sh for Impala child processes
+    # node/npm: languages.javascript (marquez-web) — not packages.nodejs
     # Kudu thirdparty / common
     bison
     flex
@@ -294,7 +302,20 @@ in
     maven.enable = true;
   };
 
-  languages.javascript = { enable = true; };
+  # Marquez web UI lives under the marquez submodule. devenv first-party npm:
+  # - enterShell: checksummed npm clean-install when lockfile/node changes
+  # - packages: Node + npm on PATH (no separate packages.nodejs)
+  # Webpack dist is a process bootstrap task (before marquez-web) so
+  # `devenv up [-d]` is turn-key without a manual build step (cybersec pattern).
+  languages.javascript = {
+    enable = true;
+    directory = "components/marquez/web";
+    package = pkgs.nodejs_22;
+    npm = {
+      enable = true;
+      install.enable = true;
+    };
+  };
   languages.typescript = { enable = true; };
 
   # ── Environment ────────────────────────────────────────────────────────────
@@ -308,6 +329,13 @@ in
     SIGNALS_KRB_ENV = "dev";
     SIGNALS_KRB_LOCATION = "vista";
     SIGNALS_KRB_HOST = "tinybox.dev.vista.zndx.org";
+    # Durable storage root (override with SIGNALS_DATA_ROOT in .env / environment)
+    SIGNALS_DATA_ROOT = signalsDataRoot;
+    SIGNALS_KUDU_HOME = signalsDataRoot + "/kudu";
+    SIGNALS_RUSTFS_DATA_DIR = signalsDataRoot + "/rustfs";
+    RUSTFS_DATA_DIR = signalsDataRoot + "/rustfs";
+    SIGNALS_FLINK_DATA_DIR = signalsDataRoot + "/flink";
+    SIGNALS_BACKUP_DIR = signalsDataRoot + "/backups";
   };
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -338,6 +366,7 @@ in
       { name = "polaris"; }
       { name = "signals_catalog"; }
       { name = "ranger"; }
+      # No separate "marquez" database: OL lives in the Atlas/signals schema (composite SoR).
     ];
   };
 
@@ -440,6 +469,58 @@ in
     };
   };
 
+  # ── Marquez Web (default stack — always on with devenv up) ───────────────
+  # Core process: every `devenv up` / `devenv up -d` starts marquez-web.
+  # Bootstrap: tasks.marquez:build-web runs before this process (turn-key).
+  # node_modules: languages.javascript.npm.install (enterShell + build task).
+  # UI only; SoR HTTP = Atlas :21010. No Marquez DB / stock API / Python facade.
+  # See docs/current/src/architecture/openlineage-atlas.md
+  processes.marquez-web = {
+    exec = ''
+      set -euo pipefail
+      WEB_DIR="$PWD/components/marquez/web"
+      WEB_PORT="''${MARQUEZ_WEB_PORT:-3000}"
+      OL_API_HOST="''${SIGNALS_OL_API_HOST:-127.0.0.1}"
+      OL_API_PORT="''${SIGNALS_OL_API_PORT:-21010}"
+
+      if [ ! -f "$WEB_DIR/setupProxy.js" ] || [ ! -f "$WEB_DIR/dist/index.html" ]; then
+        echo "ERROR: marquez-web not bootstrapped (missing dist or setupProxy)."
+        echo "  Expected task marquez:build-web before this process (devenv up)."
+        echo "  Manual: devenv tasks run marquez:build-web"
+        exit 1
+      fi
+      if [ ! -d "$WEB_DIR/node_modules/express" ]; then
+        echo "ERROR: node_modules missing under components/marquez/web."
+        echo "  enterShell should npm-install (languages.javascript.npm.install);"
+        echo "  or: devenv tasks run marquez:build-web"
+        exit 1
+      fi
+
+      cd "$WEB_DIR"
+      export MARQUEZ_HOST="$OL_API_HOST"
+      export MARQUEZ_PORT="$OL_API_PORT"
+      export WEB_PORT
+      echo "Starting Marquez web on :$WEB_PORT (default stack)"
+      echo "  → Atlas OL API http://$OL_API_HOST:$OL_API_PORT/api/v1 (proxy)"
+      echo "  (composite SoR is Atlas/signals PG — no marquez database)"
+      exec node setupProxy.js
+    '';
+    process-compose = {
+      depends_on = {
+        atlas = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        # Fixed port: Nix "…" strings cannot embed bash ''${VAR:-def} (use process env only in exec).
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:3000/healthcheck";
+        initial_delay_seconds = 3;
+        period_seconds = 5;
+        timeout_seconds = 3;
+        success_threshold = 1;
+        failure_threshold = 12;
+      };
+    };
+  };
+
   # ── Ranger Admin (Postgres :5455/ranger; HTTP :6080) ─────────────────────
   # Requires: devenv tasks run ranger:install && ranger:setup (or process self-setup).
   processes.ranger-admin = {
@@ -512,12 +593,13 @@ in
   };
 
   # ── Kudu Master Process ──────────────────────────────────────────────────
-  # Kerberos (PR-K5a): set SIGNALS_KUDU_KERBEROS=1 to require RPC auth.
-  # Needs scripts/kdc-init.sh (kudu/$SIGNALS_KRB_HOST keytab). Default off so
-  # nosasl Impala/FDW keep working until K5b wires libkudu_client GSS.
+  # Kerberos required (kudu/$SIGNALS_KRB_HOST keytab from signals:kdc-init / just bootstrap).
   processes.kudu-master = {
     exec = ''
-      KUDU_HOME="$PWD/.devenv/kudu"
+      # shellcheck source=/dev/null
+      . "$PWD/scripts/signals_data_root.sh"
+      signals_ensure_data_layout
+      KUDU_HOME="''${SIGNALS_KUDU_HOME}"
       # Prefer submodule build; allow KUDU_BUILD override for emergency external trees
       KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
       KDC_DIR="$PWD/.devenv/kdc"
@@ -530,41 +612,31 @@ in
       fi
 
       mkdir -p "$KUDU_HOME/master/data" "$KUDU_HOME/master/wal" "$KUDU_HOME/master/logs"
+      echo "Kudu Master data → $KUDU_HOME (SIGNALS_DATA_ROOT=$SIGNALS_DATA_ROOT)"
 
-      # Shared Kerberos args (empty when disabled)
-      KUDU_AUTH_ARGS=()
-      if [ "''${SIGNALS_KUDU_KERBEROS:-0}" = "1" ]; then
-        if [ ! -f "$KUDU_KEYTAB" ]; then
-          echo "ERROR: SIGNALS_KUDU_KERBEROS=1 but keytab missing: $KUDU_KEYTAB"
-          echo "Run: devenv tasks run signals:kdc-init"
-          exit 1
-        fi
-        if [ -f "$KDC_DIR/krb5.conf" ]; then
-          export KRB5_CONFIG="$KDC_DIR/krb5.conf"
-        fi
-        # Lab: encrypt optional (loopback); auth required rejects anonymous clients.
-        KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
-        KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
-        # Explicit SPN — do not use kudu/_HOST (expands to uname -n, often tinybox.lan)
-        KUDU_SPN="kudu/$KRB_HOST"
-        # Advertise hostname so clients request kudu/$KRB_HOST, not kudu/127.0.0.1
-        # (bind stays loopback; $KRB_HOST must resolve to 127.0.0.1 in lab hosts)
-        KUDU_RPC_BIND="127.0.0.1:7051"
-        KUDU_RPC_ADVERTISE="$KRB_HOST:7051"
-        KUDU_AUTH_ARGS=(
-          --keytab_file="$KUDU_KEYTAB"
-          --principal="$KUDU_SPN"
-          --rpc_authentication="$KUDU_RPC_AUTH"
-          --rpc_encryption="$KUDU_RPC_ENC"
-          --allow_world_readable_credentials=true
-          --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
-        )
-        echo "Kudu Master Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC keytab=$KUDU_KEYTAB)"
-        echo "  principal $KUDU_SPN bind=$KUDU_RPC_BIND advertise=$KUDU_RPC_ADVERTISE"
-      else
-        echo "Kudu Master Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1) — nosasl clients OK"
-        KUDU_RPC_BIND="127.0.0.1:7051"
+      # Kerberos required (no NOSASL path)
+      if [ ! -f "$KUDU_KEYTAB" ]; then
+        echo "ERROR: Kudu keytab missing: $KUDU_KEYTAB"
+        echo "  just bootstrap  # or: devenv tasks run signals:kdc-init"
+        exit 1
       fi
+      if [ -f "$KDC_DIR/krb5.conf" ]; then
+        export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+      fi
+      KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
+      KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+      KUDU_SPN="kudu/$KRB_HOST"
+      KUDU_RPC_BIND="127.0.0.1:7051"
+      KUDU_RPC_ADVERTISE="$KRB_HOST:7051"
+      KUDU_AUTH_ARGS=(
+        --keytab_file="$KUDU_KEYTAB"
+        --principal="$KUDU_SPN"
+        --rpc_authentication="$KUDU_RPC_AUTH"
+        --rpc_encryption="$KUDU_RPC_ENC"
+        --allow_world_readable_credentials=true
+        --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
+      )
+      echo "Kudu Master Kerberos required (auth=$KUDU_RPC_AUTH principal=$KUDU_SPN advertise=$KUDU_RPC_ADVERTISE)"
 
       echo "Starting Kudu Master on $KUDU_RPC_BIND..."
       exec "$KUDU_BUILD/bin/kudu-master" \
@@ -596,7 +668,10 @@ in
   # ── Kudu Tablet Server Process ───────────────────────────────────────────
   processes.kudu-tserver = {
     exec = ''
-      KUDU_HOME="$PWD/.devenv/kudu"
+      # shellcheck source=/dev/null
+      . "$PWD/scripts/signals_data_root.sh"
+      signals_ensure_data_layout
+      KUDU_HOME="''${SIGNALS_KUDU_HOME}"
       KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
       KDC_DIR="$PWD/.devenv/kdc"
       KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
@@ -608,37 +683,31 @@ in
       fi
 
       mkdir -p "$KUDU_HOME/tserver/data" "$KUDU_HOME/tserver/wal" "$KUDU_HOME/tserver/logs"
+      echo "Kudu TServer data → $KUDU_HOME"
 
-      KUDU_AUTH_ARGS=()
-      # Master addrs for tserver: use SPN host when Kerberos so registration is consistent
-      KUDU_MASTER_ADDRS="127.0.0.1:7051"
-      KUDU_RPC_BIND="127.0.0.1:7050"
-      if [ "''${SIGNALS_KUDU_KERBEROS:-0}" = "1" ]; then
-        if [ ! -f "$KUDU_KEYTAB" ]; then
-          echo "ERROR: SIGNALS_KUDU_KERBEROS=1 but keytab missing: $KUDU_KEYTAB"
-          echo "Run: devenv tasks run signals:kdc-init"
-          exit 1
-        fi
-        if [ -f "$KDC_DIR/krb5.conf" ]; then
-          export KRB5_CONFIG="$KDC_DIR/krb5.conf"
-        fi
-        KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
-        KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
-        KUDU_SPN="kudu/$KRB_HOST"
-        KUDU_MASTER_ADDRS="$KRB_HOST:7051"
-        KUDU_RPC_ADVERTISE="$KRB_HOST:7050"
-        KUDU_AUTH_ARGS=(
-          --keytab_file="$KUDU_KEYTAB"
-          --principal="$KUDU_SPN"
-          --rpc_authentication="$KUDU_RPC_AUTH"
-          --rpc_encryption="$KUDU_RPC_ENC"
-          --allow_world_readable_credentials=true
-          --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
-        )
-        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH principal=$KUDU_SPN advertise=$KUDU_RPC_ADVERTISE)"
-      else
-        echo "Kudu TServer Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1)"
+      if [ ! -f "$KUDU_KEYTAB" ]; then
+        echo "ERROR: Kudu keytab missing: $KUDU_KEYTAB"
+        echo "  just bootstrap"
+        exit 1
       fi
+      if [ -f "$KDC_DIR/krb5.conf" ]; then
+        export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+      fi
+      KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
+      KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+      KUDU_SPN="kudu/$KRB_HOST"
+      KUDU_MASTER_ADDRS="$KRB_HOST:7051"
+      KUDU_RPC_BIND="127.0.0.1:7050"
+      KUDU_RPC_ADVERTISE="$KRB_HOST:7050"
+      KUDU_AUTH_ARGS=(
+        --keytab_file="$KUDU_KEYTAB"
+        --principal="$KUDU_SPN"
+        --rpc_authentication="$KUDU_RPC_AUTH"
+        --rpc_encryption="$KUDU_RPC_ENC"
+        --allow_world_readable_credentials=true
+        --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
+      )
+      echo "Kudu TServer Kerberos required (principal=$KUDU_SPN advertise=$KUDU_RPC_ADVERTISE)"
 
       echo "Starting Kudu Tablet Server..."
       exec "$KUDU_BUILD/bin/kudu-tserver" \
@@ -700,13 +769,33 @@ in
 
       mkdir -p "$PWD/.devenv/impala/statestore/logs"
 
+      # Kerberos required — principal impala/$SIGNALS_KRB_HOST@REALM (never loopback SPN)
+      KDC_DIR="$PWD/.devenv/kdc"
+      KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
+      IMPALA_KEYTAB="''${SIGNALS_IMPALA_KEYTAB:-$KDC_DIR/impala.keytab}"
+      if [ ! -f "$IMPALA_KEYTAB" ]; then
+        echo "ERROR: Impala keytab missing: $IMPALA_KEYTAB"
+        echo "  just bootstrap"
+        exit 1
+      fi
+      if [ -f "$KDC_DIR/krb5.conf" ]; then
+        export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+      fi
+      HOST_ARG="$KRB_HOST"
+      KRB_ARGS=(
+        --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}"
+        --keytab_file="$IMPALA_KEYTAB"
+      )
+      echo "Impala Statestore Kerberos required (principal=impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG})"
+
       echo "Starting Impala Statestore on port 24000..."
       exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
         "$IMPALA_HOME/be/build/latest/service/statestored" \
         --state_store_port=24000 \
         --webserver_port=25010 \
         --log_dir="$PWD/.devenv/impala/statestore/logs" \
-        --hostname=localhost
+        --hostname="$HOST_ARG" \
+        "''${KRB_ARGS[@]}"
     '';
     process-compose = {
       readiness_probe = {
@@ -762,21 +851,38 @@ in
 
       mkdir -p "$PWD/.devenv/impala/catalogd/logs"
 
+      KDC_DIR="$PWD/.devenv/kdc"
+      KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
+      IMPALA_KEYTAB="''${SIGNALS_IMPALA_KEYTAB:-$KDC_DIR/impala.keytab}"
+      if [ ! -f "$IMPALA_KEYTAB" ]; then
+        echo "ERROR: Impala keytab missing: $IMPALA_KEYTAB"
+        echo "  just bootstrap"
+        exit 1
+      fi
+      if [ -f "$KDC_DIR/krb5.conf" ]; then
+        export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+      fi
+      HOST_ARG="$KRB_HOST"
+      KUDU_MASTERS="$KRB_HOST:7051"
+      KRB_ARGS=( --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" --keytab_file="$IMPALA_KEYTAB" )
+      echo "Impala Catalogd Kerberos required (principal=impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG} kudu_masters=$KUDU_MASTERS)"
+
       echo "Starting Impala Catalog Server on port 26000 (HMS-free)..."
       echo "JAVA_HOME=$JAVA_HOME LIBJSIG=''${IMPALA_LIBJSIG:-} JAVA_LIBRARY_PATH=$IMPALA_JAVA_LIBRARY_PATH"
       ${impalaRunFn}
       impala_run "$IMPALA_HOME/be/build/latest/service/catalogd" \
         --catalog_service_port=26000 \
         --state_store_subscriber_port=23020 \
-        --state_store_host=localhost \
+        --state_store_host="$HOST_ARG" \
         --state_store_port=24000 \
         --webserver_port=25020 \
         --log_dir="$PWD/.devenv/impala/catalogd/logs" \
-        --hostname=localhost \
-        --kudu_master_hosts=127.0.0.1:7051 \
+        --hostname="$HOST_ARG" \
+        --kudu_master_hosts="$KUDU_MASTERS" \
         --abort_on_config_error=false \
         --hms_event_polling_interval_s=0 \
-        --java_weigher=sizeof
+        --java_weigher=sizeof \
+        "''${KRB_ARGS[@]}"
     '';
     process-compose = {
       depends_on = {
@@ -827,25 +933,42 @@ in
 
       mkdir -p "$PWD/.devenv/impala/impalad/logs"
 
-      echo "Starting Impala Daemon on hs2://localhost:21050..."
+      KDC_DIR="$PWD/.devenv/kdc"
+      KRB_HOST="''${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
+      IMPALA_KEYTAB="''${SIGNALS_IMPALA_KEYTAB:-$KDC_DIR/impala.keytab}"
+      if [ ! -f "$IMPALA_KEYTAB" ]; then
+        echo "ERROR: Impala keytab missing: $IMPALA_KEYTAB"
+        echo "  just bootstrap"
+        exit 1
+      fi
+      if [ -f "$KDC_DIR/krb5.conf" ]; then
+        export KRB5_CONFIG="$KDC_DIR/krb5.conf"
+      fi
+      HOST_ARG="$KRB_HOST"
+      KUDU_MASTERS="$KRB_HOST:7051"
+      KRB_ARGS=( --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" --keytab_file="$IMPALA_KEYTAB" )
+      echo "Impala Daemon Kerberos required (HS2 → $HOST_ARG:21050 principal=impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG})"
+
+      echo "Starting Impala Daemon on hs2://$HOST_ARG:21050..."
       ${impalaRunFn}
       impala_run "$IMPALA_HOME/be/build/latest/service/impalad" \
         --hs2_port=21050 \
         --beeswax_port=21001 \
         --state_store_subscriber_port=23000 \
-        --state_store_host=localhost \
+        --state_store_host="$HOST_ARG" \
         --state_store_port=24000 \
-        --catalog_service_host=localhost \
+        --catalog_service_host="$HOST_ARG" \
         --catalog_service_port=26000 \
         --webserver_port=25000 \
         --krpc_port=27000 \
         --log_dir="$PWD/.devenv/impala/impalad/logs" \
-        --hostname=localhost \
-        --kudu_master_hosts=127.0.0.1:7051 \
+        --hostname="$HOST_ARG" \
+        --kudu_master_hosts="$KUDU_MASTERS" \
         --use_local_catalog=true \
         --abort_on_config_error=false \
         --hms_event_polling_interval_s=0 \
-        --java_weigher=sizeof
+        --java_weigher=sizeof \
+        "''${KRB_ARGS[@]}"
     '';
     process-compose = {
       depends_on = {
@@ -868,6 +991,44 @@ in
 
   # ── Tasks ──────────────────────────────────────────────────────────────────
   tasks = {
+    # Kerberos required before data-plane processes
+    "signals:kerberos-bootstrap" = {
+      exec = ''
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$PWD/scripts/signals_kerberos.sh"
+        signals_krb_bootstrap "$PWD"
+      '';
+      before = [
+        "devenv:processes:kudu-master"
+        "devenv:processes:kudu-tserver"
+        "devenv:processes:impala-statestore"
+        "devenv:processes:impala-catalogd"
+        "devenv:processes:impala-impalad"
+      ];
+      description = "Require KDC keytabs + user kinit before Kudu/Impala (Kerberos only)";
+    };
+
+    # Ensure /raid/signals/{kudu,rustfs,flink,backups} (or fallback) before data plane
+    "signals:data-layout" = {
+      exec = ''
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$PWD/scripts/signals_data_root.sh"
+        signals_ensure_data_layout
+        echo "SIGNALS_DATA_ROOT=$SIGNALS_DATA_ROOT"
+        echo "  kudu    $SIGNALS_KUDU_HOME"
+        echo "  rustfs  $SIGNALS_RUSTFS_DATA_DIR"
+        echo "  flink   $SIGNALS_FLINK_DATA_DIR"
+        echo "  backup  $SIGNALS_BACKUP_DIR"
+      '';
+      before = [
+        "devenv:processes:kudu-master"
+        "devenv:processes:kudu-tserver"
+      ];
+      description = "Create SIGNALS_DATA_ROOT layout (kudu/rustfs/flink/backups) before data processes";
+    };
+
     "signals:kdc-init" = {
       exec = ''
         bash scripts/kdc-init.sh
@@ -888,6 +1049,61 @@ in
         bash scripts/kudu_kerberos_smoke.sh
       '';
       description = "PR-K5a: verify kudu keytab/principals; probe auth when SIGNALS_KUDU_KERBEROS=1";
+    };
+
+    # Marquez UI bootstrap (default stack). Runs before processes.marquez-web on
+    # `devenv up` / `devenv up -d` — turn-key first run (cybersec-style task
+    # before = devenv:processes:…). Idempotent: skip webpack when dist is fresh.
+    "marquez:build-web" = {
+      exec = ''
+        set -euo pipefail
+        MARQUEZ_DIR="$PWD/components/marquez"
+        MARQUEZ_HOME="$PWD/.devenv/marquez"
+        WEB_DIR="$MARQUEZ_DIR/web"
+
+        if [ ! -f "$WEB_DIR/package.json" ]; then
+          echo "marquez:build-web: initializing components/marquez submodule..."
+          env -u LD_LIBRARY_PATH git submodule update --init components/marquez
+        fi
+        if [ ! -f "$WEB_DIR/package.json" ]; then
+          echo "ERROR: components/marquez/web still missing after submodule init"
+          exit 1
+        fi
+
+        cd "$WEB_DIR"
+        # node_modules: prefer lockfile clean-install (same policy as
+        # languages.javascript.npm.install); always ensure deps for setupProxy.
+        if [ ! -d node_modules/express ] || [ ! -d node_modules/webpack ]; then
+          echo "marquez:build-web: npm install (node_modules)..."
+          if [ -f package-lock.json ]; then
+            npm clean-install --prefer-offline 2>/dev/null || npm clean-install || npm install
+          else
+            npm install
+          fi
+        fi
+
+        NEED_BUILD=0
+        if [ ! -f dist/index.html ]; then
+          NEED_BUILD=1
+        elif [ -f package-lock.json ] && [ package-lock.json -nt dist/index.html ]; then
+          NEED_BUILD=1
+        fi
+        if [ "$NEED_BUILD" = "1" ]; then
+          echo "marquez:build-web: webpack production build..."
+          export REACT_APP_ADVANCED_SEARCH=false
+          npm run build
+        else
+          echo "marquez:build-web: dist up to date — skip webpack"
+        fi
+        test -f dist/index.html
+
+        mkdir -p "$MARQUEZ_HOME"
+        rm -rf "$MARQUEZ_HOME/web-dist"
+        cp -a dist "$MARQUEZ_HOME/web-dist"
+        echo "marquez:build-web: ready → $WEB_DIR/dist (+ $MARQUEZ_HOME/web-dist)"
+      '';
+      before = [ "devenv:processes:marquez-web" ];
+      description = "Bootstrap Marquez web (npm + webpack) before marquez-web process; no Docker/DB";
     };
 
     "sigint:resolve-config" = {
@@ -1341,7 +1557,7 @@ EOF
           fi
           echo "impala_fdw.so built (HS2 thrift + libkudu_client stub; kudu_scan PR-K0)."
         else
-          echo "impala_fdw.so built (HS2 thrift client only; NOSASL ready)."
+          echo "impala_fdw.so built (HS2 thrift client; Kerberos GSSAPI required at runtime)."
         fi
         echo "Next: devenv tasks run impala-fdw:install"
       '';
@@ -1393,25 +1609,29 @@ CREATE FOREIGN DATA WRAPPER impala_fdw
   HANDLER impala_fdw_handler
   VALIDATOR impala_fdw_validator;
 
--- Default server → local Impala HS2 (NOSASL), Kudu-backed tables
+-- Default server → Kerberos HS2 on FQDN (product path). Re-run after kerberos-migrate.
 DROP SERVER IF EXISTS impala_kudu_srv CASCADE;
 CREATE SERVER impala_kudu_srv
   FOREIGN DATA WRAPPER impala_fdw
   OPTIONS (
-    host '127.0.0.1',
+    host 'tinybox.dev.vista.zndx.org',
     port '21050',
-    auth 'nosasl',
-    kudu_masters '127.0.0.1:7051',
+    auth 'kerberos',
+    kudu_masters 'tinybox.dev.vista.zndx.org:7051',
     default_access 'impala_sql'
   );
 
 CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER
-  SERVER impala_kudu_srv;
+  SERVER impala_kudu_srv
+  OPTIONS (
+    principal 'signals@DEV.VISTA.ZNDX.ORG',
+    keytab '.devenv/kdc/signals.keytab'
+  );
 
-\\echo 'impala_fdw installed; server impala_kudu_srv → 127.0.0.1:21050 (nosasl)'
+\\echo 'impala_fdw installed; server impala_kudu_srv → FQDN:21050 (kerberos)'
 SQL
-        echo "Installed to $EXT_DIR and registered in database signals."
-        echo "Smoke: devenv tasks run impala-fdw:smoke"
+        echo "Installed to $EXT_DIR and registered in database signals (Kerberos HS2)."
+        echo "Smoke: devenv tasks run impala-fdw:smoke (requires just kinit + Kerberos Impala)"
       '';
       description = "Install impala_fdw into devenv PG (:5455/signals) + create default server";
     };
@@ -1770,13 +1990,23 @@ SQL
 
   # ── Shell ──────────────────────────────────────────────────────────────────
   enterShell = ''
-    KDC_DIR="$PWD/.devenv/kdc"
-    export KRB5_CONFIG="$KDC_DIR/krb5.conf"
-    export KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf"
-    export KRB5CCNAME="$KDC_DIR/krb5cc"
+    # Kerberos required — no NOSASL fallback
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_kerberos.sh"
+    signals_krb_env "$PWD"
+    if ! signals_krb_require_layout "$PWD" 2>/dev/null; then
+      echo "Kerberos not bootstrapped. Run: just bootstrap"
+    elif ! signals_krb_kinit "$PWD" 2>/dev/null; then
+      echo "ERROR: kinit failed — Kerberos required. Run: just bootstrap"
+    fi
 
     # Kudu build location (submodule; override with KUDU_BUILD if needed)
     export KUDU_BUILD="''${KUDU_BUILD:-$PWD/components/kudu/build/latest}"
+
+    # Durable data root: /raid/signals (lab) or SIGNALS_DATA_ROOT override
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_data_root.sh"
+    signals_ensure_data_layout
 
     # Project-local Maven repo (never pollute ~/.m2 with signals SNAPSHOTs).
     # Maven 3.9+ honors MAVEN_ARGS; tasks also pass -Dmaven.repo.local explicitly.
@@ -1845,14 +2075,18 @@ SQL
     echo "Secrets: secretspec.toml (provider=dotenv via devenv.yaml) — see docs/operations/secrets.md"
     echo "  secretspec run -- <cmd>   # inject declared secrets without shell export"
     echo ""
-    echo "Core services (start with 'devenv up'):"
-    echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron"
+    echo "Data root: \$SIGNALS_DATA_ROOT=$SIGNALS_DATA_ROOT"
+    echo "  kudu/ rustfs/ flink/ backups/  — just backup → \$SIGNALS_BACKUP_DIR"
+    echo ""
+    echo "Core services (start with 'devenv up' / 'devenv up -d'):"
+    echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron (Atlas+Ranger SoR dumps via just backup)"
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
-    echo "  Atlas             — http://localhost:21010 (AGE backend → signals DB)"
+    echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
+    echo "  Marquez Web       — http://localhost:3000 (default stack; turn-key via marquez:build-web)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
     echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
-    echo "  Kudu Kerberos     — SIGNALS_KUDU_KERBEROS=0|1 (PR-K5a; default 0)"
+    echo "  Kerberos          — required (just bootstrap / just kinit); Impala+Kudu FQDN SPNs"
     echo "  Impala Statestore — localhost:24000 (web UI: 25010)"
     echo "  Impala Catalogd   — localhost:26000 (web UI: 25020, HMS-free)"
     echo "  Impala Daemon     — hs2://localhost:21050 (web UI: 25000)"
@@ -1867,6 +2101,7 @@ SQL
     echo "  devenv tasks run impala:build-fe      — Incremental Java frontend build"
     echo "  devenv tasks run impala:test-fe       — Run Impala FE unit tests"
     echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
+    echo "  devenv tasks run marquez:build-web    — Bootstrap Marquez UI (also runs before devenv up)"
     echo "  devenv tasks run ranger:build         — Ranger → .devenv/m2 + distro"
     echo "  devenv tasks run ranger:install       — .devenv/ranger/admin"
     echo "  devenv tasks run ranger:setup         — setup.sh → Postgres ranger DB"

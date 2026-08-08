@@ -11,6 +11,7 @@
     - [gRPC Engine](./architecture/grpc-engine.md)
     - [WASM Terminal](./architecture/wasm-terminal.md)
     - [Visualization Pipeline](./architecture/visualization.md)
+- [Identity and access](./architecture/identity-and-access.md)
 - [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
@@ -59,6 +60,7 @@
 
 - [Operations Guide](./operations/overview.md)
     - [Development Environment](./operations/devenv.md)
+    - [Storage and backup](./operations/storage-and-backup.md)
     - [Secrets](./operations/secrets.md)
     - [Services](./operations/services.md)
     - [Kerberos](./operations/kerberos.md)

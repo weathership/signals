@@ -64,10 +64,11 @@ def pg_conn(dbname="signals"):
 
 
 def impala_conn():
-    """Connect to Impala via HiveServer2 (no auth)."""
-    return impala_connect(
-        host=_CFG.impala_host, port=_CFG.impala_port, auth_mechanism="NOSASL",
-    )
+    """Connect to Impala HS2 with Kerberos GSSAPI (FQDN SPN)."""
+    from signals.impala import impala_connect as krb_connect
+
+    # Prefer FQDN from env; config.impala_host must not be loopback under Kerberos
+    return krb_connect(host=None, port=_CFG.impala_port)
 
 
 def impala_execute(sql, fetch=False):

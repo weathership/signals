@@ -8,10 +8,10 @@
 CREATE SERVER IF NOT EXISTS impala_kudu_srv
   FOREIGN DATA WRAPPER impala_fdw
   OPTIONS (
-    host '127.0.0.1',
+    host 'tinybox.dev.vista.zndx.org',
     port '21050',
-    auth 'nosasl',
-    kudu_masters '127.0.0.1:7051',
+    auth 'kerberos',
+    kudu_masters 'tinybox.dev.vista.zndx.org:7051',
     default_access 'auto'
   );
 

@@ -43,3 +43,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:25010/
 ```
 
 Prereqs: `ranger:build` + `ranger:install` + `ranger:setup`, `atlas:build`, `kudu:build-cpp`, Impala BE build, `impala:build-fe`.
+
+## Related
+
+- Isolation constraint: `014357_devenv-isolation-constraint.md`

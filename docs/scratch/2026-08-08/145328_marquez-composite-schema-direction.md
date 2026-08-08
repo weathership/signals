@@ -13,9 +13,10 @@ Signals is the **core product** that unifies:
 | **OpenLineage** | Runtime provenance (Job/Run/Dataset events + columnLineage) | Aegir polyglot OL emitters, Gaius `hx.lineage`, Aegir `gateway/marquez.py` |
 | **Marquez** | OL **reference UI + REST validation suite** | oss-marquez fork; Aegir already mounts Marquez-compat read API |
 
-Marquez is **not** the system of record. It is the consumer that proves our
-composite store still speaks OpenLineage correctly while Atlas remains the
-governance authority.
+Marquez is **not** the system of record and has **no separate database** in
+Signals. The composite store is Atlas/signals PG (+ AGE, + Kudu/FDW for scale).
+Marquez-web is an optional OL-consuming UI against the Atlas OL extension.
+Stock Marquez API/Flyway schema is intentionally not deployed.
 
 ## Prior art (directional)
 

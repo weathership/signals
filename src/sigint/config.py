@@ -122,7 +122,7 @@ class PipelineConfig:
     """Resolved pipeline configuration."""
 
     # Infrastructure
-    impala_host: str = "127.0.0.1"
+    impala_host: str = "tinybox.dev.vista.zndx.org"
     impala_port: int = 21050
     atlas_url: str = "http://localhost:21010"
     atlas_user: str = "admin"
@@ -320,7 +320,7 @@ class TaggingConfig:
     """All knobs for the sample -> classify -> tag pipeline."""
 
     # Impala connection
-    impala_host: str = "127.0.0.1"
+    impala_host: str = "tinybox.dev.vista.zndx.org"
     impala_port: int = 21050
 
     # Atlas connection

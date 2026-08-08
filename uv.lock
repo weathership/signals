@@ -733,6 +733,12 @@ wheels = [
 ]
 
 [[package]]
+name = "kerberos"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/cd/f98699a6e806b9d974ea1d3376b91f09edcb90415adbf31e3b56ee99ba64/kerberos-1.3.1.tar.gz", hash = "sha256:cdd046142a4e0060f96a00eb13d82a5d9ebc0f2d7934393ed559bac773460a2c", size = 19126, upload-time = "2021-01-09T06:43:46.862Z" }
+
+[[package]]
 name = "kiwisolver"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2127,6 +2133,7 @@ dev = [
     { name = "anthropic" },
     { name = "behave" },
     { name = "impyla" },
+    { name = "kerberos" },
     { name = "numpy" },
     { name = "owlready2" },
     { name = "psycopg", extra = ["binary"] },
@@ -2135,6 +2142,7 @@ dev = [
     { name = "requests" },
     { name = "sage-importance" },
     { name = "sentence-transformers" },
+    { name = "thrift-sasl" },
 ]
 
 [package.metadata]
@@ -2166,6 +2174,7 @@ dev = [
     { name = "anthropic", specifier = ">=0.84.0" },
     { name = "behave", specifier = ">=1.3.3" },
     { name = "impyla", specifier = ">=0.19.0" },
+    { name = "kerberos", specifier = ">=1.3.1" },
     { name = "numpy", specifier = ">=2.4.3" },
     { name = "owlready2", specifier = ">=0.50" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
@@ -2174,6 +2183,7 @@ dev = [
     { name = "requests", specifier = ">=2.31" },
     { name = "sage-importance", specifier = ">=0.0.6" },
     { name = "sentence-transformers", specifier = ">=3.3.0" },
+    { name = "thrift-sasl", specifier = ">=0.4.3" },
 ]
 
 [[package]]

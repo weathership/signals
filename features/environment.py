@@ -25,6 +25,7 @@ REQUIRED_PROCESSES = [
     "postgres",
     "kdc",
     "atlas",
+    "marquez-web",  # default stack: OL UI → Atlas /api/v1 (always with devenv up)
     "kudu-master",
     "kudu-tserver",
     "impala-statestore",
@@ -84,12 +85,12 @@ def _check_atlas_api():
 
 
 def _check_impala():
-    """Check Impala accepts SQL queries."""
+    """Check Impala accepts SQL over Kerberos GSSAPI."""
     sys.modules.setdefault("thrift.protocol.fastbinary", None)
     sys.modules.setdefault("thrift.protocol.fastproto", None)
-    from impala.dbapi import connect
+    from signals.impala import impala_connect
 
-    conn = connect(host="localhost", port=21050, auth_mechanism="NOSASL")
+    conn = impala_connect()
     cur = conn.cursor()
     cur.execute("SELECT 1")
     result = cur.fetchone()
