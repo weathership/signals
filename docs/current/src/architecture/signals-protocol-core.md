@@ -5,9 +5,14 @@ zndx federation: lineage, governance metadata, and authz decision inputs live
 here. Federated engines (Ægir, Atelier, Gaius, and **external** peers such as
 Metabase) operate on the fleet; they **discover and call** centralized services
 instead of each growing a private catalog, lineage store, or policy engine.
-**Hermes Agent** is the multi-agent runtime we plugin into for
-**reasoning-enabled memory** and **context compaction**, with Weathership as the
-path to an [official Hermes memory provider](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers).
+**Hermes Agent** is a multi-agent runtime we integrate with (**plugins first,
+not a core fork for now**) for **reasoning-enabled memory** and **context
+compaction**, with Weathership as the path to an
+[official Hermes memory provider](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers).
+The federated fleet is already a **healthy superset** of Hermes’s product
+surface (governance SoR, multi-engine federation, DST, nascent SAE/CLT
+interpretability, persistent homology / Ollivier–Ricci topology)—capabilities
+Hermes may never fully adopt in-tree.
 
 Wire contracts live in the shared submodule
 [`components/signals-protocol`](https://github.com/zndx/signals-protocol)
@@ -200,6 +205,11 @@ Only one external memory provider is active at a time
    memory writes and model ops (authz + provenance).
 4. Ship as installable Hermes plugins; eventually qualify as an **official**
    reasoning-enabled memory service provider in the Hermes ecosystem.
+5. Keep **superset** capabilities fleet-side (and exposable as tools/skills):
+   mechanistic interpretability (SAE/CLT), topological structure (PH,
+   Ollivier–Ricci), multi-engine `Complete`/`Remediate`—without waiting for
+   Hermes core to absorb them. Deeper core integration remains open later;
+   plugins-first is the **current** strategy.
 
 Submodule: [`components/hermes-agent`](../components/hermes-agent.md).
 

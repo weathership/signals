@@ -6,10 +6,17 @@ Submodule: `components/hermes-agent` →
 
 ## Role in Signals / Weathership
 
-Hermes is the **agent runtime** that multi-agent and operator workflows will
-run on (or beside) the Signals stack. Signals does **not** replace Hermes core;
-it supplies **exceptional plugins** so agent memory and context compaction are
-backed by our SoR, governance, and federation:
+Hermes is a valuable **agent runtime surface** for multi-agent and operator
+workflows. **For now**, we do **not** treat Signals as a fork of Hermes core:
+we pin the submodule and ship **exceptional plugins** (memory + compaction)
+so Hermes can use Signals as SoR, governance, and federation.
+
+That is a **sequencing** choice, not a ceiling. Surveying the federated
+engine-service fleet (Ægir, Atelier, Gaius, Signals stack, and related labs)
+shows a **healthy superset** of what Hermes offers today as a product agent.
+Weathership may later deepen integration (including deeper core contribution
+or a Weathership-hosted agent face) when product timing warrants it—without
+abandoning Hermes-compatible plugins or an official memory-provider path.
 
 | Hermes surface | Signals / Weathership contribution | Official Hermes docs |
 |----------------|------------------------------------|----------------------|
@@ -20,6 +27,25 @@ backed by our SoR, governance, and federation:
 Target product name for the official provider: **Weathership** (Signals-backed
 reasoning-enabled memory), alongside providers such as Honcho, Mem0, OpenViking,
 Hindsight, etc. in Hermes’s memory ecosystem.
+
+## Federation superset (why “for now”)
+
+Hermes is an excellent agent shell and plugin host. The constellation’s
+**operating surface** already goes further in directions Hermes may **never**
+fully adopt as first-class product:
+
+| Capability class | Where it lives (examples) | Relation to Hermes |
+|------------------|---------------------------|--------------------|
+| Multi-engine federation (`zndx.engine.v1`, OIP, co-tenancy) | signals-protocol + Ægir / Atelier / Gaius | Hermes can *call* engines; it is not the federation SoR |
+| Governance + lineage SoR | Atlas `/api/atlas/*`, OL `/api/v1/*`, Ranger | Hermes consumes via Weathership plugins / tools |
+| DST / classification method | Atelier (healthy); sigint outcomes in Signals | Beyond stock Hermes memory providers |
+| **Mechanistic interpretability** (SAE / CLT, feature analysis) | Constellation ML/ops labs (nascent) | Optional Hermes skills exist; depth is fleet-side |
+| **Topological analysis** (persistent homology, Ollivier–Ricci curvature) | e.g. `signals.persistence` / openph; geometry labs | Structural memory & graph geometry Hermes is unlikely to own end-to-end |
+
+Plugins are the **compatibility bridge** into Hermes users and the official
+provider listing. The **superset** stays in federated engines and Signals so
+interpretability and topology can grow without waiting on upstream Hermes
+roadmap.
 
 ## Plugin discovery (Hermes conventions)
 
@@ -34,8 +60,8 @@ From upstream:
 
 Signals-owned plugin code should live **in this monorepo** (e.g.
 `plugins/hermes/` or under `src/signals/hermes/`) and install into Hermes
-discovery paths — not by forking Hermes memory loaders in the submodule unless
-we contribute upstream.
+discovery paths. Prefer upstream contribution for loader changes; deeper
+core integration is deferred (**for now**), not forbidden.
 
 ## Submodule use
 
@@ -52,12 +78,15 @@ providers, schemas, loaders). Product plugins that implement Weathership memory
 and compaction depend on it and on Signals services (Atlas, `/api/v1`, Ranger,
 discovery from [signals-protocol](./signals-protocol.md)).
 
-## Non-goals
+## Near-term constraints (not permanent non-goals)
 
-- Replacing Hermes with a second agent framework in Signals.
-- Shipping a private memory DB that bypasses Atlas/AGE/OL provenance.
-- Making Hermes the system of record — **Signals remains SoR**; Hermes is the
-  agent client that remembers through us.
+- **For now:** no Hermes-core fork for discovery/loaders; plugins first.
+- Do not ship a private memory DB that bypasses Atlas/AGE/OL provenance.
+- Do not make Hermes the system of record — **Signals remains SoR**; Hermes is
+  an agent client (and listing channel) that remembers through us.
+- Later: optional deeper Weathership agent face or upstream core work if the
+  superset (SAE/CLT, topology, federation) needs a first-class home beyond
+  plugins.
 
 ## Related
 

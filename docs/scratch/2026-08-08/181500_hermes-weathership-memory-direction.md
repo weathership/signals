@@ -1,6 +1,7 @@
 # Hermes Agent submodule + Weathership memory direction
 
-**Date:** 2026-08-08
+**Date:** 2026-08-08  
+**Update:** same day — “not a fork **for now**”; federation as Hermes superset
 
 ## Landed
 
@@ -22,14 +23,34 @@ Signals / Weathership must ship **exceptional** Hermes plugins for:
 Goal: Weathership becomes an **official reasoning-enabled memory service
 provider** in the Hermes ecosystem (same tier as Honcho, Mem0, OpenViking, …).
 
+## Strategy: plugins first, not a permanent “never fork”
+
+| Now | Later (if product needs it) |
+|-----|-----------------------------|
+| Pin Hermes; implement memory + context plugins | Deeper Weathership agent face and/or upstream core contribution |
+| Signals remains SoR | Same |
+| Fleet exposes superset via tools/skills/engines | First-class surfaces for SAE/CLT, topology, federation |
+
+The federated engine-service set (Ægir, Atelier, Gaius, Signals, labs) is a
+**healthy superset** of Hermes’s current product agent. Hermes may **never**
+fully adopt:
+
+- Mechanistic interpretability (SAE / CLT)
+- Topological analysis (persistent homology, Ollivier–Ricci curvature)
+- Full multi-engine federation + governance SoR
+
+Those stay in the constellation; Hermes integration is the **compatibility and
+listing** channel, not the capability ceiling.
+
 ## Design constraints
 
-| Do | Don't |
-|----|--------|
+| Do | Don't (near-term) |
+|----|-------------------|
 | Back memory with Signals AGE/OL + governance | Second greenfield memory SoR |
-| One active provider: `memory.provider: weathership` (name TBD) | Fork Hermes core for discovery |
+| One active provider: `memory.provider: weathership` (name TBD) | Fork Hermes core **for discovery/loaders today** |
 | Emit OL on memory writes / model ops | Skip authz (Ranger / edge) |
 | Pre-compression extract into memory | Lose high-value turns on compact |
+| Expose fleet superset as tools behind Weathership | Pretend Hermes is the full operating surface |
 
 ## Implementation sketch (later)
 
