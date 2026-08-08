@@ -49,9 +49,18 @@ secretspec run -- just tag default.my_table
 
 Interactive lab uses `kinit signals` (password) or a user keytab — **Kerberos is
 the expected path for signals users**, not an optional add-on. Headless / FDW
-jobs prefer `SIGNALS_KRB_USER_KEYTAB` from SecretSpec. A future gRPC engine
-should use the same realm and principal conventions (federation join), without
-blocking current stack work on a full mesh.
+jobs prefer `SIGNALS_KRB_USER_KEYTAB` from SecretSpec.
+
+**Federation:** Signals is the first adopter of Kerberos + SecretSpec. Sibling
+projects (engines, ACP agents) must follow the binding procedures in the
+**signals-protocol** submodule:
+
+`components/signals-protocol/specification/operations/kerberos_and_secretspec.md`
+
+That document covers principal catalog, shared secret names, keyring/sops
+providers, `secretspec run` + `kinit` wrappers, and Ranger onboarding—so every
+process that hits Impala/Kudu/Ranger has a principal without ambient shell
+secrets.
 
 ## Declared secrets (summary)
 

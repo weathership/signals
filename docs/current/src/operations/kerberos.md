@@ -9,6 +9,12 @@ org-wide end-to-end security (including a future gRPC engine federation) is
 not required to land every feature, but components here should not invent a
 parallel long-term identity path. CI may use trust/nosasl for bootstrap only.
 
+**Federation adopters** (Ægir, Atelier, Gaius, Hermes/ACP, …) follow the
+cross-project procedures in
+[`components/signals-protocol/specification/operations/kerberos_and_secretspec.md`](../../../components/signals-protocol/specification/operations/kerberos_and_secretspec.md)
+(SecretSpec allowlists, engine/agent principals, Ranger). This page remains the
+lab KDC / Signals-host reference.
+
 ## Naming model
 
 | Layer | Value |
