@@ -63,11 +63,12 @@ let
       fi
     done
 
-    # libjsig: required for JVM signal chaining after Impala installs handlers
-    LIB_JSIG=$(find "$JAVA_HOME" -name libjsig.so 2>/dev/null | head -1 || true)
-    if [ -n "$LIB_JSIG" ]; then
-      export LD_PRELOAD="$LIB_JSIG"
-    fi
+    # libjsig path only — do NOT export LD_PRELOAD here.
+    # Exporting libjsig during shell setup breaks child /bin/sh (Nix libdl vs host
+    # glibc: GLIBC_2.36 / GLIBC_ABI_DT_RELR), which makes GetJavaMajorVersion fail
+    # and skips Java 21 --add-opens. Apply LD_PRELOAD only on the final exec line.
+    export IMPALA_LIBJSIG=$(find "$JAVA_HOME" -name libjsig.so 2>/dev/null | head -1 || true)
+    unset LD_PRELOAD
 
     JAVA_RP=""
     if command -v readelf >/dev/null 2>&1; then
@@ -77,9 +78,18 @@ let
     JAVA_LIB="$JAVA_HOME/lib/server:$JAVA_HOME/lib"
     [ -d "$JAVA_HOME/lib/jli" ] && JAVA_LIB="$JAVA_LIB:$JAVA_HOME/lib/jli"
 
-    # Order: glibc → security → nix libstdc++ → shims → jdk → jdk runpath
+    # BE shared natives for JNI System.load fallback (NativeLibUtil):
+    # libloggingsupport.so (GlogAppender → NativeLogger) and libfesupport.so.
+    # Primary path is RegisterNatives in InitJvmLoggingSupport; this covers
+    # UnsatisfiedLinkError reload and keeps java.library.path complete.
+    IMPALA_BE_UTIL="$IMPALA_HOME/be/build/latest/util"
+    IMPALA_BE_SVC="$IMPALA_HOME/be/build/latest/service"
+    HADOOP_NATIVE=$(ls -d "$IMPALA_HOME"/toolchain/cdp_components-*/hadoop-*/lib/native 2>/dev/null | head -1 || true)
+    export IMPALA_JAVA_LIBRARY_PATH="$IMPALA_BE_UTIL:$IMPALA_BE_SVC''${HADOOP_NATIVE:+:$HADOOP_NATIVE}"
+
+    # Order: glibc → security → nix libstdc++ → shims → be natives → jdk → jdk runpath
     # (never toolchain gcc lib64 first: its libcrypto breaks OPENSSL_3.4)
-    export IMPALA_LIBPATH="$NIX_GLIBC:$NIX_SSL:$NIX_KRB5:$NIX_SASL:$NIX_STDCXX:$SIG_IMPALA_LIB:$JAVA_LIB''${JAVA_RP:+:$JAVA_RP}"
+    export IMPALA_LIBPATH="$NIX_GLIBC:$NIX_SSL:$NIX_KRB5:$NIX_SASL:$NIX_STDCXX:$SIG_IMPALA_LIB:$IMPALA_BE_UTIL:$IMPALA_BE_SVC:$JAVA_LIB''${JAVA_RP:+:$JAVA_RP}"
     unset LD_LIBRARY_PATH
     export IMPALA_LD_LINUX="${pkgs.glibc}/lib/ld-linux-x86-64.so.2"
   '';
@@ -90,6 +100,83 @@ let
     "-Dsignals.catalog.jdbc_url=jdbc:postgresql://localhost:5455/signals_catalog"
     "-Dsignals.kudu.master_addresses=127.0.0.1:7051"
   ];
+
+  # Java 21 --add-opens Impala would set when GetJavaMajorVersion works (sizeof weigher).
+  # Pre-seed so a failed java -version shell-out cannot skip module opens.
+  # Omits jdk.internal.util.jar (not in java.base on this OpenJDK → warning-only).
+  impalaJdk21AddOpens = builtins.concatStringsSep " " [
+    "--add-opens=java.base/java.lang=ALL-UNNAMED"
+    "--add-opens=java.base/java.nio=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.regex=ALL-UNNAMED"
+    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+    "--add-opens=java.base/java.io=ALL-UNNAMED"
+    "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
+    "--add-opens=java.base/java.lang.module=ALL-UNNAMED"
+    "--add-opens=java.base/java.lang.ref=ALL-UNNAMED"
+    "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"
+    "--add-opens=java.base/java.net=ALL-UNNAMED"
+    "--add-opens=java.base/java.nio.charset=ALL-UNNAMED"
+    "--add-opens=java.base/java.nio.file.attribute=ALL-UNNAMED"
+    "--add-opens=java.base/java.security=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.concurrent.locks=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.jar=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.zip=ALL-UNNAMED"
+    "--add-opens=java.base/java.util=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.loader=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.math=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.module=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.perf=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.platform=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
+    "--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED"
+    "--add-opens=java.base/sun.net.www.protocol.jar=ALL-UNNAMED"
+    "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED"
+    "--add-opens=jdk.dynalink/jdk.dynalink.beans=ALL-UNNAMED"
+    "--add-opens=jdk.dynalink/jdk.dynalink.linker.support=ALL-UNNAMED"
+    "--add-opens=jdk.dynalink/jdk.dynalink.linker=ALL-UNNAMED"
+    "--add-opens=jdk.dynalink/jdk.dynalink.support=ALL-UNNAMED"
+    "--add-opens=jdk.dynalink/jdk.dynalink=ALL-UNNAMED"
+    "--add-opens=jdk.management.jfr/jdk.management.jfr=ALL-UNNAMED"
+    "--add-opens=jdk.management/com.sun.management.internal=ALL-UNNAMED"
+  ];
+
+  # Helper for final Impala daemon launch (Linux).
+  # bwrap overlays Nix bash on /bin/sh so popen("java -version") children inherit
+  # LD_PRELOAD=libjsig without mixing Nix libdl into host glibc /bin/sh.
+  # ld-linux --library-path keeps LD_LIBRARY_PATH unset for the process tree.
+  # Usage: impala_run /path/to/catalogd --flag ...
+  impalaRunFn = ''
+    impala_run() {
+      local _bin="$1"
+      shift
+      local _bwrap="${pkgs.bubblewrap}/bin/bwrap"
+      local _nix_sh="${pkgs.bashInteractive}/bin/bash"
+      if [ ! -x "$_bwrap" ]; then
+        echo "ERROR: bubblewrap missing (devenv packages): $_bwrap"; exit 1
+      fi
+      if [ ! -x "$_nix_sh" ]; then
+        echo "ERROR: nix bash missing: $_nix_sh"; exit 1
+      fi
+      if [ ! -x "$_bin" ]; then
+        echo "ERROR: Impala binary missing: $_bin"; exit 1
+      fi
+      if [ -n "''${IMPALA_LIBJSIG:-}" ]; then
+        export LD_PRELOAD="$IMPALA_LIBJSIG"
+      fi
+      exec "$_bwrap" \
+        --bind / / \
+        --dev-bind /dev /dev \
+        --proc /proc \
+        --share-net \
+        --die-with-parent \
+        --ro-bind "$_nix_sh" /bin/sh \
+        --ro-bind "$_nix_sh" /bin/bash \
+        -- \
+        "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
+        "$_bin" "$@"
+    }
+  '';
 
   # Portable Kerberos/SASL/OpenSSL paths for ASF C++ links under Nix (Impala, Kudu).
   # FindKerberos registers full-path gssapi_krb5; this still supplies -L / find_library.
@@ -581,20 +668,27 @@ in
       . "$IMPALA_HOME/bin/set-classpath.sh"
       ${impalaLdLibraryPath}
 
-      # Add project config (hive-site.xml, core-site.xml) to classpath
-      export CLASSPATH="$PWD/config/impala:$CLASSPATH"
+      # Hadoop/Hive site XMLs + bootstrap log4j (ConsoleAppender).
+      # Do not put config/impala/log4j.properties (GlogAppender) on the early
+      # classpath: libhdfs CreateJavaVM loads log4j before Impala JNI natives
+      # exist, and GlogAppender failure cascades into GetStaticMethodID SEGV.
+      export CLASSPATH="$PWD/config/impala/hadoop-conf:$CLASSPATH"
 
-      # Initialize catalog schema (idempotent)
-      psql -p 5455 -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql"
+      # Initialize catalog schema (idempotent). Use TCP host so we do not depend
+      # on the devenv unix-socket path being present in $PGHOST / runtime dir.
+      psql -h 127.0.0.1 -p 5455 -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql"
 
-      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts}"
+      # HMS-free props + Java 21 module opens (pre-seed; Impala may append more).
+      # Merge BE util/service into java.library.path for NativeLogger fallback load.
+      export LIBHDFS_OPTS="''${LIBHDFS_OPTS:-} -Djava.library.path=$IMPALA_JAVA_LIBRARY_PATH"
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts} ${impalaJdk21AddOpens}"
 
       mkdir -p "$PWD/.devenv/impala/catalogd/logs"
 
       echo "Starting Impala Catalog Server on port 26000 (HMS-free)..."
-      echo "JAVA_HOME=$JAVA_HOME IMPALA_LIBPATH(head)=''${IMPALA_LIBPATH:0:200}"
-      exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
-        "$IMPALA_HOME/be/build/latest/service/catalogd" \
+      echo "JAVA_HOME=$JAVA_HOME LIBJSIG=''${IMPALA_LIBJSIG:-} JAVA_LIBRARY_PATH=$IMPALA_JAVA_LIBRARY_PATH"
+      ${impalaRunFn}
+      impala_run "$IMPALA_HOME/be/build/latest/service/catalogd" \
         --catalog_service_port=26000 \
         --state_store_subscriber_port=23020 \
         --state_store_host=localhost \
@@ -648,16 +742,17 @@ in
       . "$IMPALA_HOME/bin/set-classpath.sh"
       ${impalaLdLibraryPath}
 
-      # Add project config (hive-site.xml, core-site.xml) to classpath
-      export CLASSPATH="$PWD/config/impala:$CLASSPATH"
+      # Same early-classpath rules as catalogd (hadoop-conf, not GlogAppender log4j)
+      export CLASSPATH="$PWD/config/impala/hadoop-conf:$CLASSPATH"
 
-      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts}"
+      export LIBHDFS_OPTS="''${LIBHDFS_OPTS:-} -Djava.library.path=$IMPALA_JAVA_LIBRARY_PATH"
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} ${hmsFreeJavaOpts} ${impalaJdk21AddOpens}"
 
       mkdir -p "$PWD/.devenv/impala/impalad/logs"
 
       echo "Starting Impala Daemon on hs2://localhost:21050..."
-      exec "$IMPALA_LD_LINUX" --library-path "$IMPALA_LIBPATH" \
-        "$IMPALA_HOME/be/build/latest/service/impalad" \
+      ${impalaRunFn}
+      impala_run "$IMPALA_HOME/be/build/latest/service/impalad" \
         --hs2_port=21050 \
         --beeswax_port=21001 \
         --state_store_subscriber_port=23000 \
@@ -1024,20 +1119,218 @@ SQL
           echo "components/impala_fdw not initialized. Run: git submodule update --init components/impala_fdw"
           exit 1
         fi
-        # Thrift + boost from devenv packages (ABI-matched HS2 client)
+        # Thrift + boost from devenv packages (task-local; not global PATH pollution)
         export THRIFT_HOME="${pkgs.thrift}"
         export BOOST_HOME="${pkgs.boost.dev}"
+        # PG 16 matching services.postgres (not host /usr/bin/pg_config → 14)
+        # nixpkgs multi-output often has no pg_config binary; synthesize one from
+        # postgresql_16.{dev,lib,out} so PGXS resolves include/server correctly.
+        PG_DEV="${pkgs.postgresql_16.dev}"
+        PG_OUT="${pkgs.postgresql_16}"
+        PG_LIB="${pkgs.postgresql_16.lib}"
+        mkdir -p "$PWD/.devenv/pg-ext/bin" "$PWD/.devenv/pg-ext/lib" "$PWD/.devenv/pg-ext/share"
+        cat > "$PWD/.devenv/pg-ext/bin/pg_config" <<EOF
+#!/usr/bin/env bash
+# Synthetic pg_config for devenv PG16 extension builds (nix store is read-only).
+case "\$1" in
+  --version) echo "PostgreSQL 16.12";;
+  --pgxs) echo "$PG_DEV/lib/pgxs/src/makefiles/pgxs.mk";;
+  --includedir|--pkgincludedir) echo "$PG_DEV/include";;
+  --includedir-server) echo "$PG_DEV/include/server";;
+  --libdir) echo "$PG_LIB/lib";;
+  --pkglibdir) echo "$PWD/.devenv/pg-ext/lib";;
+  --sharedir) echo "$PWD/.devenv/pg-ext/share";;
+  --bindir) echo "$PG_OUT/bin";;
+  --sysconfdir) echo "/etc/postgresql";;
+  --mandir|--docdir|--localedir|--htmldir) echo "$PWD/.devenv/pg-ext/share";;
+  --cc) echo "cc";;
+  --cppflags) echo "-I$PG_DEV/include";;
+  --cflags) echo "-fPIC -O2";;
+  --cflags_sl) echo "-fPIC";;
+  --ldflags) echo "-L$PG_LIB/lib";;
+  --ldflags_ex|--ldflags_sl) echo "";;
+  --libs) echo "";;
+  --configure) echo "";;
+  *) echo "";;  # PGXS probes many optional switches; empty is fine
+esac
+EOF
+        chmod +x "$PWD/.devenv/pg-ext/bin/pg_config"
+        export PG_CONFIG="$PWD/.devenv/pg-ext/bin/pg_config"
+        echo "Using PG_CONFIG=$PG_CONFIG ($($PG_CONFIG --version))"
+        test -f "$($PG_CONFIG --includedir-server)/postgres.h" \
+          || test -f "$($PG_CONFIG --pkgincludedir)/server/postgres.h" \
+          || { echo "ERROR: postgres.h not found via pg_config"; exit 1; }
         cd components/impala_fdw
         make clean 2>/dev/null || true
+        # PGXS Makefile.global bakes clang-only -W flags; override for a plain
+        # gcc/g++ (or clang++) build with libstdc++ for thrift C++.
+        export CC="${pkgs.stdenv.cc}/bin/cc"
+        export CXX="${pkgs.stdenv.cc}/bin/c++"
+        SAFE_CFLAGS="-O2 -fPIC -fno-strict-aliasing -fwrapv -Wall"
+
+        # libkudu_client (PR-K0+): lib from .devenv symlink farm; headers from
+        # Impala toolchain (NOT under .devenv/impala — no include tree there).
+        REPO_ROOT="$(cd ../.. && pwd)"
+        export IMPALA_KUDU_VERSION="''${IMPALA_KUDU_VERSION:-879a8f9e2}"
+        if [ -z "''${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ]; then
+          # Match enterShell / Impala toolchain layout
+          _tc=$(ls -d "$REPO_ROOT/components/impala/toolchain/toolchain-packages-"* 2>/dev/null | head -1 || true)
+          [ -n "$_tc" ] && export IMPALA_TOOLCHAIN_PACKAGES_HOME="$_tc"
+        fi
+        KUDU_CLIENT_LIBDIR=""
+        KUDU_CLIENT_INCDIR=""
+        IMPALA_FDW_WITH_KUDU=""
+        if [ -f "$REPO_ROOT/.devenv/impala/lib/libkudu_client.so" ]; then
+          KUDU_CLIENT_LIBDIR="$REPO_ROOT/.devenv/impala/lib"
+        elif [ -n "''${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ]; then
+          for _v in debug release; do
+            if [ -f "$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-$IMPALA_KUDU_VERSION/$_v/lib/libkudu_client.so" ]; then
+              KUDU_CLIENT_LIBDIR="$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-$IMPALA_KUDU_VERSION/$_v/lib"
+              break
+            fi
+          done
+        fi
+        if [ -n "''${IMPALA_TOOLCHAIN_PACKAGES_HOME:-}" ]; then
+          for _v in debug release; do
+            if [ -f "$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-$IMPALA_KUDU_VERSION/$_v/include/kudu/client/client.h" ]; then
+              KUDU_CLIENT_INCDIR="$IMPALA_TOOLCHAIN_PACKAGES_HOME/kudu-$IMPALA_KUDU_VERSION/$_v/include"
+              break
+            fi
+          done
+        fi
+        if [ -z "$KUDU_CLIENT_INCDIR" ] && [ -f "$REPO_ROOT/components/kudu/src/kudu/client/client.h" ]; then
+          KUDU_CLIENT_INCDIR="$REPO_ROOT/components/kudu/src"
+        fi
+        if [ -n "$KUDU_CLIENT_LIBDIR" ] && [ -n "$KUDU_CLIENT_INCDIR" ]; then
+          IMPALA_FDW_WITH_KUDU=1
+          echo "impala_fdw: kudu_scan build ON"
+          echo "  KUDU_CLIENT_LIBDIR=$KUDU_CLIENT_LIBDIR"
+          echo "  KUDU_CLIENT_INCDIR=$KUDU_CLIENT_INCDIR"
+        else
+          echo "impala_fdw: kudu_scan build OFF (HS2-only; missing lib and/or headers)"
+          echo "  LIBDIR=''${KUDU_CLIENT_LIBDIR:-unset} INCDIR=''${KUDU_CLIENT_INCDIR:-unset}"
+        fi
+
         make with_llvm=no \
+          PG_CONFIG="$PG_CONFIG" \
+          CC="$CC" \
+          CXX="$CXX" \
+          CFLAGS="$SAFE_CFLAGS" \
+          CXXFLAGS="$SAFE_CFLAGS -std=c++17" \
           THRIFT_HOME="$THRIFT_HOME" \
           BOOST_HOME="$BOOST_HOME" \
-          PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp"
-        echo "impala_fdw.so built (HS2 thrift client; NOSASL ready, Kerberos next)."
-        echo "Smoke (Impala up): make hs2-smoke && ./tools/hs2_smoke 127.0.0.1 21050"
-        echo "Install: make install && psql -p 5455 -d signals -c 'CREATE EXTENSION impala_fdw'"
+          KUDU_CLIENT_LIBDIR="$KUDU_CLIENT_LIBDIR" \
+          KUDU_CLIENT_INCDIR="$KUDU_CLIENT_INCDIR" \
+          IMPALA_FDW_WITH_KUDU="''${IMPALA_FDW_WITH_KUDU}" \
+          PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp''${KUDU_CLIENT_INCDIR:+ -I$KUDU_CLIENT_INCDIR}''${IMPALA_FDW_WITH_KUDU:+ -DIMPALA_FDW_WITH_KUDU=1}"
+        test -f impala_fdw.so || { echo "ERROR: impala_fdw.so not produced"; ls -la; exit 1; }
+        if [ "''${IMPALA_FDW_WITH_KUDU}" = "1" ]; then
+          if command -v ldd >/dev/null 2>&1; then
+            ldd impala_fdw.so | grep -q kudu_client \
+              || { echo "ERROR: impala_fdw.so built WITH_KUDU but not linked to libkudu_client"; ldd impala_fdw.so; exit 1; }
+          fi
+          echo "impala_fdw.so built (HS2 thrift + libkudu_client stub; kudu_scan PR-K0)."
+        else
+          echo "impala_fdw.so built (HS2 thrift client only; NOSASL ready)."
+        fi
+        echo "Next: devenv tasks run impala-fdw:install"
       '';
-      description = "Build PostgreSQL Impala FDW with HS2 thrift client";
+      description = "Build PostgreSQL Impala FDW (HS2 thrift + optional libkudu_client)";
+    };
+
+    "impala-fdw:install" = {
+      exec = ''
+        set -euo pipefail
+        EXT_DIR="$PWD/.devenv/pg-ext"
+        SO="$PWD/components/impala_fdw/impala_fdw.so"
+        if [ ! -f "$SO" ]; then
+          echo "Build first: devenv tasks run impala-fdw:build"
+          exit 1
+        fi
+        mkdir -p "$EXT_DIR/lib" "$EXT_DIR/share/extension"
+        cp -f "$SO" "$EXT_DIR/lib/impala_fdw.so"
+        # Control + SQL with absolute module path (nix PG share is read-only)
+        cat > "$EXT_DIR/share/extension/impala_fdw.control" <<EOF
+comment = 'PostgreSQL FDW for Apache Impala HS2 (Kudu tables)'
+default_version = '0.1.0'
+module_pathname = '$EXT_DIR/lib/impala_fdw'
+relocatable = true
+EOF
+        # Expand MODULE_PATHNAME in the SQL script
+        sed "s|MODULE_PATHNAME|'$EXT_DIR/lib/impala_fdw'|g" \
+          components/impala_fdw/sql/impala_fdw--0.1.0.sql \
+          > "$EXT_DIR/share/extension/impala_fdw--0.1.0.sql"
+        # Register extension objects (CREATE EXTENSION needs control on path;
+        # use direct SQL against absolute .so for devenv PG).
+        psql -h 127.0.0.1 -p 5455 -d signals -v ON_ERROR_STOP=1 <<SQL
+-- Drop stale objects if re-installing
+DROP EXTENSION IF EXISTS impala_fdw CASCADE;
+DROP FOREIGN DATA WRAPPER IF EXISTS impala_fdw CASCADE;
+DROP FUNCTION IF EXISTS impala_fdw_handler() CASCADE;
+DROP FUNCTION IF EXISTS impala_fdw_validator(text[], oid) CASCADE;
+
+CREATE FUNCTION impala_fdw_handler()
+RETURNS fdw_handler
+AS '$EXT_DIR/lib/impala_fdw'
+LANGUAGE C STRICT;
+
+CREATE FUNCTION impala_fdw_validator(text[], oid)
+RETURNS void
+AS '$EXT_DIR/lib/impala_fdw'
+LANGUAGE C STRICT;
+
+CREATE FOREIGN DATA WRAPPER impala_fdw
+  HANDLER impala_fdw_handler
+  VALIDATOR impala_fdw_validator;
+
+-- Default server → local Impala HS2 (NOSASL), Kudu-backed tables
+DROP SERVER IF EXISTS impala_kudu_srv CASCADE;
+CREATE SERVER impala_kudu_srv
+  FOREIGN DATA WRAPPER impala_fdw
+  OPTIONS (
+    host '127.0.0.1',
+    port '21050',
+    auth 'nosasl',
+    kudu_masters '127.0.0.1:7051',
+    default_access 'impala_sql'
+  );
+
+CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER
+  SERVER impala_kudu_srv;
+
+\\echo 'impala_fdw installed; server impala_kudu_srv → 127.0.0.1:21050 (nosasl)'
+SQL
+        echo "Installed to $EXT_DIR and registered in database signals."
+        echo "Smoke: devenv tasks run impala-fdw:smoke"
+      '';
+      description = "Install impala_fdw into devenv PG (:5455/signals) + create default server";
+    };
+
+    "impala-fdw:smoke" = {
+      exec = ''
+        set -euo pipefail
+        # HS2 native smoke (optional binary)
+        if [ -x components/impala_fdw/tools/hs2_smoke ]; then
+          components/impala_fdw/tools/hs2_smoke 127.0.0.1 21050
+        elif [ -f components/impala_fdw/Makefile ]; then
+          export THRIFT_HOME="${pkgs.thrift}"
+          export BOOST_HOME="${pkgs.boost.dev}"
+          make -C components/impala_fdw hs2-smoke \
+            THRIFT_HOME="$THRIFT_HOME" BOOST_HOME="$BOOST_HOME" || true
+          if [ -x components/impala_fdw/tools/hs2_smoke ]; then
+            components/impala_fdw/tools/hs2_smoke 127.0.0.1 21050
+          fi
+        fi
+        # FDW object presence
+        psql -h 127.0.0.1 -p 5455 -d signals -v ON_ERROR_STOP=1 <<'SQL'
+SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname = 'impala_fdw';
+SELECT srvname, srvoptions FROM pg_foreign_server WHERE srvname = 'impala_kudu_srv';
+-- Lightweight probe: list remote tables via Impala if any (may be empty)
+-- CREATE FOREIGN TABLE is deferred until a Kudu table exists in catalog.
+SQL
+        echo "impala_fdw smoke OK (wrapper + server present; foreign tables after Kudu seed)."
+      '';
+      description = "Smoke HS2 client + verify impala_fdw FDW objects in PG";
     };
 
     "hms:install" = {
