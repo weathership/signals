@@ -34,3 +34,7 @@
 	path = components/impala_fdw
 	url = git@github.com:weathership/impala_fdw.git
 	branch = trunk
+[submodule "components/yunikorn-core"]
+	path = components/yunikorn-core
+	url = git@github.com:rch/asf-yunikorn-core.git
+	branch = rch/devenv
