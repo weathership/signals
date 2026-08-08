@@ -547,26 +547,32 @@ in
         KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
         # Explicit SPN — do not use kudu/_HOST (expands to uname -n, often tinybox.lan)
         KUDU_SPN="kudu/$KRB_HOST"
+        # Advertise hostname so clients request kudu/$KRB_HOST, not kudu/127.0.0.1
+        # (bind stays loopback; $KRB_HOST must resolve to 127.0.0.1 in lab hosts)
+        KUDU_RPC_BIND="127.0.0.1:7051"
+        KUDU_RPC_ADVERTISE="$KRB_HOST:7051"
         KUDU_AUTH_ARGS=(
           --keytab_file="$KUDU_KEYTAB"
           --principal="$KUDU_SPN"
           --rpc_authentication="$KUDU_RPC_AUTH"
           --rpc_encryption="$KUDU_RPC_ENC"
           --allow_world_readable_credentials=true
+          --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
         )
         echo "Kudu Master Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC keytab=$KUDU_KEYTAB)"
-        echo "  principal $KUDU_SPN (SIGNALS_KRB_HOST; must match kudu.keytab + client SPN)"
+        echo "  principal $KUDU_SPN bind=$KUDU_RPC_BIND advertise=$KUDU_RPC_ADVERTISE"
       else
         echo "Kudu Master Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1) — nosasl clients OK"
+        KUDU_RPC_BIND="127.0.0.1:7051"
       fi
 
-      echo "Starting Kudu Master on localhost:7051..."
+      echo "Starting Kudu Master on $KUDU_RPC_BIND..."
       exec "$KUDU_BUILD/bin/kudu-master" \
         --fs_data_dirs="$KUDU_HOME/master/data" \
         --fs_wal_dir="$KUDU_HOME/master/wal" \
         --log_dir="$KUDU_HOME/master/logs" \
         --webserver_port=8051 \
-        --rpc_bind_addresses=127.0.0.1:7051 \
+        --rpc_bind_addresses="$KUDU_RPC_BIND" \
         --unlock_unsafe_flags \
         --default_num_replicas=1 \
         "''${KUDU_AUTH_ARGS[@]}"
@@ -604,6 +610,9 @@ in
       mkdir -p "$KUDU_HOME/tserver/data" "$KUDU_HOME/tserver/wal" "$KUDU_HOME/tserver/logs"
 
       KUDU_AUTH_ARGS=()
+      # Master addrs for tserver: use SPN host when Kerberos so registration is consistent
+      KUDU_MASTER_ADDRS="127.0.0.1:7051"
+      KUDU_RPC_BIND="127.0.0.1:7050"
       if [ "''${SIGNALS_KUDU_KERBEROS:-0}" = "1" ]; then
         if [ ! -f "$KUDU_KEYTAB" ]; then
           echo "ERROR: SIGNALS_KUDU_KERBEROS=1 but keytab missing: $KUDU_KEYTAB"
@@ -616,14 +625,17 @@ in
         KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
         KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
         KUDU_SPN="kudu/$KRB_HOST"
+        KUDU_MASTER_ADDRS="$KRB_HOST:7051"
+        KUDU_RPC_ADVERTISE="$KRB_HOST:7050"
         KUDU_AUTH_ARGS=(
           --keytab_file="$KUDU_KEYTAB"
           --principal="$KUDU_SPN"
           --rpc_authentication="$KUDU_RPC_AUTH"
           --rpc_encryption="$KUDU_RPC_ENC"
           --allow_world_readable_credentials=true
+          --rpc_advertised_addresses="$KUDU_RPC_ADVERTISE"
         )
-        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC principal=$KUDU_SPN)"
+        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH principal=$KUDU_SPN advertise=$KUDU_RPC_ADVERTISE)"
       else
         echo "Kudu TServer Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1)"
       fi
@@ -633,9 +645,9 @@ in
         --fs_data_dirs="$KUDU_HOME/tserver/data" \
         --fs_wal_dir="$KUDU_HOME/tserver/wal" \
         --log_dir="$KUDU_HOME/tserver/logs" \
-        --tserver_master_addrs=127.0.0.1:7051 \
+        --tserver_master_addrs="$KUDU_MASTER_ADDRS" \
         --webserver_port=8050 \
-        --rpc_bind_addresses=127.0.0.1:7050 \
+        --rpc_bind_addresses="$KUDU_RPC_BIND" \
         --unlock_unsafe_flags \
         "''${KUDU_AUTH_ARGS[@]}"
     '';
