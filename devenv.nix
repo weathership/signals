@@ -545,15 +545,17 @@ in
         # Lab: encrypt optional (loopback); auth required rejects anonymous clients.
         KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
         KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+        # Explicit SPN — do not use kudu/_HOST (expands to uname -n, often tinybox.lan)
+        KUDU_SPN="kudu/$KRB_HOST"
         KUDU_AUTH_ARGS=(
           --keytab_file="$KUDU_KEYTAB"
-          --principal="kudu/_HOST"
+          --principal="$KUDU_SPN"
           --rpc_authentication="$KUDU_RPC_AUTH"
           --rpc_encryption="$KUDU_RPC_ENC"
           --allow_world_readable_credentials=true
         )
         echo "Kudu Master Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC keytab=$KUDU_KEYTAB)"
-        echo "  principal template kudu/_HOST → kudu/$KRB_HOST (ensure /etc/hosts or DNS)"
+        echo "  principal $KUDU_SPN (SIGNALS_KRB_HOST; must match kudu.keytab + client SPN)"
       else
         echo "Kudu Master Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1) — nosasl clients OK"
       fi
@@ -613,14 +615,15 @@ in
         fi
         KUDU_RPC_AUTH="''${SIGNALS_KUDU_RPC_AUTH:-required}"
         KUDU_RPC_ENC="''${SIGNALS_KUDU_RPC_ENCRYPTION:-optional}"
+        KUDU_SPN="kudu/$KRB_HOST"
         KUDU_AUTH_ARGS=(
           --keytab_file="$KUDU_KEYTAB"
-          --principal="kudu/_HOST"
+          --principal="$KUDU_SPN"
           --rpc_authentication="$KUDU_RPC_AUTH"
           --rpc_encryption="$KUDU_RPC_ENC"
           --allow_world_readable_credentials=true
         )
-        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC)"
+        echo "Kudu TServer Kerberos ON (auth=$KUDU_RPC_AUTH enc=$KUDU_RPC_ENC principal=$KUDU_SPN)"
       else
         echo "Kudu TServer Kerberos OFF (SIGNALS_KUDU_KERBEROS!=1)"
       fi
