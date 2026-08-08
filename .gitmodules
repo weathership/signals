@@ -38,3 +38,7 @@
 	path = components/yunikorn-core
 	url = git@github.com:rch/asf-yunikorn-core.git
 	branch = rch/devenv
+[submodule "components/marquez"]
+	path = components/marquez
+	url = git@github.com:zndx/oss-marquez.git
+	branch = main
