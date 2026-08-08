@@ -2,6 +2,10 @@
 inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
+  # S3-compatible object store (not in nixpkgs). Pin deliberately — advance with
+  # synth/vigil when upgrading. Data dir: $SIGNALS_DATA_ROOT/rustfs (RAID).
+  rustfs:
+    url: github:rustfs/rustfs/99701e9f52eaafecccd73b3a2a35bf66423dd4f9
 
 # Secrets: DECLARED in secretspec.toml, PROVIDED per environment.
 # dotenv (.env) is the low-friction local default (gitignored).

@@ -177,7 +177,8 @@ See [OpenLineage + Atlas](./openlineage-atlas.md).
 | Phase | Deliverable |
 |-------|-------------|
 | **P0** | `components/signals-protocol` submodule + this doctrine |
-| **P1** | Discovery: advertise Atlas + OL + Ranger on federation Status (or `discovery.v1`) |
+| **P0b** | Governance scale plane: Atlas/Ranger **Kudu projections** + **RustFS** on RAID — required so multi-engine devenv does not crush Postgres/AGE ([governance-scale-plane](./governance-scale-plane.md)) |
+| **P1** | Discovery: advertise Atlas + OL + Ranger + `OBJECT_STORE` on federation Status (or `discovery.v1`) |
 | **P2** | Identity map: OL dataset ↔ `rdbms_*` qualifiedName; dual-path smoke |
 | **P3** | Producer contract suite (polyglot, Gaius, Flink) → single `/api/v1` |
 | **P4** | OIP mapping + authz/provenance fields in protocol; model-op RunEvents |

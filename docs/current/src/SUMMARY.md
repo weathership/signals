@@ -18,6 +18,7 @@
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)
 - [Atlas → Kudu outbox](./architecture/atlas-kudu-outbox.md)
+- [Governance scale plane](./architecture/governance-scale-plane.md)
 - [Context Engineering](./architecture/context-engineering.md)
 - [Classification Training](./architecture/classification-training.md)
 - [Heuristic Elucidation](./architecture/heuristic-elucidation.md)

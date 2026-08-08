@@ -8,6 +8,29 @@ let
     let v = builtins.getEnv "SIGNALS_DATA_ROOT";
     in if v != "" then v else "/raid/signals";
 
+  # Object-store buckets under $SIGNALS_RUSTFS_DATA_DIR (created before process).
+  rustfsBuckets = [
+    "signals-artifacts"
+    "signals-lineage"
+    "weathership-memory"
+    "signals-backup"
+  ];
+
+  # mc wrapper: alias "local" → lab RustFS (path-style S3). Port lattice leaves
+  # 9000 for synth when co-hosted; Signals uses 9010/9011.
+  mc = pkgs.writeShellScriptBin "mc" ''
+    set -euo pipefail
+    CLIENT_DIR="''${RUSTFS_CLIENT_CONFIG_DIR:-$DEVENV_STATE/rustfs/mc}"
+    mkdir -p "$CLIENT_DIR"
+    ADDRESS="''${RUSTFS_ADDRESS:-127.0.0.1:9010}"
+    ACCESS="''${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+    SECRET="''${RUSTFS_SECRET_KEY:-rustfsadmin}"
+    ${pkgs.minio-client}/bin/mc --config-dir "$CLIENT_DIR" \
+      alias set local "http://$ADDRESS" "$ACCESS" "$SECRET" \
+      --api S3v4 --path on >/dev/null 2>&1 || true
+    exec ${pkgs.minio-client}/bin/mc --config-dir "$CLIENT_DIR" "$@"
+  '';
+
   # Shared native-lib path for Impala processes (Linux only).
   # Exec via: ld-linux --library-path "$IMPALA_LIBPATH" <daemon>
   # WITHOUT exporting LD_LIBRARY_PATH (child /bin/sh must not see Nix libc).
@@ -282,9 +305,14 @@ in
     graphviz
 
     # Utilities
+    signal-cli
     presenterm
     imagemagick
     wget
+
+    # Object store (S3-compatible) — data under $SIGNALS_DATA_ROOT/rustfs
+    rustfs
+    mc
   ];
 
   # ── Languages ──────────────────────────────────────────────────────────────
@@ -318,6 +346,12 @@ in
   };
   languages.typescript = { enable = true; };
 
+  overlays = [
+    (final: prev: {
+      rustfs = inputs.rustfs.packages.${prev.stdenv.system}.default;
+    })
+  ];
+
   # ── Environment ────────────────────────────────────────────────────────────
   # Kerberos: realm includes env segment — DEV.VISTA.ZNDX.ORG
   # ({ENV}.{LOCATION}.ZNDX.ORG). Host FQDN tinybox.dev.vista.zndx.org.
@@ -334,6 +368,11 @@ in
     SIGNALS_KUDU_HOME = signalsDataRoot + "/kudu";
     SIGNALS_RUSTFS_DATA_DIR = signalsDataRoot + "/rustfs";
     RUSTFS_DATA_DIR = signalsDataRoot + "/rustfs";
+    RUSTFS_ADDRESS = "127.0.0.1:9010";
+    RUSTFS_CONSOLE_ADDRESS = "127.0.0.1:9011";
+    RUSTFS_ACCESS_KEY = "rustfsadmin";
+    RUSTFS_SECRET_KEY = "rustfsadmin";
+    # mc config dir: default $DEVENV_STATE/rustfs/mc (set at runtime by mc wrapper)
     SIGNALS_FLINK_DATA_DIR = signalsDataRoot + "/flink";
     SIGNALS_BACKUP_DIR = signalsDataRoot + "/backups";
   };
@@ -513,6 +552,46 @@ in
         # Fixed port: Nix "…" strings cannot embed bash ''${VAR:-def} (use process env only in exec).
         exec.command = "curl -sf -o /dev/null http://127.0.0.1:3000/healthcheck";
         initial_delay_seconds = 3;
+        period_seconds = 5;
+        timeout_seconds = 3;
+        success_threshold = 1;
+        failure_threshold = 12;
+      };
+    };
+  };
+
+  # ── RustFS (S3-compatible object store on $SIGNALS_DATA_ROOT/rustfs) ─────
+  # Federated engines + Weathership memory/artifacts must not pile objects into
+  # Postgres. Port lattice: 9010 API / 9011 console (9000 reserved for synth).
+  # See docs/current/src/architecture/governance-scale-plane.md
+  processes.rustfs = {
+    exec = ''
+      set -euo pipefail
+      # shellcheck source=/dev/null
+      . "$PWD/scripts/signals_data_root.sh"
+      signals_ensure_data_layout
+      DATA_DIR="''${SIGNALS_RUSTFS_DATA_DIR:-$SIGNALS_DATA_ROOT/rustfs}"
+      ADDRESS="''${RUSTFS_ADDRESS:-127.0.0.1:9010}"
+      CONSOLE="''${RUSTFS_CONSOLE_ADDRESS:-127.0.0.1:9011}"
+      ACCESS="''${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+      SECRET="''${RUSTFS_SECRET_KEY:-rustfsadmin}"
+      mkdir -p "$DATA_DIR"
+      echo "Starting RustFS object store"
+      echo "  data    $DATA_DIR"
+      echo "  S3 API  http://$ADDRESS  (path-style; mc alias local)"
+      echo "  console http://$CONSOLE"
+      exec rustfs server \
+        --address "$ADDRESS" \
+        --console-address "$CONSOLE" \
+        --console-enable \
+        --access-key "$ACCESS" \
+        --secret-key "$SECRET" \
+        "$DATA_DIR"
+    '';
+    process-compose = {
+      readiness_probe = {
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:9010/minio/health/live || curl -sf -o /dev/null http://127.0.0.1:9010/ || true";
+        initial_delay_seconds = 2;
         period_seconds = 5;
         timeout_seconds = 3;
         success_threshold = 1;
@@ -1025,8 +1104,26 @@ in
       before = [
         "devenv:processes:kudu-master"
         "devenv:processes:kudu-tserver"
+        "devenv:processes:rustfs"
       ];
       description = "Create SIGNALS_DATA_ROOT layout (kudu/rustfs/flink/backups) before data processes";
+    };
+
+    # Pre-create S3 bucket directories under rustfs volume (path-style layout).
+    "signals:rustfs-buckets" = {
+      exec = ''
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . "$PWD/scripts/signals_data_root.sh"
+        signals_ensure_data_layout
+        DATA_DIR="''${SIGNALS_RUSTFS_DATA_DIR:-$SIGNALS_DATA_ROOT/rustfs}"
+        for b in ${lib.concatStringsSep " " rustfsBuckets}; do
+          mkdir -p "$DATA_DIR/$b"
+          echo "bucket dir: $DATA_DIR/$b"
+        done
+      '';
+      before = [ "devenv:processes:rustfs" ];
+      description = "Create RustFS bucket directories under SIGNALS_RUSTFS_DATA_DIR";
     };
 
     "signals:kdc-init" = {
@@ -2077,13 +2174,16 @@ SQL
     echo ""
     echo "Data root: \$SIGNALS_DATA_ROOT=$SIGNALS_DATA_ROOT"
     echo "  kudu/ rustfs/ flink/ backups/  — just backup → \$SIGNALS_BACKUP_DIR"
+    echo "  Scale plane: Atlas/Ranger heavy paths → Kudu projections; objects → RustFS"
+    echo "  (see docs/current/src/architecture/governance-scale-plane.md)"
     echo ""
     echo "Core services (start with 'devenv up' / 'devenv up -d'):"
-    echo "  PostgreSQL 16     — port 5455, extensions: age, pg_cron (Atlas+Ranger SoR dumps via just backup)"
+    echo "  PostgreSQL 16     — port 5455, AGE topology + Ranger admin (thin SoR)"
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
     echo "  Marquez Web       — http://localhost:3000 (default stack; turn-key via marquez:build-web)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
+    echo "  RustFS (S3)       — http://127.0.0.1:9010 (data: \$SIGNALS_RUSTFS_DATA_DIR; mc local)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
     echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
     echo "  Kerberos          — required (just bootstrap / just kinit); Impala+Kudu FQDN SPNs"
@@ -2091,7 +2191,8 @@ SQL
     echo "  Impala Catalogd   — localhost:26000 (web UI: 25020, HMS-free)"
     echo "  Impala Daemon     — hs2://localhost:21050 (web UI: 25000)"
     echo ""
-    echo "Connect: jdbc:hive2://localhost:21050/default;auth=noSasl"
+    echo "Connect: jdbc:hive2://\$SIGNALS_KRB_HOST:21050/default (Kerberos GSSAPI)"
+    echo "  just atlas-kudu-projections-seed / just ranger-kudu-projections-seed"
     echo ""
     echo "Build tasks:"
     echo "  devenv tasks run kudu:build-cpp       — Build Kudu C++ binaries"

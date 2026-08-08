@@ -122,6 +122,14 @@ impala-fdw-smoke:
 atlas-kudu-projections-seed:
     bash scripts/atlas_kudu_projections_seed.sh
 
+# Create ranger.* Kudu tag/policy denorm tables (HS2) + Postgres foreign tables
+# Admin SoR stays on Postgres ranger DB; projections protect PG under multi-engine load.
+ranger-kudu-projections-seed:
+    bash scripts/ranger_kudu_projections_seed.sh
+
+# Both governance projection seeds (Atlas + Ranger)
+gov-kudu-projections-seed: atlas-kudu-projections-seed ranger-kudu-projections-seed
+
 # Frontier batch harness (chunk × hop latency × EXPLAIN on edge_out/in)
 # Frontier hop bench (PR-K4). Prefer --compare --measure exec for gates.
 # Example: just atlas-frontier-bench --compare --skip-seed --batches 8,32,64,256

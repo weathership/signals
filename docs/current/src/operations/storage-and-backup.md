@@ -17,13 +17,17 @@ partial success. Bootstrap and stack processes **require** Kerberos.
 ```text
 $SIGNALS_DATA_ROOT/          # default lab: /raid/signals  (user-chosen)
   kudu/                      # live Kudu FS — local to this host only
-  rustfs/                    # object store sibling
+  rustfs/                    # RustFS volume (S3 API :9010; see governance-scale-plane)
   flink/
   backups/<stamp>/           # portable stamps only
   logical-restore/kudu/      # staged Parquet after just restore
 ```
 
 Override once: `SIGNALS_DATA_ROOT=/raid/signals` in `.env`.
+
+**Scale:** Atlas/Ranger bulk paths use **Kudu projections** (`just gov-kudu-projections-seed`);
+objects use **RustFS** on `rustfs/` — not Postgres heap. Doctrine:
+[Governance scale plane](../architecture/governance-scale-plane.md).
 
 ## What is portable
 
