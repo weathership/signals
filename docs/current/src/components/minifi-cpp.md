@@ -13,9 +13,12 @@ Submodule: `components/minifi-cpp` →
 - **Metrics / OTel** for activity truth and scale-to-zero of **claims**  
 - Overwatch-oriented ops surface (with NiFi/MiNiFi C2 UIs)
 
-Host engines remain the execution plane. **YuniKorn** (see
-`components/yunikorn-core`) is an optional **admission instance** for sentinel
-apps on system-wide RKE2—not the definition of the approach.
+Host engines remain the execution plane. On system-wide **RKE2**:
+
+| Component | Role |
+|-----------|------|
+| **Knative Serving** | Scale sentinel Services to zero ([KPA](https://knative.dev/docs/serving/autoscaling/scale-to-zero/)) |
+| **YuniKorn** (`components/yunikorn-core`) | Multi-tenant admission/queues for sentinel pods |
 
 Binding design:
 
