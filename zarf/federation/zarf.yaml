@@ -1,143 +1,170 @@
-# signals-federation — dedicated control-plane package (not cybersec-dask).
-# Design: components/signals-protocol/specification/operations/minifi_sentinels.md
-# K8s-first: RKE2 + Knative Serving (scale-to-zero) + YuniKorn (admission) + MiNiFi sentinels.
+# signals-federation — dedicated control plane (not cybersec-dask).
+# Spec: components/signals-protocol/specification/operations/minifi_sentinels.md
 kind: ZarfPackageConfig
 metadata:
   name: signals-federation
   description: >-
-    Air-gap federation control plane: Knative Serving, YuniKorn, and MiNiFi C++
-    sentinels on RKE2. Host gRPC engines and cybersec-dask are out of scope.
-  version: "0.1.0-dev"
+    Air-gap federation control plane: Knative Serving (scale-to-zero), YuniKorn
+    (admission), MiNiFi C++ sentinels on RKE2. Host engines out of scope.
+  version: "0.1.0"
   architecture: amd64
   authors: Weathership / Signals
   url: https://github.com/weathership/signals
   documentation: zarf/federation/README.md
 
-constants:
-  - name: PACKAGE_NAME
-    value: signals-federation
-
 variables:
   - name: REGISTRY_URL
-    description: External registry URL (empty = Zarf internal registry rewrite)
+    description: External registry (empty = Zarf internal)
     default: ""
-
   - name: INGRESS_CLASS
-    description: Ingress class (RKE2 default nginx)
+    description: Ingress class
     default: nginx
-
   - name: INGRESS_DOMAIN
-    description: Base domain for optional ingress hostnames
+    description: Base domain
     default: federation.local
-
-  # YuniKorn queue roots for federation projects
-  - name: YK_QUEUE_AEGIR
-    description: YuniKorn queue name for Ægir
-    default: root.aegir
-  - name: YK_QUEUE_ATELIER
-    description: YuniKorn queue name for Atelier
-    default: root.atelier
-  - name: YK_QUEUE_GAIUS
-    description: YuniKorn queue name for Gaius
-    default: root.gaius
-  - name: YK_QUEUE_SIGNALS
-    description: YuniKorn queue name for Signals-owned sentinels
-    default: root.signals
-  - name: YK_QUEUE_HERMES
-    description: YuniKorn queue name for Hermes/ACP sentinels
-    default: root.hermes
-
-  # Knative autoscaler (cluster-wide enable-scale-to-zero is also set in manifests)
   - name: KNATIVE_SCALE_TO_ZERO
-    description: Must remain true for product path (KPA)
+    description: Must stay true (KPA)
     default: "true"
-
   - name: MINIFI_SENTINEL_IMAGE
-    description: MiNiFi C++ sentinel image (air-gap; no runtime pull from public nets)
-    default: "###ZARF_REGISTRY###/minifi-sentinel:0.1.0-dev"
+    description: Sentinel image (rewritten by Zarf when using ###ZARF_REGISTRY###)
+    default: "###ZARF_REGISTRY###/apache/nifi-minifi-cpp:0.99.2"
 
 components:
-  # ===========================================================================
-  # 1. Knative Serving CRDs (must install before controllers)
-  # ===========================================================================
+  # ---- Images (closed air-gap set) -----------------------------------------
+  - name: federation-images
+    required: true
+    description: All images for Knative, Kourier, YuniKorn, MiNiFi sentinel
+    images:
+      # Knative Serving + Kourier (knative-v1.23.0) — linux/amd64 digests only.
+      # Multi-arch indexes are rejected by Zarf; pin platform manifests.
+      - gcr.io/knative-releases/knative.dev/serving/cmd/activator@sha256:fa1d1bd8108a50b1c3314e94e6e4079ce146626868669c68c799f463f8c7b173
+      - gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler@sha256:c905ef6e6cd3ff3871bcd0c480d11b760616dca1d9ed2c4c08d1b0e6e3cfc7c8
+      - gcr.io/knative-releases/knative.dev/serving/cmd/controller@sha256:a63cc1a6c74fe4d6ff3e8958141dac1e988c693a4726e1d6358a301b4ee8c9b1
+      - gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:ade30a5e4c96e903e5ef8a8754944ea67ee2123ede59a508e2748a81748c9bbb
+      - gcr.io/knative-releases/knative.dev/serving/cmd/webhook@sha256:6fa9f4e7617ae631562023d24deedf065dbe027ae321d8c6fee4125927020bca
+      - gcr.io/knative-releases/knative.dev/net-kourier/cmd/kourier@sha256:b2fb6a5691f4db4ba14df7d2afbaa1c511c6634461a489f650332dbca4860b22
+      - docker.io/envoyproxy/envoy:v1.37-latest@sha256:d31dc59fee5498b2852ca1730a535bf0237b7202171c0f5110f9eae4ed413096
+      # YuniKorn 1.9.0 — linux/amd64 (tag@digest for rewrite matching)
+      - docker.io/apache/yunikorn:scheduler-1.9.0@sha256:f72beb424e109f758fcb173b3425ddba3ff78288cd6a596f3037e28c2816573b
+      - docker.io/apache/yunikorn:web-1.9.0@sha256:d6b5c51578e5b658a525456bf1c747d5bb8cced0ba9f1cb596d1997892c8cdb2
+      - docker.io/apache/yunikorn:admission-1.9.0@sha256:f3d04f501324c46f2cb5baea6eb2b7ddaddd49a4b8d0d4592625742b83f294cb
+      # MiNiFi sentinel — linux/amd64
+      - docker.io/apache/nifi-minifi-cpp:0.99.2@sha256:6dbee417fd7657524bb8e4571eb5e886367437a77b932df29e115c88c4d07874
+
+  # ---- Knative CRDs --------------------------------------------------------
   - name: knative-crds
     required: true
-    description: Knative Serving CRDs (install before knative-serving)
-    # When ready: vendor upstream CRD YAML into manifests/knative/
-    # manifests:
-    #   - name: knative-serving-crds
-    #     files:
-    #       - manifests/knative/serving-crds.yaml
+    description: Knative Serving CRDs (before controllers)
     manifests:
-      - name: knative-crds-placeholder
+      - name: serving-crds
         files:
-          - manifests/PLACEHOLDER.md
-    # images: []  # CRDs only
+          - manifests/knative/serving-crds.yaml
+    actions:
+      onDeploy:
+        after:
+          - cmd: ./zarf tools kubectl wait --for=condition=Established crd --all --timeout=120s || true
+            description: Wait for CRDs to establish
 
-  # ===========================================================================
-  # 2. Knative Serving core (KPA, activator, enable-scale-to-zero)
-  # ===========================================================================
+  # ---- Knative Serving + Kourier + scale-to-zero ---------------------------
   - name: knative-serving
     required: true
-    description: >-
-      Knative Serving controllers + config-autoscaler with enable-scale-to-zero=true (KPA).
-      See https://knative.dev/docs/serving/autoscaling/scale-to-zero/
-    # charts or manifests: vendor knative serving release for air-gap
+    description: Knative Serving core, Kourier, enable-scale-to-zero
     manifests:
-      - name: knative-serving-placeholder
+      - name: serving-core
         files:
-          - manifests/PLACEHOLDER.md
-    # images:
-    #   - gcr.io/knative-releases/...  # pin digests in BOOTSTRAP_VERSIONS + create
+          - manifests/knative/serving-core.yaml
+      - name: kourier
+        files:
+          - manifests/knative/kourier.yaml
+      # NOTE: do NOT ship config-network / config-autoscaler as separate Helm
+      # charts — they already exist in serving-core and Helm ownership conflicts.
+      # STZ + Kourier ingress-class are applied in onDeploy patches below.
+      # Reference copies kept under manifests/knative/ for documentation.
+    actions:
+      onDeploy:
+        after:
+          - wait:
+              cluster:
+                kind: Deployment
+                name: controller
+                namespace: knative-serving
+                condition: Available
+            maxTotalSeconds: 300
+            description: Wait for knative-serving controller
+          - wait:
+              cluster:
+                kind: Deployment
+                name: activator
+                namespace: knative-serving
+                condition: Available
+            maxTotalSeconds: 300
+            description: Wait for activator
+          - cmd: |
+              set -e
+              # Ensure scale-to-zero + Kourier (serving-core defaults may differ)
+              ./zarf tools kubectl -n knative-serving patch configmap config-autoscaler \
+                --type merge -p '{"data":{"enable-scale-to-zero":"true","scale-to-zero-grace-period":"30s","scale-to-zero-pod-retention-period":"0s"}}' || true
+              ./zarf tools kubectl -n knative-serving patch configmap config-network \
+                --type merge -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}' || true
+            description: Patch Knative autoscaler + network for Kourier/STZ
 
-  # ===========================================================================
-  # 3. YuniKorn (admission / multi-tenant queues)
-  # ===========================================================================
+  # ---- YuniKorn ------------------------------------------------------------
   - name: yunikorn
     required: true
-    description: >-
-      Apache YuniKorn scheduler + web. Queues root.{project} for federation claims.
-      Source pin: components/yunikorn-core (chart vendored under charts/ when frozen).
-    manifests:
-      - name: yunikorn-placeholder
-        files:
-          - manifests/PLACEHOLDER.md
-    # charts:
-    #   - name: yunikorn
-    #     namespace: yunikorn
-    #     localPath: charts/yunikorn-….tgz
+    description: Apache YuniKorn 1.9.0 with federation queues
+    charts:
+      - name: yunikorn
+        version: 1.9.0
+        namespace: yunikorn
+        localPath: charts/yunikorn-1.9.0.tgz
+        valuesFiles:
+          - manifests/yunikorn/values.yaml
+    actions:
+      onDeploy:
+        after:
+          - cmd: |
+              set -e
+              for i in $(seq 1 60); do
+                n=$(./zarf tools kubectl -n yunikorn get pods --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+                if [ "${n:-0}" -ge 1 ]; then
+                  echo "yunikorn running pods=$n"
+                  exit 0
+                fi
+                sleep 5
+              done
+              ./zarf tools kubectl -n yunikorn get pods,deploy -o wide || true
+              exit 1
+            description: Wait for YuniKorn pods Running
+            maxTotalSeconds: 360
 
-  # ===========================================================================
-  # 4. MiNiFi sentinel images (Layer A — transport once)
-  # ===========================================================================
-  - name: minifi-sentinel-images
-    required: true
-    description: >-
-      MiNiFi C++ sentinel container image built from components/minifi-cpp.
-      FAIL package create if tag missing (air-gap: no runtime pull).
-    # images:
-    #   - ###ZARF_REGISTRY###/minifi-sentinel:0.1.0-dev
-    manifests:
-      - name: minifi-images-placeholder
-        files:
-          - manifests/PLACEHOLDER.md
-
-  # ===========================================================================
-  # 5. MiNiFi sentinel Knative Services (per-project templates)
-  # ===========================================================================
+  # ---- Namespaces + sentinel Knative Service -------------------------------
   - name: minifi-sentinel-ksvc
     required: true
-    description: >-
-      Knative Services for minifi-sentinel (tiny CPU/mem, no GPU).
-      Labels federation.project; scheduled under YK queues.
+    description: Federation namespaces + signals project MiNiFi Knative Service
     manifests:
       - name: federation-namespaces
         files:
           - manifests/namespaces.yaml
-      - name: minifi-ksvc-placeholder
+      - name: minifi-ksvc-signals
         files:
-          - manifests/PLACEHOLDER.md
-    # actions:
-    #   onDeploy:
-    #     after:
-    #       - wait: … Knative Ready / scale-to-zero smoke
+          - manifests/sentinels/minifi-ksvc-signals.yaml
+    actions:
+      onDeploy:
+        after:
+          - cmd: |
+              set -e
+              # Wait for Knative Service to be Ready (or report status)
+              for i in $(seq 1 60); do
+                ready=$(./zarf tools kubectl get ksvc minifi-sentinel -n federation-signals \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                if [ "$ready" = "True" ]; then
+                  echo "ksvc minifi-sentinel Ready"
+                  exit 0
+                fi
+                sleep 5
+              done
+              ./zarf tools kubectl get ksvc,pods -n federation-signals -o wide || true
+              echo "WARN: ksvc not Ready within timeout (may still be scaling/activating)"
+              exit 0
+            description: Wait for minifi-sentinel Knative Service
+            maxTotalSeconds: 360

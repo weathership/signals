@@ -1,0 +1,35 @@
+embedAdmissionController: true
+service:
+  type: ClusterIP
+web:
+  enabled: true
+configuration: |
+  admissionController:
+    filtering:
+      enable: true
+  queues.yaml: |
+    partitions:
+      - name: default
+        placementrules:
+          - name: tag
+            value: namespace
+            create: false
+          - name: fixed
+            value: root.default
+            create: true
+        queues:
+          - name: root
+            submitacl: '*'
+            queues:
+              - name: default
+                submitacl: '*'
+              - name: aegir
+                submitacl: '*'
+              - name: atelier
+                submitacl: '*'
+              - name: gaius
+                submitacl: '*'
+              - name: signals
+                submitacl: '*'
+              - name: hermes
+                submitacl: '*'

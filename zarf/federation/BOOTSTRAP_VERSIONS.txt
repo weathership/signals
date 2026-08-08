@@ -1,14 +1,19 @@
-# Freeze when first release kit is cut (match cybersec discipline).
-# Zarf binary, zarf-init, and package create MUST share the same Zarf version.
+ZARF_VERSION=v0.70.1
+KNATIVE_SERVING_VERSION=v1.23.0
+KOURIER_VERSION=v1.23.0
+YUNIKORN_CHART_VERSION=1.9.0
+MINIFI_IMAGE=docker.io/apache/nifi-minifi-cpp:0.99.2
 
-ZARF_VERSION=TBD
-# Example once pinned: ZARF_VERSION=v0.70.1
-
-# Knative Serving (pin when charts vendored)
-KNATIVE_SERVING_VERSION=TBD
-
-# Apache YuniKorn (pin when chart vendored; source: components/yunikorn-core)
-YUNIKORN_CHART_VERSION=TBD
-
-# MiNiFi sentinel image (build from components/minifi-cpp)
-MINIFI_SENTINEL_IMAGE=localhost:5555/minifi-sentinel:TBD
+# linux/amd64 platform digests (Zarf rejects multi-arch OCI indexes)
+# Resolved 2026-08-08 via podman manifest inspect
+KNATIVE_ACTIVATOR_AMD64=sha256:fa1d1bd8108a50b1c3314e94e6e4079ce146626868669c68c799f463f8c7b173
+KNATIVE_AUTOSCALER_AMD64=sha256:c905ef6e6cd3ff3871bcd0c480d11b760616dca1d9ed2c4c08d1b0e6e3cfc7c8
+KNATIVE_CONTROLLER_AMD64=sha256:a63cc1a6c74fe4d6ff3e8958141dac1e988c693a4726e1d6358a301b4ee8c9b1
+KNATIVE_QUEUE_AMD64=sha256:ade30a5e4c96e903e5ef8a8754944ea67ee2123ede59a508e2748a81748c9bbb
+KNATIVE_WEBHOOK_AMD64=sha256:6fa9f4e7617ae631562023d24deedf065dbe027ae321d8c6fee4125927020bca
+KOURIER_AMD64=sha256:b2fb6a5691f4db4ba14df7d2afbaa1c511c6634461a489f650332dbca4860b22
+ENVOY_V1_37_AMD64=sha256:d31dc59fee5498b2852ca1730a535bf0237b7202171c0f5110f9eae4ed413096
+YUNIKORN_SCHEDULER_1_9_0_AMD64=sha256:f72beb424e109f758fcb173b3425ddba3ff78288cd6a596f3037e28c2816573b
+YUNIKORN_WEB_1_9_0_AMD64=sha256:d6b5c51578e5b658a525456bf1c747d5bb8cced0ba9f1cb596d1997892c8cdb2
+YUNIKORN_ADMISSION_1_9_0_AMD64=sha256:f3d04f501324c46f2cb5baea6eb2b7ddaddd49a4b8d0d4592625742b83f294cb
+MINIFI_0_99_2_AMD64=sha256:6dbee417fd7657524bb8e4571eb5e886367437a77b932df29e115c88c4d07874

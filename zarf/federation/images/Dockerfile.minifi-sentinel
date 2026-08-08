@@ -1,0 +1,21 @@
+# MiNiFi C++ federation sentinel — official image + health entrypoint for KPA.
+# Build (optional; package currently uses stock image + ksvc command wrapper):
+#   podman build -t localhost/minifi-sentinel:0.99.2-signals \
+#     -f zarf/federation/images/Dockerfile.minifi-sentinel \
+#     zarf/federation/images/
+FROM docker.io/apache/nifi-minifi-cpp:0.99.2
+
+ENV FEDERATION_PROJECT=signals \
+    FEDERATION_AGENT_CLASS=minifi-sentinel \
+    FEDERATION_HEALTH_PORT=8080
+
+LABEL org.opencontainers.image.title="minifi-sentinel" \
+      org.opencontainers.image.description="Signals federation MiNiFi C++ sentinel" \
+      app.kubernetes.io/part-of="signals-federation"
+
+USER root
+COPY entrypoint-sentinel.sh /opt/minifi/entrypoint-sentinel.sh
+RUN chmod 755 /opt/minifi/entrypoint-sentinel.sh
+USER minificpp
+
+ENTRYPOINT ["/opt/minifi/entrypoint-sentinel.sh"]

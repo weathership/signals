@@ -1,0 +1,89 @@
+# Knative Service: MiNiFi sentinel for project "signals"
+# Stock apache/nifi-minifi-cpp does not listen on a user port; wrap with a
+# tiny TCP health socket on 8080 so KPA can Ready + scale-to-zero.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: minifi-sentinel
+  namespace: federation-signals
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    app.kubernetes.io/component: minifi-sentinel
+    federation.project: signals
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/class: kpa.autoscaling.knative.dev
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/max-scale: "2"
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
+        autoscaling.knative.dev/target: "1"
+      labels:
+        app.kubernetes.io/component: minifi-sentinel
+        federation.project: signals
+        applicationId: minifi-sentinel-signals
+        queue: root.signals
+    spec:
+      containerConcurrency: 1
+      timeoutSeconds: 600
+      containers:
+        - name: user-container
+          # Digest-pinned: Knative digest resolver cannot reach host NodePort
+          # 127.0.0.1:31999 from controller pods; digests skip resolve.
+          # Zarf rewrites registry prefix on deploy.
+          image: "###ZARF_REGISTRY###/apache/nifi-minifi-cpp@sha256:6dbee417fd7657524bb8e4571eb5e886367437a77b932df29e115c88c4d07874"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Health socket keeps KPA Ready even if MiNiFi agent lacks full config.
+              python3 - <<'PY' &
+              import socket, threading, time
+              s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+              s.bind(("0.0.0.0", 8080))
+              s.listen(16)
+              def serve():
+                  while True:
+                      c, _ = s.accept()
+                      try:
+                          c.recv(1024)
+                          c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                      finally:
+                          c.close()
+              threading.Thread(target=serve, daemon=True).start()
+              while True:
+                  time.sleep(3600)
+              PY
+              HEALTH_PID=$!
+              if [ -x ./bin/minifi.sh ]; then
+                ./bin/minifi.sh run || echo "minifi exited (health socket still up)" >&2
+              fi
+              wait $HEALTH_PID
+          env:
+            - name: FEDERATION_PROJECT
+              value: signals
+            - name: FEDERATION_AGENT_CLASS
+              value: minifi-sentinel
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3

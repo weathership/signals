@@ -1,6 +1,8 @@
 # signals-federation (Zarf package)
 
-**Dedicated** air-gap package for federation **control plane** on RKE2:
+**Dedicated** air-gap package for federation **control plane** on RKE2.
+**Takes precedence** over any residual `cybersec-dask` app surface (remove with
+`scripts/teardown-precedence.sh` before first deploy if needed).
 
 | Ships | Does not ship |
 |-------|----------------|
@@ -8,74 +10,77 @@
 | YuniKorn (admission / queues) | cybersec-dask / Jupyter / Panel |
 | MiNiFi C++ sentinel images + Knative Services | Full NiFi cluster (optional later) |
 
-**Lifecycle is independent of `cybersec-dask`.** That package will later defer
-to and adopt these standards; do not merge the two packages.
-
 | Spec | Location |
 |------|----------|
 | Sentinel design | `components/signals-protocol/specification/operations/minifi_sentinels.md` |
 | Identity | `…/kerberos_and_secretspec.md` |
-| Converge FSM pattern | cybersec `zarf/converge/` (Layer A/B) — port here under `converge/` |
+| Converge FSM | `zarf/federation/converge/` (Layer A/B, live kubectl detects) |
 
 ## Package identity
 
 | Field | Value |
 |-------|--------|
 | Zarf name | `signals-federation` |
-| Version | see `zarf.yaml` `metadata.version` |
+| Version | `0.1.0` (`zarf.yaml`) |
 | Architecture | `amd64` |
+| Zarf CLI / package | **v0.70.1** (pin in `BOOTSTRAP_VERSIONS.txt`) |
 
-**Air-gap rule (cybersec-hard-won):** Zarf **binary**, **init** tarball, and
-**this package** must share the **same Zarf major/minor** (pin in
-`BOOTSTRAP_VERSIONS.txt` when frozen).
+**Air-gap rule:** Zarf **binary**, **init** tarball, and **this package** should
+share the same Zarf minor (prefer re-init to v0.70.1 if cluster still has
+older `init`).
+
+**Images:** Knative multi-arch OCI indexes are unsupported by Zarf — all images
+are pinned to **linux/amd64** digests (see `BOOTSTRAP_VERSIONS.txt`).
 
 ## Layout
 
 ```text
 zarf/federation/
-  zarf.yaml                 # package definition
-  BOOTSTRAP_VERSIONS.txt    # zarf + component version pins (fill as frozen)
-  README.md                 # this file
-  charts/                   # vendored Helm charts (YK, etc.) — gitignored tgz OK
-  images/                   # Dockerfiles / build notes for minifi-sentinel
-  manifests/                # CRDs, queues, Knative Services, namespaces
-  converge/                 # FSM: detect → remediate → fixpoint (stdlib Python)
-  scripts/                  # clean-slate helpers that only touch federation ns
+  zarf.yaml
+  BOOTSTRAP_VERSIONS.txt
+  charts/yunikorn-1.9.0.tgz
+  images/                   # optional custom sentinel Dockerfile
+  manifests/
+    knative/                # CRDs, core, kourier, STZ config
+    yunikorn/values.yaml
+    namespaces.yaml
+    sentinels/minifi-ksvc-signals.yaml
+  converge/                 # python3 -m converge list|verify
+  scripts/teardown-precedence.sh
 ```
 
-Legacy `zarf/zarf.yaml` (`signals-360` Dask/engine scaffold) is **not** this
-package. Prefer `signals-federation` for all new K8s control-plane work.
-
-## Build / deploy (skeleton)
+## Build / deploy
 
 ```bash
-# After images/charts are vendored and online once (or from mirror):
+# Prefer /raid for package output (root disk is tight)
 cd zarf/federation
-zarf package create . --confirm
-# → zarf-package-signals-federation-amd64-<ver>.tar.zst
+zarf package create . --confirm --output /raid/signals/zarf-build
+# → /raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst
 
-# Air-gap node (Zarf already inited or converge T0–T1):
-zarf package deploy zarf-package-signals-federation-amd64-*.tar.zst --confirm
+# Optional: clear cybersec app namespaces (keeps zarf registry)
+./scripts/teardown-precedence.sh
 
-# Converge (when engine is filled out):
-python3 -m converge apply    # from zarf/federation with PYTHONPATH=.
-python3 -m converge verify
+# Deploy (cluster must have zarf init + Ready node)
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+zarf package deploy /raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst --confirm
+
+# Verify
+cd zarf/federation && python3 -m converge verify
 ```
 
 ## Component order (binding)
 
-1. `knative-crds`  
-2. `knative-serving` (`enable-scale-to-zero: true`, KPA)  
-3. `yunikorn` (queues `root.{project}`)  
-4. `minifi-sentinel-images`  
-5. `minifi-sentinel-ksvc` (Knative Services)  
+1. `federation-images` — closed air-gap image set  
+2. `knative-crds`  
+3. `knative-serving` (core + Kourier + `enable-scale-to-zero: true`)  
+4. `yunikorn` (queues `root.{aegir,atelier,gaius,signals,hermes}`)  
+5. `minifi-sentinel-ksvc` (namespaces + Knative Service)
 
 Host engines remain outside this package; they are gated by sentinel
 admission per the protocol.
 
-## Coexistence with cybersec-dask
+## Precedence vs cybersec-dask
 
-Same RKE2 node may run both packages. **Namespaces must not collide.**
-Federation uses e.g. `knative-serving`, `yunikorn`, `federation-*`.
-Cybersec keeps `dask`, `jupyterhub`, `panel-viz`. Shared **Zarf registry**
-is fine; watch disk (registry PVC size).
+Federation **owns** Knative / YuniKorn / MiNiFi on this node. Cybersec app
+namespaces (`dask`, `jupyterhub`, `panel-viz`, …) may be removed. Shared Zarf
+registry (`ns/zarf`) is kept unless `--full-zarf`.

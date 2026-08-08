@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-network
+  namespace: knative-serving
+  labels:
+    app.kubernetes.io/name: knative-serving
+    app.kubernetes.io/component: networking
+    app.kubernetes.io/part-of: signals-federation
+data:
+  ingress-class: "kourier.ingress.networking.knative.dev"
