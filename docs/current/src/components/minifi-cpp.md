@@ -13,7 +13,8 @@ Submodule: `components/minifi-cpp` →
 - **Metrics / OTel** for activity truth and scale-to-zero of **claims**  
 - Overwatch-oriented ops surface (with NiFi/MiNiFi C2 UIs)
 
-Host engines remain the execution plane. On system-wide **RKE2**:
+Host engines remain the execution plane. **Product target is K8s-first**
+(system-wide **RKE2**)—not a host-only MiNiFi deployment:
 
 | Component | Role |
 |-----------|------|

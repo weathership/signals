@@ -4,9 +4,10 @@ Submodule: `components/yunikorn-core` → `git@github.com:rch/asf-yunikorn-core.
 
 ## Role in Signals federation
 
-Apache YuniKorn is the **admission/scheduling instance** for
+Apache YuniKorn is the **required admission/scheduling instance** for
 **MiNiFi sentinels** on system-wide RKE2—not the sentinel substrate and not the
-scale-to-zero controller.
+scale-to-zero controller (that is Knative Serving). Product path is
+**K8s-first** (RKE2 + Knative + YK); no permanent no-K8s sentinel mode.
 
 | Concern | Authority |
 |---------|-----------|
