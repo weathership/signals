@@ -15,6 +15,8 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Marquez](./marquez.md) | OL **UI** only (oss-marquez); proxies Atlas `/api/v1` — no Marquez DB | **Default stack** process |
 | [signals-protocol](./signals-protocol.md) | Shared federation protos (`zndx.engine.v1`, discovery, OIP mapping) | Submodule pin `trunk` |
 | [Hermes Agent](./hermes-agent.md) | Agent runtime; Weathership memory + context-engine plugins | Submodule pin (`zndx/oss-hermes-agent`) |
+| [MiNiFi C++](./minifi-cpp.md) | Federation **sentinels** (C2 + OTel); YK optional admission | Submodule `weathership/oss-minifi-cpp` |
+| [YuniKorn](./yunikorn.md) | Scheduler core (admission **instance** for sentinel apps on RKE2) | Submodule `components/yunikorn-core` |
 | [Airflow](./airflow.md) | Workflow orchestration | Planned |
 | [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 
@@ -37,8 +39,9 @@ Core ASF forks use `rch` GitHub remotes with **`branch = rch/devenv`** in
 `main`. **signals-protocol** is `zndx/signals-protocol` on `trunk` (federation
 wire contracts — not an ASF fork). **hermes-agent** is
 `zndx/oss-hermes-agent` (Hermes Agent fork/pin for memory and compaction
-plugins). Openph is optional reference only (CPU PH uses Ripser via
-`signals.persistence`).
+plugins). **minifi-cpp** is `weathership/oss-minifi-cpp` (federation sentinels).
+**yunikorn-core** is the YK scheduler pin (admission instance). Openph is optional
+reference only (CPU PH uses Ripser via `signals.persistence`).
 
 ## Build Dependencies
 

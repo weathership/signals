@@ -61,6 +61,8 @@
     - [Marquez](./components/marquez.md)
     - [signals-protocol](./components/signals-protocol.md)
     - [Hermes Agent](./components/hermes-agent.md)
+    - [MiNiFi C++](./components/minifi-cpp.md)
+    - [YuniKorn](./components/yunikorn.md)
 
 # Operations
 

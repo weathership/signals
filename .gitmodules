@@ -50,3 +50,7 @@
 	path = components/hermes-agent
 	url = git@github.com:zndx/oss-hermes-agent.git
 	branch = main
+[submodule "components/minifi-cpp"]
+	path = components/minifi-cpp
+	url = git@github.com:weathership/oss-minifi-cpp.git
+	branch = main
