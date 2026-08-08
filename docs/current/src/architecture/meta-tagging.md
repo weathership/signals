@@ -52,9 +52,9 @@ The classification model uses a [context engineering](./context-engineering.md) 
 
 ## Atlas Integration
 
-Atlas provides the metadata catalog that makes Impala tables and columns visible as governed entities:
+Atlas provides the metadata catalog that makes Impala-managed Kudu tables and columns visible as governed entities:
 
-- **Entity types**: `hive_table`, `hive_column`, `hive_db` (interim — see [Roadmap](../reference/roadmap.md#entity-type-evolution))
+- **Entity types**: `rdbms_table`, `rdbms_column`, `rdbms_db`, `rdbms_instance` — Atlas stock RDBMS model (`2000-RDBMS`), same family as Aegir (catalog bridge cut over from interim `hive_*`)
 - **Classifications**: Applied as Atlas tags using SIGDG CURIEs (e.g., `SIGDG_0025_ContactInformation`)
 - **Lineage**: Atlas tracks table-level lineage from INSERT...SELECT and CTAS operations
 - **AGE graph queries**: Atlas metadata stored in PostgreSQL with AGE enables graph traversal of classification relationships, lineage paths, and impact analysis
@@ -76,7 +76,7 @@ The end-to-end tagging pipeline has been implemented and validated with 8 BDD sc
    - `ImpalaSampler` reads column names, types, and sample values from Impala
    - `EmbeddingClassifier` classifies against the SIGDG taxonomy using sentence-transformer embeddings
    - `AtlasClient` writes classifications back as SIGDG tags with confidence scores and evidence
-3. **Air-gap isolation** — Local model cache (`build/models/`), `HF_HUB_OFFLINE=1`, zero external network calls. See [Air-Gap (Zarf)](../infrastructure/zarf.md#ml-model-artifacts).
+3. **Air-gap isolation** — Shared HF caches (`HF_HOME` / `HF_HUB_CACHE` / `SENTENCE_TRANSFORMERS_HOME`, lab RAID), `HF_HUB_OFFLINE=1`, zero external network calls. See [Air-Gap (Zarf)](../infrastructure/zarf.md#ml-model-artifacts).
 4. **HOCON config** — Single source of truth (`config/base.conf`) drives both application code and BDD test helpers. All connection parameters (Impala host/port, Atlas URL/credentials, model cache) flow from config.
 
 ### Running the Pipeline

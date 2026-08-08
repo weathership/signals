@@ -208,7 +208,7 @@ def after_scenario(context, scenario):
         for table in context.pii_tagged_tables:
             try:
                 qn = table_qualified_name(table)
-                delete_atlas_entity("hive_table", qn)
+                delete_atlas_entity("rdbms_table", qn)
             except Exception:
                 pass
             try:

@@ -84,12 +84,15 @@ The sigint classification pipeline uses a sentence-transformer model (`all-MiniL
 ### Model Cache Bootstrap
 
 ```bash
-# Pre-download model to build/models/ (runs with HF_HUB_OFFLINE=0)
+# Ensure MiniLM via HF_HOME / SENTENCE_TRANSFORMERS_HOME (RAID preferred)
 just cache-models
 # or: devenv tasks run sigint:cache-models
 ```
 
-This downloads the model once to `build/models/`. All subsequent pipeline runs use the local cache with zero external network calls.
+Lab hosts pin caches on RAID (`HF_HOME`, `HF_HUB_CACHE`, `SENTENCE_TRANSFORMERS_HOME`).
+`just cache-models` **skips download** when MiniLM is already there and does not copy into
+`build/models/` (root disk is tight). Tree-local `build/models` is only a last-resort
+fallback when no shared cache is configured.
 
 ### Runtime Isolation
 
@@ -98,9 +101,12 @@ The devenv shell configures air-gap isolation automatically:
 | Variable | Value | Purpose |
 |----------|-------|---------|
 | `HF_HUB_OFFLINE` | `1` | Prevent HuggingFace Hub API calls |
-| `SENTENCE_TRANSFORMERS_HOME` | `build/models` | Local model cache directory |
+| `HF_HOME` | e.g. `/raid/cache/huggingface` | Primary HF cache root |
+| `HF_HUB_CACHE` | e.g. `/raid/cache/rch/huggingface` | Hub package cache (may differ from `$HF_HOME/hub`) |
+| `SENTENCE_TRANSFORMERS_HOME` | e.g. `/raid/cache/sentence-transformers` | ST model blobs |
+| `SIGINT_EMBEDDING_CACHE_DIR` | defaults to `$SENTENCE_TRANSFORMERS_HOME` | HOCON `embedding.cache_dir` → `SentenceTransformer(cache_folder=...)` |
 
-The HOCON config (`config/base.conf`) mirrors this with `embedding.cache_dir = "build/models"`, which flows through `PipelineConfig` → `EmbeddingClassifierConfig` → `SentenceTransformer(cache_folder=...)`.
+HOCON resolves `embedding.cache_dir` as: default → `${?SENTENCE_TRANSFORMERS_HOME}` → `${?SIGINT_EMBEDDING_CACHE_DIR}` (last set wins).
 
 ### Packaging for Zarf
 

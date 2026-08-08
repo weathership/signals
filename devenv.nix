@@ -885,13 +885,33 @@ in
 
     "sigint:cache-models" = {
       exec = ''
-        mkdir -p build/models
-        echo "Downloading sentence-transformers model to build/models/ ..."
-        HF_HUB_OFFLINE=0 SENTENCE_TRANSFORMERS_HOME="$PWD/build/models" \
-          uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-        echo "Model cached. Pipeline will run offline (HF_HUB_OFFLINE=1)."
+        set -euo pipefail
+        # Reuse host/RAID HF layout — never force a second copy under build/models
+        # when HF_HOME / HF_HUB_CACHE / SENTENCE_TRANSFORMERS_HOME already resolve.
+        if [ -z "''${SENTENCE_TRANSFORMERS_HOME:-}" ]; then
+          if [ -d /raid/cache/sentence-transformers ]; then
+            export SENTENCE_TRANSFORMERS_HOME=/raid/cache/sentence-transformers
+          elif [ -n "''${HF_HOME:-}" ]; then
+            export SENTENCE_TRANSFORMERS_HOME="$HF_HOME"
+          else
+            export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
+            mkdir -p "$SENTENCE_TRANSFORMERS_HOME"
+          fi
+        fi
+        export SIGINT_EMBEDDING_CACHE_DIR="''${SIGINT_EMBEDDING_CACHE_DIR:-$SENTENCE_TRANSFORMERS_HOME}"
+        echo "SENTENCE_TRANSFORMERS_HOME=$SENTENCE_TRANSFORMERS_HOME"
+        echo "HF_HOME=''${HF_HOME:-<unset>}  HF_HUB_CACHE=''${HF_HUB_CACHE:-<unset>}"
+        # If MiniLM already on disk under any known cache, skip download
+        if find "$SENTENCE_TRANSFORMERS_HOME" ''${HF_HUB_CACHE:+"$HF_HUB_CACHE"} ''${HF_HOME:+"$HF_HOME"} \
+             -type d -name 'models--sentence-transformers--all-MiniLM-L6-v2' 2>/dev/null | head -1 | grep -q .; then
+          echo "all-MiniLM-L6-v2 already present in HF/ST cache — no download."
+          exit 0
+        fi
+        echo "Loading all-MiniLM-L6-v2 into SENTENCE_TRANSFORMERS_HOME (online once)..."
+        HF_HUB_OFFLINE=0 uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+        echo "Model cached. Pipeline uses HF_HUB_OFFLINE=1 + existing cache env vars."
       '';
-      description = "Pre-download embedding model for air-gap operation";
+      description = "Ensure MiniLM is available via HF_HOME/ST cache (prefer RAID; no tree-local dupe)";
     };
 
     "signals:catalog-init" = {
@@ -1281,6 +1301,9 @@ EOF
           echo "  LIBDIR=''${KUDU_CLIENT_LIBDIR:-unset} INCDIR=''${KUDU_CLIENT_INCDIR:-unset}"
         fi
 
+        # PR-K5b: libkrb5 for optional keytab→ccache kinit in exec_kudu
+        export SIG_KRB5_INC="''${SIG_KRB5_INC:-${pkgs.krb5.dev}/include}"
+        export SIG_KRB5_LIB="''${SIG_KRB5_LIB:-${pkgs.krb5.lib}/lib}"
         make with_llvm=no \
           PG_CONFIG="$PG_CONFIG" \
           CC="$CC" \
@@ -1289,10 +1312,12 @@ EOF
           CXXFLAGS="$SAFE_CFLAGS -std=c++17" \
           THRIFT_HOME="$THRIFT_HOME" \
           BOOST_HOME="$BOOST_HOME" \
+          SIG_KRB5_INC="$SIG_KRB5_INC" \
+          SIG_KRB5_LIB="$SIG_KRB5_LIB" \
           KUDU_CLIENT_LIBDIR="$KUDU_CLIENT_LIBDIR" \
           KUDU_CLIENT_INCDIR="$KUDU_CLIENT_INCDIR" \
           IMPALA_FDW_WITH_KUDU="''${IMPALA_FDW_WITH_KUDU}" \
-          PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp''${KUDU_CLIENT_INCDIR:+ -I$KUDU_CLIENT_INCDIR}''${IMPALA_FDW_WITH_KUDU:+ -DIMPALA_FDW_WITH_KUDU=1}"
+          PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp -I$SIG_KRB5_INC''${KUDU_CLIENT_INCDIR:+ -I$KUDU_CLIENT_INCDIR}''${IMPALA_FDW_WITH_KUDU:+ -DIMPALA_FDW_WITH_KUDU=1}"
         test -f impala_fdw.so || { echo "ERROR: impala_fdw.so not produced"; ls -la; exit 1; }
         if [ "''${IMPALA_FDW_WITH_KUDU}" = "1" ]; then
           if command -v ldd >/dev/null 2>&1; then
@@ -1756,9 +1781,31 @@ SQL
       . "$PWD/config/asf/native-link-env.sh"
     fi
 
-    # Air-gap safe: use local model cache, no HuggingFace phone-home
-    export HF_HUB_OFFLINE=1
-    export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
+    # HuggingFace / sentence-transformers caches (lab: RAID; do not clobber host).
+    # Prefer ambient HF_HOME / HF_HUB_CACHE / SENTENCE_TRANSFORMERS_HOME (often
+    # /raid/cache/...). Only fall back to tree-local build/models if nothing else.
+    # Note: HF_HUB_CACHE may differ from $HF_HOME/hub (rch-scoped raid path).
+    export HF_HUB_OFFLINE="''${HF_HUB_OFFLINE:-1}"
+    export TRANSFORMERS_OFFLINE="''${TRANSFORMERS_OFFLINE:-$HF_HUB_OFFLINE}"
+    if [ -z "''${HF_HOME:-}" ] && [ -d /raid/cache/huggingface ]; then
+      export HF_HOME=/raid/cache/huggingface
+    fi
+    if [ -z "''${HF_HUB_CACHE:-}" ]; then
+      if [ -d /raid/cache/rch/huggingface ]; then
+        export HF_HUB_CACHE=/raid/cache/rch/huggingface
+      elif [ -n "''${HF_HOME:-}" ] && [ -d "$HF_HOME/hub" ]; then
+        export HF_HUB_CACHE="$HF_HOME/hub"
+      fi
+    fi
+    if [ -z "''${SENTENCE_TRANSFORMERS_HOME:-}" ]; then
+      if [ -d /raid/cache/sentence-transformers ]; then
+        export SENTENCE_TRANSFORMERS_HOME=/raid/cache/sentence-transformers
+      else
+        export SENTENCE_TRANSFORMERS_HOME="$PWD/build/models"
+      fi
+    fi
+    # Pipeline HOCON embedding.cache_dir (SentenceTransformer cache_folder)
+    export SIGINT_EMBEDDING_CACHE_DIR="''${SIGINT_EMBEDDING_CACHE_DIR:-$SENTENCE_TRANSFORMERS_HOME}"
 
     # NVIDIA driver libs for PyTorch/CatBoost CUDA.
     # Nix ld-linux doesn't search /lib/x86_64-linux-gnu/ (which also has

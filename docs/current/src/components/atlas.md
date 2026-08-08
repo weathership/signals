@@ -29,39 +29,46 @@ The Atlas fork (`rch/asf-atlas`, **`rch/devenv`** line; AGE work may land here o
 
 This eliminates the HBase + Solr dependencies from the standard Atlas deployment.
 
-## Impala Integration
+## Impala / Kudu Integration
 
-When Impala tables are created via HMS-free DDL, they are registered in Atlas as Hive-compatible entity types. A Python catalog bridge reads table metadata from Impala via `DESCRIBE` and creates entities through the Atlas REST API.
+Impala-managed **Kudu** tables are registered in Atlas with the stock **RDBMS** model
+(`addons/models/2000-RDBMS/`) — same family as Aegir (`rdbms_*`). A Python catalog
+bridge reads table metadata from Impala via `DESCRIBE` and creates entities through
+the Atlas REST API. Hive entity types are not used for product registration.
 
 ### Entity Types
 
 | Atlas Entity Type | qualifiedName Pattern | Source |
 |-------------------|----------------------|--------|
-| `hive_db` | `{db}@signals` | CREATE DATABASE |
-| `hive_table` | `{db}.{table}@signals` | CREATE TABLE |
-| `hive_column` | `{db}.{table}.{col}@signals` | Column definitions from Kudu schema |
+| `rdbms_instance` | `instance@signals` | Lab cluster (`rdbms_type=Kudu`) |
+| `rdbms_db` | `{db}@signals` | CREATE DATABASE |
+| `rdbms_table` | `{db}.{table}@signals` | CREATE TABLE |
+| `rdbms_column` | `{db}.{table}.{col}@signals` | Column definitions from Kudu schema |
 
-The `hive_table_columns` COMPOSITION relationship wires columns to their parent table. Atlas resolves this automatically when entities are created via `POST /v2/entity/bulk` with temporary GUIDs.
-
-> **Note:** The `hive_*` entity types are used as an interim convenience — they ship with Atlas's bootstrap models and provide working entity CRUD, classification, and relationship support out of the box. The project targets native Impala/Kudu/Iceberg entity types. See [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution).
+Relationships: `rdbms_instance_databases` → `rdbms_db_tables` → `rdbms_table_columns`
+(COMPOSITION). Atlas resolves these when entities are created via `POST /v2/entity/bulk`
+with temporary GUIDs. See [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution).
 
 ### Catalog Bridge
 
-The bridge function (`register_impala_table_in_atlas` in `features/platform/steps/helpers.py`) performs entity registration without Kafka or the Atlas hook infrastructure:
+The bridge function (`register_impala_table_in_atlas` in `features/platform/steps/helpers.py`,
+mirrored by `sigint.atlas_client.AtlasClient.register_table`) performs entity registration
+without Kafka or the Atlas hook infrastructure:
 
 1. `DESCRIBE {table}` on Impala → column names, types, comments
-2. Build `hive_db` (referred), `hive_table` (main), `hive_column` (referred) entities with negative temp GUIDs
+2. Build `rdbms_instance` + `rdbms_db` (referred), `rdbms_table` (main), `rdbms_column`
+   (referred) entities with negative temp GUIDs (`data_type` on columns, `type=TABLE` on tables)
 3. `POST /v2/entity/bulk` — single atomic call, idempotent via qualifiedName matching
 4. Extract real GUIDs from `guidAssignments` (create) or `mutatedEntities` (update)
 
-This approach validates the Atlas entity contract for Impala-style entities and is used by the tier-1 BDD integration tests. See [Test Infrastructure](../scenarios/testing.md) for details.
+Used by the tier-1 BDD integration tests. See [Test Infrastructure](../scenarios/testing.md).
 
 ### Metadata Tagging Pipeline
 
 ```
-Impala (CREATE TABLE)
+Impala CREATE TABLE (Kudu)
     → Catalog Bridge (DESCRIBE → Atlas REST API)
-        → Atlas (hive_table + hive_column entities)
+        → Atlas (rdbms_table + rdbms_column entities)
             → Tagging Service (classifies against SIGDG ontology)
                 → Atlas (SIGDG classifications applied)
                     → Ranger (tag-based policies enforced)

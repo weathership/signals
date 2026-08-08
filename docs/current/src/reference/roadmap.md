@@ -19,8 +19,8 @@ HMS-free Impala + **Kudu** is operational. Product default is **Kudu-only / no-H
 Atlas with the AGE backend is running and the catalog bridge is validated:
 
 - **Atlas AGE backend** operational — PostgreSQL + AGE replacing JanusGraph/HBase/Solr
-- **Catalog bridge** — Python function registers Impala-managed Kudu tables in Atlas via REST API
-- **Entity CRUD** — `hive_table`, `hive_column`, `hive_db` entities (interim types from Atlas bootstrap)
+- **Catalog bridge** — Python function registers Impala-managed **Kudu** tables in Atlas via REST API
+- **Entity CRUD** — Atlas **RDBMS** model (`rdbms_*`, same as Aegir); product bridge no longer registers `hive_*`
 - **Classification CRUD** — custom classification types, table/column tagging, search by classification
 - **BDD coverage** — 74 scenarios across 16 features (40 tier-0 classification + 22 tier-1 health + 12 tier-1 integration), all passing
 
@@ -49,17 +49,38 @@ The core value proposition of the stack: Kudu for upsert-heavy hot-tier ingest, 
 
 The `IcebergRESTCatalog` class already implements `createTable`, `dropTable`, and `renameTable` against the Polaris API. The remaining work is integration testing with a running Polaris instance and validating the full hot→warm lifecycle: data ingested into Kudu, aged via CTAS into Iceberg, queryable transparently through Impala.
 
-### 2. Entity Type Evolution
+### 2. Entity Type Evolution (`rdbms_*`, Aegir-aligned)
 
-The tier-1 BDD tests currently use `hive_table`, `hive_column`, and `hive_db` entity types because they ship with Atlas's bootstrap models. This is pragmatic — they provide working entity CRUD, classification, and relationship support out of the box — but entity type names should reflect the actual storage and query engines in the stack.
+**Stack vocabulary (do not collapse these):**
+
+| Layer | Role | What we call a “table” |
+|-------|------|-------------------------|
+| **PostgreSQL** | Frontend / FDW / RLS | Foreign table (e.g. `atlas_entity_flat`) |
+| **Impala** | SQL engine only; HMS-free; **Kudu (and later Iceberg) only** | Impala name `db.table` → physical `impala::db.table` in Kudu |
+| **Kudu** | Storage | Physical tablet table (`kudu_table` FDW option when needed) |
+| **Atlas** | Governance metadata | Entity types — **not** storage engines |
+
+Hive is **not** a product storage or query tier out of the gate (nothing against Hive; it simply is not in this stack). Atlas still *ships* Hadoop bootstrap types; signals product registration does not create them.
+
+**Atlas type rule (Aegir parity):** Use the stock **RDBMS** model that ships with Atlas (`addons/models/2000-RDBMS/`):
+
+| Type | Role |
+|------|------|
+| `rdbms_instance` | Cluster / connection (e.g. Impala+Kudu lab instance) |
+| `rdbms_db` | Database / schema |
+| `rdbms_table` | Table (governance entity for a signals-managed table) |
+| `rdbms_column` | Column |
+| `rdbms_index` / `rdbms_foreign_key` | Optional structural metadata |
+
+Relationships: `rdbms_instance_databases` → `rdbms_db_tables` → `rdbms_table_columns` (COMPOSITION).
 
 | Phase | Entity Types | Status |
 |-------|-------------|--------|
-| Phase 1 (current) | `hive_table`, `hive_column`, `hive_db` | Working — Atlas bootstrap types, validated by 74 BDD scenarios |
-| Phase 2 | `impala_table`, `impala_column`, `impala_db` | Planned — custom type model in `addons/models/`, superType DataSet |
-| Phase 3 | `kudu_table`, `iceberg_table` alongside `impala_table` | Future — storage-tier-aware types for lineage across hot/warm |
+| Phase 1 (historical) | `hive_table`, `hive_column`, `hive_db` | Bootstrap proof only — **retired for product registration** |
+| Phase 2 (current) | **`rdbms_table`**, `rdbms_column`, `rdbms_db`, `rdbms_instance` | **Landed** — catalog bridge, BDD steps, `sigint.atlas_client` (Aegir-aligned; cross-ref Aegir Atlas `:21000`) |
+| Phase 3 (optional) | Storage facets or tags (`kudu` / `iceberg` tier) on `rdbms_*` | Future — hot→warm lineage without inventing Hive types |
 
-**Why this matters:** Phase 1 validates the Atlas entity contract and classification pipeline. Phase 2 makes entity types match the query engine (Impala, not Hive). Phase 3 enables lineage tracking across the Kudu→Iceberg migration boundary — when a CTAS moves data from hot to warm tier, the lineage should connect a `kudu_table` source to an `iceberg_table` target, both queryable through `impala_table`.
+**Why this matters:** Product path is **Postgres front → Impala SQL → Kudu storage**. Atlas classifies those assets with the relational RDBMS model, not a Hive warehouse model. Aegir may still retain legacy `hive_*` entities; signals product code does not create them.
 
 ### 3. Atlas-Impala Catalog Bridge
 

@@ -108,7 +108,7 @@ def step_atlas_finds_entity(context, entity):
     qn = table_qualified_name(entity)
     resp = atlas_api(
         "/search/basic",
-        params={"typeName": "hive_table", "query": entity, "limit": 25},
+        params={"typeName": "rdbms_table", "query": entity, "limit": 25},
     )
     assert resp.status_code == 200, (
         f"Atlas search failed (status {resp.status_code}): {resp.text[:300]}"
@@ -129,7 +129,7 @@ def step_atlas_entity_has_columns(context):
     table = context.last_created_table
     qn = table_qualified_name(table)
     resp = atlas_api(
-        f"/entity/uniqueAttribute/type/hive_table",
+        f"/entity/uniqueAttribute/type/rdbms_table",
         params={"attr:qualifiedName": qn, "minExtInfo": "true"},
     )
     assert resp.status_code == 200, (
@@ -139,7 +139,7 @@ def step_atlas_entity_has_columns(context):
     # referredEntities contains column entities
     referred = data.get("referredEntities", {})
     col_entities = [
-        e for e in referred.values() if e.get("typeName") == "hive_column"
+        e for e in referred.values() if e.get("typeName") == "rdbms_column"
     ]
     assert len(col_entities) >= 3, (
         f"Expected at least 3 column entities, got {len(col_entities)}: "
@@ -150,7 +150,7 @@ def step_atlas_entity_has_columns(context):
 @then('Atlas has an entity for "{entity}"')
 def step_atlas_has_entity(context, entity):
     qn = table_qualified_name(entity)
-    guid = _find_entity_guid("hive_table", qn)
+    guid = _find_entity_guid("rdbms_table", qn)
     assert guid, f"No Atlas entity found for '{qn}'"
     context.atlas_entity_guid = guid
 
@@ -159,7 +159,7 @@ def step_atlas_has_entity(context, entity):
 def step_mark_atlas_entity_deleted(context):
     table = context.last_created_table
     qn = table_qualified_name(table)
-    resp = delete_atlas_entity("hive_table", qn)
+    resp = delete_atlas_entity("rdbms_table", qn)
     assert resp.status_code in (200, 204), (
         f"Atlas entity delete failed (status {resp.status_code}): {resp.text[:300]}"
     )
@@ -170,7 +170,7 @@ def step_atlas_entity_deleted(context):
     table = context.last_created_table
     qn = table_qualified_name(table)
     resp = atlas_api(
-        f"/entity/uniqueAttribute/type/hive_table",
+        f"/entity/uniqueAttribute/type/rdbms_table",
         params={"attr:qualifiedName": qn},
     )
     if resp.status_code == 404:
@@ -237,8 +237,8 @@ def step_kudu_table_in_atlas(context, table):
 @when('I apply classification "{cls}" to Kudu table "{table}"')
 def step_apply_table_classification(context, cls, table):
     qn = table_qualified_name(table)
-    guid = _find_entity_guid("hive_table", qn)
-    assert guid, f"Cannot find hive_table entity '{qn}' to classify"
+    guid = _find_entity_guid("rdbms_table", qn)
+    assert guid, f"Cannot find rdbms_table entity '{qn}' to classify"
     body = [{"typeName": cls}]
     resp = atlas_api(f"/entity/guid/{guid}/classifications", method="POST", json=body)
     # 200/204 = success, 400 with "already associated" = idempotent OK
@@ -273,12 +273,12 @@ def step_entity_has_classification(context, cls):
 def step_table_column_in_atlas(context, col, table):
     # Ensure the table is registered first
     qn = table_qualified_name(table)
-    guid = _find_entity_guid("hive_table", qn)
+    guid = _find_entity_guid("rdbms_table", qn)
     if not guid:
         step_kudu_table_in_atlas(context, table)
     # Verify the column entity exists
     col_qn = column_qualified_name(table, col)
-    col_guid = _find_entity_guid("hive_column", col_qn)
+    col_guid = _find_entity_guid("rdbms_column", col_qn)
     assert col_guid, f"Column entity '{col_qn}' not found in Atlas"
     context.atlas_column_guid = col_guid
     context.atlas_column_table = table
@@ -288,8 +288,8 @@ def step_table_column_in_atlas(context, col, table):
 @when('I apply classification "{cls}" to column "{col}" of "{table}"')
 def step_apply_column_classification(context, cls, col, table):
     col_qn = column_qualified_name(table, col)
-    col_guid = _find_entity_guid("hive_column", col_qn)
-    assert col_guid, f"Cannot find hive_column entity '{col_qn}' to classify"
+    col_guid = _find_entity_guid("rdbms_column", col_qn)
+    assert col_guid, f"Cannot find rdbms_column entity '{col_qn}' to classify"
     body = [{"typeName": cls}]
     resp = atlas_api(
         f"/entity/guid/{col_guid}/classifications", method="POST", json=body
@@ -346,7 +346,7 @@ def step_multiple_tables_classified(context, cls):
 
         # Apply classification
         qn = table_qualified_name(table)
-        guid = _find_entity_guid("hive_table", qn)
+        guid = _find_entity_guid("rdbms_table", qn)
         assert guid, f"Cannot find entity '{qn}' after registration"
         body = [{"typeName": cls}]
         resp = atlas_api(
@@ -364,12 +364,12 @@ def step_multiple_tables_classified(context, cls):
 @when('I search Atlas for entities with classification "{cls}"')
 def step_search_by_classification(context, cls):
     # AGE backend basic search doesn't support classification filter natively.
-    # Workaround: search for hive_table entities, then verify classification
+    # Workaround: search for rdbms_table entities, then verify classification
     # on each entity individually via the entity API.
     tagged_entities = []
     for table in context.pii_tagged_tables:
         qn = table_qualified_name(table)
-        guid = _find_entity_guid("hive_table", qn)
+        guid = _find_entity_guid("rdbms_table", qn)
         if not guid:
             continue
         resp = atlas_api(f"/entity/guid/{guid}")

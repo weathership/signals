@@ -8,6 +8,14 @@ from sigint.config import TaggingConfig
 from sigint.ontology import atlas_classification_defs
 
 
+# Atlas RDBMS model (addons/models/2000-RDBMS) — Aegir-aligned product types.
+ATLAS_INSTANCE_TYPE = "rdbms_instance"
+ATLAS_DB_TYPE = "rdbms_db"
+ATLAS_TABLE_TYPE = "rdbms_table"
+ATLAS_COLUMN_TYPE = "rdbms_column"
+ATLAS_RDBMS_TYPE = "Kudu"
+
+
 class AtlasClient:
     """Thin wrapper around the Atlas v2 REST API for classification operations."""
 
@@ -63,14 +71,14 @@ class AtlasClient:
         return resp.json().get("entity", {}).get("guid")
 
     def find_column_guid(self, table_fqn: str, column_name: str) -> str | None:
-        """Find the GUID for a hive_column entity."""
+        """Find the GUID for an rdbms_column entity."""
         qn = f"{table_fqn}.{column_name}@{self._cluster}"
-        return self.find_entity_guid("hive_column", qn)
+        return self.find_entity_guid(ATLAS_COLUMN_TYPE, qn)
 
     def find_table_guid(self, table_fqn: str) -> str | None:
-        """Find the GUID for a hive_table entity."""
+        """Find the GUID for an rdbms_table entity."""
         qn = f"{table_fqn}@{self._cluster}"
-        return self.find_entity_guid("hive_table", qn)
+        return self.find_entity_guid(ATLAS_TABLE_TYPE, qn)
 
     # ── Classification CRUD ───────────────────────────────────────────
 
@@ -126,6 +134,7 @@ class AtlasClient:
             Dict with table_guid, db_guid, and column_guids mapping.
         """
         table_fqn = f"{db_name}.{table_name}"
+        inst_qn = f"instance@{self._cluster}"
         db_qn = f"{db_name}@{self._cluster}"
         tbl_qn = f"{table_fqn}@{self._cluster}"
 
@@ -136,42 +145,55 @@ class AtlasClient:
             col_qn = f"{table_fqn}.{col_name}@{self._cluster}"
             col_guid_map[col_name] = temp_guid
             col_entities.append({
-                "typeName": "hive_column",
+                "typeName": ATLAS_COLUMN_TYPE,
                 "guid": temp_guid,
                 "attributes": {
                     "qualifiedName": col_qn,
                     "name": col_name,
-                    "type": col_type,
+                    "data_type": col_type,
                     "owner": "admin",
-                    "table": {"guid": "-1", "typeName": "hive_table"},
-                    "position": i,
+                    "table": {"guid": "-1", "typeName": ATLAS_TABLE_TYPE},
                 },
             })
 
         body = {
             "referredEntities": {
+                "-200": {
+                    "typeName": ATLAS_INSTANCE_TYPE,
+                    "guid": "-200",
+                    "attributes": {
+                        "qualifiedName": inst_qn,
+                        "name": self._cluster,
+                        "rdbms_type": ATLAS_RDBMS_TYPE,
+                        "platform": "signals",
+                        "owner": "admin",
+                    },
+                },
                 "-100": {
-                    "typeName": "hive_db",
+                    "typeName": ATLAS_DB_TYPE,
                     "guid": "-100",
                     "attributes": {
                         "qualifiedName": db_qn,
                         "name": db_name,
-                        "clusterName": self._cluster,
                         "owner": "admin",
+                        "instance": {
+                            "guid": "-200",
+                            "typeName": ATLAS_INSTANCE_TYPE,
+                        },
                     },
                 },
             },
             "entities": [{
-                "typeName": "hive_table",
+                "typeName": ATLAS_TABLE_TYPE,
                 "guid": "-1",
                 "attributes": {
                     "qualifiedName": tbl_qn,
                     "name": table_name,
                     "owner": "admin",
-                    "tableType": "EXTERNAL_TABLE",
-                    "db": {"guid": "-100", "typeName": "hive_db"},
+                    "type": "TABLE",
+                    "db": {"guid": "-100", "typeName": ATLAS_DB_TYPE},
                     "columns": [
-                        {"guid": ce["guid"], "typeName": "hive_column"}
+                        {"guid": ce["guid"], "typeName": ATLAS_COLUMN_TYPE}
                         for ce in col_entities
                     ],
                 },
@@ -188,6 +210,7 @@ class AtlasClient:
         result = {
             "table_guid": guid_assignments.get("-1"),
             "db_guid": guid_assignments.get("-100"),
+            "instance_guid": guid_assignments.get("-200"),
             "column_guids": {},
         }
 
@@ -195,10 +218,13 @@ class AtlasClient:
             mutated = data.get("mutatedEntities", {})
             for action_entities in mutated.values():
                 for ent in action_entities:
-                    if ent.get("typeName") == "hive_table":
+                    t = ent.get("typeName")
+                    if t == ATLAS_TABLE_TYPE:
                         result["table_guid"] = ent.get("guid")
-                    elif ent.get("typeName") == "hive_db":
+                    elif t == ATLAS_DB_TYPE:
                         result["db_guid"] = ent.get("guid")
+                    elif t == ATLAS_INSTANCE_TYPE:
+                        result["instance_guid"] = ent.get("guid")
 
         for col_name, temp_guid in col_guid_map.items():
             real_guid = guid_assignments.get(temp_guid)

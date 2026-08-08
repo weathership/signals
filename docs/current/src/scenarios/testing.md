@@ -42,7 +42,10 @@ HF_HUB_OFFLINE=1 uv run behave --no-capture
 
 ### Air-Gap Testing
 
-The devenv shell sets `HF_HUB_OFFLINE=1` and `SENTENCE_TRANSFORMERS_HOME=build/models` by default, preventing any runtime calls to HuggingFace. Models must be pre-cached:
+The devenv shell sets `HF_HUB_OFFLINE=1` and preserves host `HF_HOME` / `HF_HUB_CACHE` /
+`SENTENCE_TRANSFORMERS_HOME` (lab RAID under `/raid/cache/*`), falling back to
+`build/models` only if no shared cache exists. Models must already be on the shared
+cache (or cached once via `just cache-models`):
 
 ```bash
 just cache-models                        # Download model once
@@ -205,21 +208,22 @@ def atlas_api(path, method="GET", **kwargs):
 The tier-1 integration tests use a Python catalog bridge function (`register_impala_table_in_atlas` in `helpers.py`) that registers Impala-managed Kudu tables in Atlas without requiring Kafka or the Atlas hook infrastructure:
 
 1. Runs `DESCRIBE {table}` on Impala to get column metadata
-2. Builds `hive_db`, `hive_table`, and `hive_column` entities with temporary GUIDs
+2. Builds **`rdbms_*`** entities with temporary GUIDs (Atlas `2000-RDBMS` model, Aegir-aligned)
 3. POSTs to Atlas `POST /v2/entity/bulk` — single atomic call
-4. Atlas resolves the `hive_table_columns` COMPOSITION relationship and assigns real GUIDs
+4. Atlas resolves `rdbms_table_columns` COMPOSITION and assigns real GUIDs
 
-This validates the Atlas entity contract for Impala-style entities and enables classification and search tests without Java hook changes.
+This validates the Atlas entity contract for governed Kudu tables and enables classification and search tests without Java hook changes.
 
 ### qualifiedName Convention
 
 | Entity Type | Pattern | Example |
 |-------------|---------|---------|
-| `hive_db` | `{db}@{cluster}` | `integration_test@signals` |
-| `hive_table` | `{db}.{table}@{cluster}` | `integration_test.orders@signals` |
-| `hive_column` | `{db}.{table}.{col}@{cluster}` | `integration_test.orders.email@signals` |
+| `rdbms_instance` | `instance@{cluster}` | `instance@signals` |
+| `rdbms_db` | `{db}@{cluster}` | `integration_test@signals` |
+| `rdbms_table` | `{db}.{table}@{cluster}` | `integration_test.orders@signals` |
+| `rdbms_column` | `{db}.{table}.{col}@{cluster}` | `integration_test.orders.email@signals` |
 
-> The `hive_*` entity types are an interim convenience — see [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution) for the planned migration to native Impala/Kudu/Iceberg types.
+> Product registration uses **`rdbms_*` only** (not `hive_*`). Physical Kudu names remain separate (`kudu_table` FDW option / `impala::db.table`). See [Roadmap: Entity Type Evolution](../reference/roadmap.md#entity-type-evolution).
 
 ## After-Scenario Cleanup
 

@@ -24,12 +24,33 @@ preflight:
 show-config:
     @if [ -f build/config/sigint.env ]; then cat build/config/sigint.env; else echo "Run 'just resolve-config' first"; fi
 
-# Pre-download embedding model for offline / air-gap operation
+# Ensure MiniLM is available via HF_HOME / HF_HUB_CACHE / SENTENCE_TRANSFORMERS_HOME
+# (lab: RAID under /raid/cache/*). Does not copy into build/models when caches exist.
 cache-models:
-    mkdir -p build/models
-    HF_HUB_OFFLINE=0 SENTENCE_TRANSFORMERS_HOME=build/models \
-        uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-    @echo "Model cached in build/models/. Pipeline runs offline (HF_HUB_OFFLINE=1)."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ST_HOME="${SENTENCE_TRANSFORMERS_HOME:-}"
+    if [ -z "$ST_HOME" ]; then
+      if [ -d /raid/cache/sentence-transformers ]; then
+        ST_HOME=/raid/cache/sentence-transformers
+      elif [ -n "${HF_HOME:-}" ]; then
+        ST_HOME="$HF_HOME"
+      else
+        ST_HOME=build/models
+        mkdir -p "$ST_HOME"
+      fi
+    fi
+    export SENTENCE_TRANSFORMERS_HOME="$ST_HOME"
+    export SIGINT_EMBEDDING_CACHE_DIR="${SIGINT_EMBEDDING_CACHE_DIR:-$ST_HOME}"
+    echo "SENTENCE_TRANSFORMERS_HOME=$SENTENCE_TRANSFORMERS_HOME"
+    echo "HF_HOME=${HF_HOME:-<unset>}  HF_HUB_CACHE=${HF_HUB_CACHE:-<unset>}"
+    if find "$SENTENCE_TRANSFORMERS_HOME" ${HF_HUB_CACHE:+"$HF_HUB_CACHE"} ${HF_HOME:+"$HF_HOME"} \
+         -type d -name 'models--sentence-transformers--all-MiniLM-L6-v2' 2>/dev/null | head -1 | grep -q .; then
+      echo "all-MiniLM-L6-v2 already present — skip download (space-safe)."
+      exit 0
+    fi
+    HF_HUB_OFFLINE=0 uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+    @echo "Model available under SENTENCE_TRANSFORMERS_HOME. Prefer HF_HUB_OFFLINE=1 at runtime."
 
 # ── Pipeline commands ─────────────────────────────────────────────
 

@@ -178,9 +178,9 @@ Key files:
 ### Air-gap / offline operation
 
 ```bash
-just cache-models   # pre-download MiniLM into build/models/
+just cache-models   # ensure MiniLM via HF_HOME / SENTENCE_TRANSFORMERS_HOME (RAID preferred)
 ```
-Afterwards the pipeline runs with `HF_HUB_OFFLINE=1` and `SENTENCE_TRANSFORMERS_HOME=build/models`. For LLM stages, point `--llm-backend openai_compatible --llm-base-url` at a local vLLM server instead of a hosted API.
+Afterwards the pipeline runs with `HF_HUB_OFFLINE=1` and existing HF cache env vars (`HF_HOME`, `HF_HUB_CACHE`, `SENTENCE_TRANSFORMERS_HOME` — lab defaults under `/raid/cache/*`). Do not force a second copy under `build/models/` when RAID caches exist. For LLM stages, point `--llm-backend openai_compatible --llm-base-url` at a local vLLM server instead of a hosted API.
 
 ## Build and Test Commands
 
