@@ -54,3 +54,6 @@
 	path = components/minifi-cpp
 	url = git@github.com:weathership/oss-minifi-cpp.git
 	branch = main
+[submodule "components/signals-ui"]
+	path = components/signals-ui
+	url = git@github.com:weathership/signals-ui.git

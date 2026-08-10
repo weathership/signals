@@ -14,6 +14,7 @@
 - [Identity and access](./architecture/identity-and-access.md)
 - [Signals protocol core](./architecture/signals-protocol-core.md)
 - [OpenLineage + Atlas](./architecture/openlineage-atlas.md)
+- [Signals Control Plane UI](./architecture/signals-control-plane-ui.md)
 - [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
 - [Metadata Tagging](./architecture/meta-tagging.md)

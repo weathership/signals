@@ -19,3 +19,20 @@ scale-to-zero controller (that is Knative Serving). Product path is
 See signals-protocol:
 
 `specification/operations/minifi_sentinels.md`
+
+## Web UI
+
+Upstream YuniKorn no longer ships a maintained web UI. Signals will **not**
+deploy stock Angular YuniKorn-web.
+
+| Piece | Role |
+|-------|------|
+| **`signals-ui`** | Product control-plane service — **strict superset** of yk-web capabilities |
+| Repo | `git@github.com:weathership/signals-ui.git` |
+| Submodule | `components/signals-ui` (when added) |
+| Stack | **Idiomatic Rust** service (no Node runtime); Keiretsu + Kumo dark/light |
+| YK API | Full `/ws/v1/*` surface used by yk-web (contract-tested) |
+| Value-add | Sentinels, OTel, Atlas OL lineage, engine discovery |
+
+- Plan: [Signals Control Plane UI](../architecture/signals-control-plane-ui.md)
+- Capability reference only: `~/local/src/asf/rch-yunikorn-web/`
