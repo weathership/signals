@@ -54,7 +54,9 @@ the default control-plane entry (not stock yk-web, not Marquez-web).
 | Theme | Keiretsu CSS + Kumo token ramp (vendored from Atelier / `cldr-design-template`); `data-theme="keiretsu"` + `data-mode="dark\|light"` |
 | Port policy | **9889** default (`SIGNALS_UI_BIND`); yk-web muscle memory. |
 | YuniKorn | **Required** when stack is up (`SIGNALS_YK_API_URL`). Primary backplane. |
-| Brand | Cloudera logo (Atelier `assets/Cloudera.svg`) + Keiretsu chrome |
+| Brand logos | Pluggable packs (`SIGNALS_UI_BRAND`): cloudera (default) · weathership · custom · `SIGNALS_UI_BRAND_DIR` |
+| Theme | Keiretsu dark/light (fixed; not brand-switched) |
+| Product identity | **Signals** (brand-agnostic copy/vars) |
 | Auth | Lab: open or simple; prod: Cloudflare ZT in front ([identity-and-access](./identity-and-access.md)) |
 
 ### Submodule lifecycle (Signals monorepo)
