@@ -512,15 +512,20 @@ in
   # Core process: every `devenv up` / `devenv up -d` starts marquez-web.
   # Bootstrap: tasks.marquez:build-web runs before this process (turn-key).
   # node_modules: languages.javascript.npm.install (enterShell + build task).
-  # UI only; SoR HTTP = Atlas :21010. No Marquez DB / stock API / Python facade.
+  # UI only; SoR HTTP = Atlas. No Marquez DB / stock API / Python facade.
+  # Port convention: MARQUEZ_WEB_PORT = SIGNALS_ATLAS_HTTP_PORT + 1
+  #   (default Atlas :21010 → Marquez UI :21011). Avoids clashing with :3000
+  #   (Vite/CRA/common local-dev). Override either env var if needed.
   # See docs/current/src/architecture/openlineage-atlas.md
   processes.marquez-web = {
     exec = ''
       set -euo pipefail
       WEB_DIR="$PWD/components/marquez/web"
-      WEB_PORT="''${MARQUEZ_WEB_PORT:-3000}"
+      # Atlas HTTP default matches processes.atlas (-port 21010). Marquez UI is +1.
+      ATLAS_HTTP_PORT="''${SIGNALS_ATLAS_HTTP_PORT:-21010}"
+      WEB_PORT="''${MARQUEZ_WEB_PORT:-$((ATLAS_HTTP_PORT + 1))}"
       OL_API_HOST="''${SIGNALS_OL_API_HOST:-127.0.0.1}"
-      OL_API_PORT="''${SIGNALS_OL_API_PORT:-21010}"
+      OL_API_PORT="''${SIGNALS_OL_API_PORT:-$ATLAS_HTTP_PORT}"
 
       if [ ! -f "$WEB_DIR/setupProxy.js" ] || [ ! -f "$WEB_DIR/dist/index.html" ]; then
         echo "ERROR: marquez-web not bootstrapped (missing dist or setupProxy)."
@@ -539,7 +544,7 @@ in
       export MARQUEZ_HOST="$OL_API_HOST"
       export MARQUEZ_PORT="$OL_API_PORT"
       export WEB_PORT
-      echo "Starting Marquez web on :$WEB_PORT (default stack)"
+      echo "Starting Marquez web on :$WEB_PORT (default stack; Atlas UI port + 1)"
       echo "  → Atlas OL API http://$OL_API_HOST:$OL_API_PORT/api/v1 (proxy)"
       echo "  (composite SoR is Atlas/signals PG — no marquez database)"
       exec node setupProxy.js
@@ -549,8 +554,10 @@ in
         atlas = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        # Fixed port: Nix "…" strings cannot embed bash ''${VAR:-def} (use process env only in exec).
-        exec.command = "curl -sf -o /dev/null http://127.0.0.1:3000/healthcheck";
+        # Fixed port: Nix process-compose probe cannot expand bash defaults.
+        # Must match default MARQUEZ_WEB_PORT = SIGNALS_ATLAS_HTTP_PORT(21010)+1.
+        # If you override MARQUEZ_WEB_PORT, update this probe to match.
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:21011/healthcheck";
         initial_delay_seconds = 3;
         period_seconds = 5;
         timeout_seconds = 3;
@@ -2182,7 +2189,7 @@ SQL
     echo "  PostgreSQL 16     — port 5455, AGE topology + Ranger admin (thin SoR)"
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
-    echo "  Marquez Web       — http://localhost:3000 (default stack; turn-key via marquez:build-web)"
+    echo "  Marquez Web       — http://localhost:21011 (Atlas port + 1; MARQUEZ_WEB_PORT; marquez:build-web)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  RustFS (S3)       — http://127.0.0.1:9010 (data: \$SIGNALS_RUSTFS_DATA_DIR; mc local)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"

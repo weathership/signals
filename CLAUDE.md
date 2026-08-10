@@ -275,7 +275,7 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 | PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry); extensions Apache AGE (graph), pg_cron, pg_trgm |
 | Kerberos KDC | realm `DEV.VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
 | Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` (OL SoR target) |
-| Marquez Web | port **3000** (default stack; turn-key via `marquez:build-web` before process + `languages.javascript.npm.install`) |
+| Marquez Web | port **21011** (= Atlas HTTP + 1; default stack; `marquez:build-web` before process + `languages.javascript.npm.install`) |
 | Ranger | port **6080** (admin; when configured) |
 | Kudu | master webserver 8051, tserver 8050; data under `$SIGNALS_DATA_ROOT/kudu` (default `/raid/signals/kudu`) |
 | Impala | HS2 **21050**, beeswax 21001, statestore 24000, catalogd 26000 (HMS-free, config from `config/impala/catalog_config_dir/`), webservers 25000/25010/25020 |

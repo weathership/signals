@@ -33,13 +33,13 @@ record**. That fights:
 The correct convergence is **extend Atlas’s store and API** so any
 OL-consuming UI (Marquez-web or third-party) talks only to Signals.
 
-## Deployment model (one process, one port)
+## Deployment model (one SoR process; UI on adjacent port)
 
 ```
 Producers (Flink OL, Airflow, polyglot, sigint, …)
         │
         ▼
- Atlas :21010  (single process)
+ Atlas :21010  (single SoR process)
    ├─ /api/atlas/*     # governance — existing clients, zero changes
    └─ /api/v1/*        # OL ingest + Marquez-compat read (extension)
         │
@@ -48,13 +48,17 @@ Producers (Flink OL, Airflow, polyglot, sigint, …)
    ├─ Atlas AGE graph (entities, classifications, OL Job/Run/Dataset)
    └─ optional Kudu projections (FDW scale path)
 
- marquez-web :3000  ── default stack (always with devenv up); proxies /api/v1 → Atlas
+ marquez-web :21011  ── default stack; port = Atlas HTTP + 1; proxies /api/v1 → Atlas
 ```
 
 Path prefixes do not collide. marquez-web only forwards `/api/v1` (and
-`/api/v2beta`); it never needs to own the host. No second API process, no
-second port for SoR HTTP. Marquez-web is **not optional** — it is part of the
+`/api/v2beta`); it never needs to own the SoR host. No second API process, no
+second SoR HTTP port. Marquez-web is **not optional** — it is part of the
 default process graph for every `devenv up` / `devenv up -d`.
+
+**Port rule:** `MARQUEZ_WEB_PORT = SIGNALS_ATLAS_HTTP_PORT + 1` (defaults
+`21010` / `21011`). Do not bind Marquez on `:3000` — that range is for
+ad-hoc local frontends.
 
 ### Non-goals (rejected)
 
@@ -85,8 +89,9 @@ deployed as Signals product API.
 | `components/marquez` | Source submodule (UI + API contract reference) |
 | `languages.javascript` | `directory = components/marquez/web`; `npm.install.enable` (enterShell) |
 | `tasks.marquez:build-web` | **Before** `devenv:processes:marquez-web` — npm + webpack; turn-key `devenv up [-d]` |
-| `processes.marquez-web` | **Default stack** — always starts with `devenv up`; `:3000`, depends on Atlas |
+| `processes.marquez-web` | **Default stack** — always starts with `devenv up`; **`:21011`** (Atlas + 1), depends on Atlas |
 | `SIGNALS_OL_API_HOST` / `PORT` | Atlas (`:21010`); UI proxies `/api/v1` there via `setupProxy.js` |
+| `MARQUEZ_WEB_PORT` | Override UI bind (default `SIGNALS_ATLAS_HTTP_PORT + 1`) |
 
 There is **no** `marquez:db-init`, **no** `marquez` PG database, **no**
 `processes.marquez-api`, **no** Python OL side service.

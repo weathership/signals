@@ -36,6 +36,10 @@ core stack. Marquez-web is bootstrapped like other heavy UI deps (cybersec patte
    process-compose runs submodule init + npm + webpack **before** the UI process.
 3. `processes.marquez-web` only serves (`setupProxy.js` → Atlas `/api/v1`).
 
+**Port convention:** Marquez UI binds **Atlas HTTP + 1** (defaults `:21010` /
+`:21011`). Override with `MARQUEZ_WEB_PORT` / `SIGNALS_ATLAS_HTTP_PORT`. Do not
+use `:3000` for Marquez — leave that for ad-hoc local frontends.
+
 No separate “please run marquez:build-web first” step for a normal lab bring-up.
 
 **Data root:** durable services use `SIGNALS_DATA_ROOT` (lab default
@@ -57,7 +61,7 @@ realm, process graph, and product config**.
 | Layer | Responsibility |
 |-------|----------------|
 | Component on **`rch/devenv`** (`devenv*.nix`) | How to compile that ASF tree on Nix (packages, `*:build-*` tasks) |
-| Host (repo-root `devenv.nix`) | PG `:5455`, KDC, Atlas `:21010`, wiring, SecretSpec |
+| Host (repo-root `devenv.nix`) | PG `:5455`, KDC, Atlas `:21010`, Marquez-web `:21011` (Atlas + 1), wiring, SecretSpec |
 | Product config (`config/`) | `install.properties`, Impala HMS-free, AGE JDBC, local overrides |
 
 **Kudu** already ships a full nested devenv on `rch/devenv`. Treat that as the

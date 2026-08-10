@@ -57,7 +57,7 @@ bump — one proto, every adopter.
 | Governance types & classifications | **Atlas** on `signals` PG + AGE | `/api/atlas/*` |
 | Runtime lineage (Job/Run/Dataset) | **Same Atlas process** + `signals_ol` | `/api/v1/*` (OpenLineage + Marquez-compat) |
 | Authorization decisions | **Ranger** (Atlas tags as input) | Ranger REST / plugins; policy evaluate via discovery |
-| Human OL UI | **Marquez-web** | `:3000` → proxies `/api/v1` only |
+| Human OL UI | **Marquez-web** | `:21011` (Atlas HTTP + 1) → proxies `/api/v1` only |
 | Agent memory + compaction | **Weathership** plugins on Hermes | `MemoryProvider` + context engine ([plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)) |
 | Engine-to-engine inference | **`zndx.engine.v1`** | `Complete` / `Status` / `Remediate` |
 | Heterogeneous model serving | **KServe OIP** + signals-protocol mapping | `ModelInfer` / readiness; authz + provenance on the wire |
@@ -100,7 +100,7 @@ The protocol core extends discovery so a peer learns:
 | `LINEAGE_OL` | OpenLineage ingest + Marquez-compat read | `http(s)://…:21010/api/v1` |
 | `ATLAS_GOVERNANCE` | Atlas REST v2 (entities, types, classifications) | `http(s)://…:21010/api/atlas` |
 | `RANGER_AUTHZ` | Ranger admin / policy evaluate | `http(s)://…:6080` (lab) |
-| `MARQUEZ_UI` | Optional human UI (not SoR) | `http(s)://…:3000` |
+| `MARQUEZ_UI` | Optional human UI (not SoR) | `http(s)://…:21011` (Atlas HTTP + 1) |
 | `ENGINE` | Peer `zndx.engine.v1` gRPC | `host:port` |
 | `OIP` | Open Inference Protocol HTTP/gRPC | KServe-compatible base |
 
