@@ -224,6 +224,25 @@ in
 {
   dotenv.enable = true;
 
+  # Full stack lifecycle is owned by devenv (`up` / `processes down`).
+  # Native manager (devenv 2.x default): use top-level process.after / process.ready.
+  # process-compose.* blocks are kept for process-compose users, but native is default
+  # because concurrent devenv-tasks wrappers under process-compose deadlock on tasks.db.
+  process.manager.implementation = "native";
+
+  # Run once before any process (avoid per-process oneshot races on tasks.db).
+  process.manager.before = ''
+    set -euo pipefail
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_kerberos.sh"
+    signals_krb_bootstrap "$PWD" || {
+      echo "WARN: signals_krb_bootstrap failed — Kudu/Impala may not start (just bootstrap)"
+    }
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_data_root.sh"
+    signals_ensure_data_layout
+  '';
+
   # ── Packages ───────────────────────────────────────────────────────────────
   packages = with pkgs; [
     # Core
@@ -435,8 +454,23 @@ in
     };
   };
 
+  # ── Full process stack (always-on) ───────────────────────────────────────
+  # Required together under `devenv up` / `devenv processes down`:
+  #   postgres, kdc, kudu-master, kudu-tserver, impala-*, atlas, marquez-web,
+  #   ranger-admin, rustfs.
+  # Atlas+AGE (governance/OL SoR) + Kudu/Impala (scale plane) + Marquez UI
+  # (:21011 = Atlas HTTP + 1). Partial stacks are not a supported lab mode.
+  #
   # ── Atlas Process (AGE backend on signals PG; HTTP :21010 to coexist with aegir :21000) ──
   processes.atlas = {
+    after = [ "devenv:processes:postgres" ];
+    ready = {
+      exec = "curl -sf http://127.0.0.1:21010/api/atlas/admin/status";
+      initial_delay = 10;
+      period = 10;
+      probe_timeout = 5;
+      failure_threshold = 15;
+    };
     exec = ''
       ATLAS_DIR="$PWD/components/atlas"
       ATLAS_WEBAPP="$ATLAS_DIR/webapp/target/atlas-webapp-3.0.0-SNAPSHOT"
@@ -518,6 +552,14 @@ in
   #   (Vite/CRA/common local-dev). Override either env var if needed.
   # See docs/current/src/architecture/openlineage-atlas.md
   processes.marquez-web = {
+    after = [ "devenv:processes:atlas" ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:21011/healthcheck";
+      initial_delay = 3;
+      period = 5;
+      probe_timeout = 3;
+      failure_threshold = 12;
+    };
     exec = ''
       set -euo pipefail
       WEB_DIR="$PWD/components/marquez/web"
@@ -611,6 +653,15 @@ in
   # ── Ranger Admin (Postgres :5455/ranger; HTTP :6080) ─────────────────────
   # Requires: devenv tasks run ranger:install && ranger:setup (or process self-setup).
   processes.ranger-admin = {
+    after = [ "devenv:processes:postgres" ];
+    ready = {
+      exec = "curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/ | grep -qE '200|302|401|403'";
+      initial_delay = 15;
+      period = 10;
+      probe_timeout = 5;
+      failure_threshold = 18;
+    };
+
     exec = ''
       RANGER_HOME="$PWD/.devenv/ranger"
       RANGER_ADMIN="$RANGER_HOME/admin"
@@ -682,6 +733,13 @@ in
   # ── Kudu Master Process ──────────────────────────────────────────────────
   # Kerberos required (kudu/$SIGNALS_KRB_HOST keytab from signals:kdc-init / just bootstrap).
   processes.kudu-master = {
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:8051/";
+      initial_delay = 2;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 10;
+    };
     exec = ''
       # shellcheck source=/dev/null
       . "$PWD/scripts/signals_data_root.sh"
@@ -737,12 +795,10 @@ in
         "''${KUDU_AUTH_ARGS[@]}"
     '';
     process-compose = {
+      # Prefer exec probes (devenv 2.1 native manager); http_get alone can leave
+      # processes unregistered so `up` only starts a subset of the stack.
       readiness_probe = {
-        http_get = {
-          host = "127.0.0.1";
-          port = 8051;
-          path = "/";
-        };
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:8051/";
         initial_delay_seconds = 2;
         period_seconds = 5;
         timeout_seconds = 5;
@@ -754,6 +810,14 @@ in
 
   # ── Kudu Tablet Server Process ───────────────────────────────────────────
   processes.kudu-tserver = {
+    after = [ "devenv:processes:kudu-master" ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:8050/";
+      initial_delay = 2;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 10;
+    };
     exec = ''
       # shellcheck source=/dev/null
       . "$PWD/scripts/signals_data_root.sh"
@@ -812,11 +876,7 @@ in
         kudu-master = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        http_get = {
-          host = "127.0.0.1";
-          port = 8050;
-          path = "/";
-        };
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:8050/";
         initial_delay_seconds = 2;
         period_seconds = 5;
         timeout_seconds = 5;
@@ -841,6 +901,13 @@ in
 
   # ── Impala Statestore Process ───────────────────────────────────────────
   processes.impala-statestore = lib.mkIf pkgs.stdenv.isLinux {
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:25010/";
+      initial_delay = 3;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 10;
+    };
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/statestored" ]; then
@@ -886,11 +953,7 @@ in
     '';
     process-compose = {
       readiness_probe = {
-        http_get = {
-          host = "127.0.0.1";
-          port = 25010;
-          path = "/";
-        };
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:25010/";
         initial_delay_seconds = 3;
         period_seconds = 5;
         timeout_seconds = 5;
@@ -902,6 +965,18 @@ in
 
   # ── Impala Catalog Server Process (HMS-free) ────────────────────────────
   processes.impala-catalogd = lib.mkIf pkgs.stdenv.isLinux {
+    after = [
+      "devenv:processes:impala-statestore"
+      "devenv:processes:kudu-tserver"
+      "devenv:processes:postgres"
+    ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:25020/";
+      initial_delay = 5;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 15;
+    };
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/catalogd" ]; then
@@ -978,11 +1053,7 @@ in
         postgres = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        http_get = {
-          host = "127.0.0.1";
-          port = 25020;
-          path = "/";
-        };
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:25020/";
         initial_delay_seconds = 5;
         period_seconds = 5;
         timeout_seconds = 5;
@@ -994,6 +1065,14 @@ in
 
   # ── Impala Daemon Process (HMS-free) ────────────────────────────────────
   processes.impala-impalad = lib.mkIf pkgs.stdenv.isLinux {
+    after = [ "devenv:processes:impala-catalogd" ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:25000/";
+      initial_delay = 5;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 15;
+    };
     exec = ''
       IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/impalad" ]; then
@@ -1062,11 +1141,7 @@ in
         impala-catalogd = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        http_get = {
-          host = "127.0.0.1";
-          port = 25000;
-          path = "/";
-        };
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:25000/";
         initial_delay_seconds = 5;
         period_seconds = 5;
         timeout_seconds = 5;

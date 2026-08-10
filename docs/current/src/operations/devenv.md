@@ -21,11 +21,38 @@ secretspec run -- just tag default.my_table   # inject declared secrets for a jo
 
 ```bash
 just bootstrap        # Required: Kerberos KDC keytabs + kinit + FQDN env (no NOSASL path)
-devenv up             # Start core stack (PG, KDC, Atlas, Marquez-web, … + Kerberos Kudu/Impala)
-devenv up -d          # Same, detached — marquez-web always included
+devenv up             # Full stack (foreground)
+devenv up -d          # Full stack (detached) — preferred lab mode
+devenv processes down # Stop the full stack (same control plane as up)
 just kinit            # Refresh user ticket as needed
 just kerberos-status  # Expect: impala HS2 GSSAPI OK
 ```
+
+**Full stack is always required.** Atlas+AGE (governance + OpenLineage SoR),
+Kudu + Impala (scale plane for projections/SQL), and Marquez-web (UI on
+Atlas HTTP + 1 → `:21011`) are one unit under devenv process control. Do not
+run Marquez or Atlas as long-lived orphans outside `devenv up` /
+`devenv processes down`.
+
+Process manager: **native** (`process.manager.implementation = "native"`). Ordering
+uses process `after` / `ready` (Kudu → Impala; Postgres → Atlas → Marquez). Control:
+
+```bash
+devenv up -d              # start full graph
+devenv processes list     # expect kudu-*, impala-*, atlas, marquez-web, …
+devenv processes down     # stop full graph
+```
+
+| Process | Role | Default port(s) |
+|---------|------|-----------------|
+| `postgres` | AGE + Ranger + catalog | 5455 |
+| `kdc` | Kerberos | 8848 |
+| `kudu-master` / `kudu-tserver` | Columnar store | 7051/7050 (web 8051/8050) |
+| `impala-statestore` / `catalogd` / `impalad` | SQL + kudu_scan | HS2 21050 |
+| `atlas` | Governance + OL API | **21010** |
+| `marquez-web` | OL UI → Atlas `/api/v1` | **21011** |
+| `ranger-admin` | Authz | 6080 |
+| `rustfs` | S3 objects | 9010 |
 
 **Turn-key first run:** `devenv up [-d]` is the only entry point users need for the
 core stack. Marquez-web is bootstrapped like other heavy UI deps (cybersec pattern):
