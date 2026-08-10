@@ -17,7 +17,7 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Hermes Agent](./hermes-agent.md) | Agent runtime; Weathership memory + context-engine plugins | Submodule pin (`zndx/oss-hermes-agent`) |
 | [MiNiFi C++](./minifi-cpp.md) | Federation **sentinels** (C2 + OTel) on Knative | Submodule `weathership/oss-minifi-cpp` |
 | [YuniKorn](./yunikorn.md) | Required admission/queues for sentinel pods on RKE2 | Submodule `components/yunikorn-core` |
-| Signals Control UI | YK-web **superset** + lineage/sentinels/OTel (Rust) | Planned submodule `components/signals-ui` → `weathership/signals-ui` |
+| Signals Control UI | **Primary backplane** — yk-web ⊇ + lineage/sentinels (Rust/Axum :9889) | `components/signals-ui` → `weathership/signals-ui` |
 | [Airflow](./airflow.md) | Workflow orchestration | Planned |
 | [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 

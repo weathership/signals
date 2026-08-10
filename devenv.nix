@@ -457,9 +457,10 @@ in
   # ── Full process stack (always-on) ───────────────────────────────────────
   # Required together under `devenv up` / `devenv processes down`:
   #   postgres, kdc, kudu-master, kudu-tserver, impala-*, atlas, marquez-web,
-  #   ranger-admin, rustfs.
+  #   signals-ui, ranger-admin, rustfs.
   # Atlas+AGE (governance/OL SoR) + Kudu/Impala (scale plane) + Marquez UI
-  # (:21011 = Atlas HTTP + 1). Partial stacks are not a supported lab mode.
+  # (:21011 = Atlas HTTP + 1, OL validation only) + signals-ui (:9889, PRIMARY
+  # backplane; YK required once scheduler is in the stack).
   #
   # ── Atlas Process (AGE backend on signals PG; HTTP :21010 to coexist with aegir :21000) ──
   processes.atlas = {
@@ -601,6 +602,59 @@ in
         # If you override MARQUEZ_WEB_PORT, update this probe to match.
         exec.command = "curl -sf -o /dev/null http://127.0.0.1:21011/healthcheck";
         initial_delay_seconds = 3;
+        period_seconds = 5;
+        timeout_seconds = 3;
+        success_threshold = 1;
+        failure_threshold = 12;
+      };
+    };
+  };
+
+  # ── signals-ui (primary backplane UI — yk-web superset, Rust/Axum) ───────
+  # Once the stack lands, YuniKorn is required (SIGNALS_YK_API_URL).
+  # Port 9889 (yk-web muscle memory). Keiretsu + Cloudera brand (Atelier).
+  # See docs/current/src/architecture/signals-control-plane-ui.md
+  processes.signals-ui = {
+    after = [ "devenv:processes:atlas" ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:9889/healthz";
+      initial_delay = 2;
+      period = 5;
+      probe_timeout = 3;
+      failure_threshold = 12;
+    };
+    exec = ''
+      set -euo pipefail
+      UI_DIR="$PWD/components/signals-ui"
+      if [ ! -f "$UI_DIR/Cargo.toml" ]; then
+        echo "ERROR: components/signals-ui missing. git submodule update --init components/signals-ui"
+        exit 1
+      fi
+      export SIGNALS_UI_BIND="''${SIGNALS_UI_BIND:-0.0.0.0:9889}"
+      export SIGNALS_ATLAS_HTTP_URL="''${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:''${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
+      # YK required in steady state; lab without YK: SIGNALS_UI_ALLOW_NO_YK=1
+      if [ -z "''${SIGNALS_YK_API_URL:-}" ]; then
+        export SIGNALS_UI_ALLOW_NO_YK="''${SIGNALS_UI_ALLOW_NO_YK:-1}"
+        echo "WARN: SIGNALS_YK_API_URL unset — starting with ALLOW_NO_YK (not production posture)"
+      fi
+      export SIGNALS_UI_ASSETS="$UI_DIR/assets"
+      cd "$UI_DIR"
+      BIN="$UI_DIR/target/release/signals-ui"
+      if [ ! -x "$BIN" ]; then
+        echo "Building signals-ui (release)…"
+        cargo build --release -p signals-ui
+      fi
+      echo "Starting signals-ui (primary backplane) on $SIGNALS_UI_BIND"
+      echo "  YK=''${SIGNALS_YK_API_URL:-<none>}  Atlas=$SIGNALS_ATLAS_HTTP_URL"
+      exec "$BIN"
+    '';
+    process-compose = {
+      depends_on = {
+        atlas = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:9889/healthz";
+        initial_delay_seconds = 2;
         period_seconds = 5;
         timeout_seconds = 3;
         success_threshold = 1;
@@ -2264,7 +2318,8 @@ SQL
     echo "  PostgreSQL 16     — port 5455, AGE topology + Ranger admin (thin SoR)"
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
-    echo "  Marquez Web       — http://localhost:21011 (Atlas port + 1; MARQUEZ_WEB_PORT; marquez:build-web)"
+    echo "  Marquez Web       — http://localhost:21011 (OL validation only; Atlas + 1)"
+    echo "  signals-ui        — http://localhost:9889 (PRIMARY backplane; yk-web ⊇; just signals-ui)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  RustFS (S3)       — http://127.0.0.1:9010 (data: \$SIGNALS_RUSTFS_DATA_DIR; mc local)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
@@ -2286,6 +2341,7 @@ SQL
     echo "  devenv tasks run impala:test-fe       — Run Impala FE unit tests"
     echo "  devenv tasks run atlas:build          — Build Atlas webapp (AGE)"
     echo "  devenv tasks run marquez:build-web    — Bootstrap Marquez UI (also runs before devenv up)"
+    echo "  just signals-ui-build / signals-ui    — Primary backplane UI (Rust/Axum :9889)"
     echo "  devenv tasks run ranger:build         — Ranger → .devenv/m2 + distro"
     echo "  devenv tasks run ranger:install       — .devenv/ranger/admin"
     echo "  devenv tasks run ranger:setup         — setup.sh → Postgres ranger DB"

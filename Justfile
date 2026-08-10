@@ -224,6 +224,32 @@ restore STAMP *ARGS:
 signals-df-build:
     cargo build -p signals-df --release
 
+# ── signals-ui (primary backplane UI — yk-web superset, Rust/Axum) ─
+# YuniKorn is required once the stack lands (SIGNALS_YK_API_URL).
+# Port 9889. Keiretsu + Cloudera brand. See architecture/signals-control-plane-ui.md
+
+signals-ui-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd components/signals-ui
+    cargo build --release -p signals-ui
+    echo "→ components/signals-ui/target/release/signals-ui"
+
+# Run foreground (lab). Without YK: SIGNALS_UI_ALLOW_NO_YK=1 just signals-ui
+# Steady state: SIGNALS_YK_API_URL is required (primary backplane).
+signals-ui *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd components/signals-ui
+    export SIGNALS_UI_BIND="${SIGNALS_UI_BIND:-0.0.0.0:9889}"
+    export SIGNALS_ATLAS_HTTP_URL="${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
+    export SIGNALS_UI_ASSETS="$PWD/assets"
+    if [ -z "${SIGNALS_YK_API_URL:-}" ]; then
+      export SIGNALS_UI_ALLOW_NO_YK="${SIGNALS_UI_ALLOW_NO_YK:-1}"
+      echo "WARN: SIGNALS_YK_API_URL unset (lab allow-no-yk). YK is required in steady state."
+    fi
+    cargo run -p signals-ui -- {{ARGS}}
+
 data-layout:
     devenv tasks run signals:data-layout
 

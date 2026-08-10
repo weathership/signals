@@ -11,7 +11,10 @@
 Upstream YuniKorn no longer ships a maintained web UI. Marquez-web is an
 OpenLineage **validation harness**, not the long-term operator surface.
 
-**`signals-ui`** is the product control-plane service:
+**`signals-ui` is the primary backplane UI for Signals.** Once the stack lands,
+**YuniKorn is required** (not optional): admission, queues, and process
+visibility for federated work go through YK, and operators use signals-ui as
+the default control-plane entry (not stock yk-web, not Marquez-web).
 
 1. **Strict superset of stock yunikorn-web** — every capability and YK REST
    usage in `rch-yunikorn-web` is implemented and tested; then Signals
@@ -19,10 +22,13 @@ OpenLineage **validation harness**, not the long-term operator surface.
 2. **Isolated submodule** — developed in `weathership/signals-ui`, vendored
    into Signals as `components/signals-ui` (same pattern as other components).
 3. **Idiomatic Rust for the service** — no Node.js runtime in production.
-   Departs from Atelier/Aegir Node frontends for *this* control-plane binary;
-   still follows **Keiretsu + Kumo** visual law (CSS tokens, dark/light).
+   **Axum** ([tokio-rs/axum](https://github.com/tokio-rs/axum)); Askama HTML.
+   Visual law: **Keiretsu** (Atelier) + **Cloudera** logo for brand continuity
+   with Atelier/Aegir; dark + light.
 4. **Federation overwatch** — MiNiFi sentinels, OTel, Atlas OL lineage, and
    engine discovery sit beside YK views in one process.
+5. **YuniKorn required** — `SIGNALS_YK_API_URL` is the steady-state config;
+   `/readyz` fails without it unless `SIGNALS_UI_ALLOW_NO_YK=1` (lab chrome only).
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -46,7 +52,9 @@ OpenLineage **validation harness**, not the long-term operator surface.
 | Language (service) | **Rust** (edition 2021+, idiomatic: `axum` / `tower` / `tokio` / `reqwest` / `serde`) |
 | Presentation | Rust-native UI preferred (**Leptos** or **Dioxus** + Trunk, or server-rendered HTML via Askama/Maud + progressive enhancement). **No Node service.** Asset pipeline must not require a long-lived Node runtime in devenv/prod. |
 | Theme | Keiretsu CSS + Kumo token ramp (vendored from Atelier / `cldr-design-template`); `data-theme="keiretsu"` + `data-mode="dark\|light"` |
-| Port policy | Dedicated control-plane port (proposal: **9889** to match stock yk-web muscle memory, or `SIGNALS_ATLAS_HTTP_PORT + 2`). Document in devenv. |
+| Port policy | **9889** default (`SIGNALS_UI_BIND`); yk-web muscle memory. |
+| YuniKorn | **Required** when stack is up (`SIGNALS_YK_API_URL`). Primary backplane. |
+| Brand | Cloudera logo (Atelier `assets/Cloudera.svg`) + Keiretsu chrome |
 | Auth | Lab: open or simple; prod: Cloudflare ZT in front ([identity-and-access](./identity-and-access.md)) |
 
 ### Submodule lifecycle (Signals monorepo)

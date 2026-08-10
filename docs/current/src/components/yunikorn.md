@@ -27,12 +27,16 @@ deploy stock Angular YuniKorn-web.
 
 | Piece | Role |
 |-------|------|
-| **`signals-ui`** | Product control-plane service — **strict superset** of yk-web capabilities |
+| **`signals-ui`** | **Primary Signals backplane UI** — strict **superset** of yk-web |
 | Repo | `git@github.com:weathership/signals-ui.git` |
-| Submodule | `components/signals-ui` (when added) |
-| Stack | **Idiomatic Rust** service (no Node runtime); Keiretsu + Kumo dark/light |
+| Submodule | `components/signals-ui` |
+| Stack | **Rust / Axum** (no Node); Keiretsu + Cloudera logo (Atelier continuity) |
+| YK | **Required** once the stack lands (`SIGNALS_YK_API_URL`) |
 | YK API | Full `/ws/v1/*` surface used by yk-web (contract-tested) |
 | Value-add | Sentinels, OTel, Atlas OL lineage, engine discovery |
+
+Marquez-web remains an OL **validation** UI only; operators should prefer
+**signals-ui** for day-to-day control-plane work.
 
 - Plan: [Signals Control Plane UI](../architecture/signals-control-plane-ui.md)
 - Capability reference only: `~/local/src/asf/rch-yunikorn-web/`
