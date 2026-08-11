@@ -157,7 +157,9 @@ warp *ARGS:
 # ── Kerberos (required for all data-plane services — no NOSASL path) ─
 # Clients dial $SIGNALS_KRB_HOST (FQDN), never 127.0.0.1, so SPNs match keytabs.
 
-# Required first-run / machine setup: KDC keytabs, hosts check, kinit, .env FQDN
+# Kerberos recovery/alias — normal path is `devenv up -d` alone (task
+# signals:kerberos-bootstrap runs before Kudu/Impala). Use bootstrap when
+# keytabs are missing outside a process-manager session.
 bootstrap:
     bash scripts/kerberos-migrate.sh
 
@@ -289,10 +291,44 @@ signals-ui-build:
     echo "→ components/signals-ui/target/release/signals-ui"
 
 # Foreground run. Release binary if present; else cargo run.
-# Critical plane: PG + RustFS + YK + Knative + Metaflow (Airflow when required).
+# Critical plane: PG + RustFS + Kudu/Impala + YK + Knative + Metaflow + Airflow.
 # See docs/current/src/architecture/stack-critical-plane.md
+# Invoked automatically before signals-ui on `devenv up -d`.
 stack-ready:
     bash scripts/signals_stack_preflight.sh
+
+# Assert devenv process graph includes Kudu/Impala (not a partial up).
+process-assert:
+    bash scripts/devenv_process_assert.sh
+
+# Kudu/Impala binary + layout gate (does not compile).
+data-plane-preflight:
+    bash scripts/data_plane_preflight.sh
+
+# Post-up Kudu + Impala smoke.
+data-plane-smoke:
+    bash scripts/data_plane_smoke.sh
+
+# Clean stop of *this* stack only (never kill foreign devenv Postgres) + up -d.
+stack-reset:
+    bash scripts/devenv_stack_reset.sh
+
+# Preferred up/down wrappers (turn-key + port lattice hygiene).
+# Bare `devenv processes down` often leaves the postmaster on :5455; we stop
+# only *our* .devenv/state/postgres PID (see signals_port_lattice.sh).
+up:
+    devenv up -d
+
+down:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    cd "$ROOT"
+    devenv processes down 2>/dev/null || true
+    # shellcheck source=/dev/null
+    . "$ROOT/scripts/signals_port_lattice.sh"
+    signals_pg_stop_ours "$ROOT"
+    echo "stack down — signals :5455 free (system :5432 and other devenvs untouched)"
 
 # Require federation (YK+Knative) only.
 federation-ready:

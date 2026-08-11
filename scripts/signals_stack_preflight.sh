@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Signals critical-plane preflight for `devenv up [-d]` / just stack-ready.
 #
-# Uniformly critical: Kerberos/PG/RustFS (host), YK+Knative (RKE2), Metaflow
-# metadata (RKE2), and (when enabled) Airflow. See:
-#   docs/current/src/architecture/stack-critical-plane.md
+# Host: PG, RustFS, Atlas, Kudu, Impala (+ process graph assert)
+# RKE2: YK + Knative, Metaflow, Airflow
+# See: docs/current/src/architecture/stack-critical-plane.md
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,17 +12,23 @@ cd "$ROOT"
 AUTO_FEDERATION="${SIGNALS_STACK_AUTO_FEDERATION:-1}"
 AUTO_METAFLOW="${SIGNALS_STACK_AUTO_METAFLOW:-1}"
 AUTO_AIRFLOW="${SIGNALS_STACK_AUTO_AIRFLOW:-1}"
-REQUIRE_AIRFLOW="${SIGNALS_STACK_REQUIRE_AIRFLOW:-0}"
+# Lab default: Airflow is critical once M2 landed
+REQUIRE_AIRFLOW="${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
+REQUIRE_DATA_PLANE="${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
+DATA_PLANE_SMOKE="${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}"
+AUTO_CATALOG="${SIGNALS_STACK_AUTO_CATALOG:-1}"
+ASSERT_PROCESSES="${SIGNALS_STACK_ASSERT_PROCESSES:-1}"
+
 YK_URL="${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
 MF_URL="${METAFLOW_SERVICE_URL:-http://127.0.0.1:30180}"
 AF_URL="${AIRFLOW_API_URL:-http://127.0.0.1:30800}"
 RUSTFS_URL="${RUSTFS_ADDRESS:-127.0.0.1:9010}"
-# devenv may set PGHOST to a unix socket dir — use TCP for critical-plane probe
 PGHOST="${SIGNALS_PG_HOST:-127.0.0.1}"
 if [[ "$PGHOST" == /* ]]; then
   PGHOST="127.0.0.1"
 fi
-PGPORT="${PGPORT:-5455}"
+# Lab lattice: signals owns 5455 (see scripts/signals_port_lattice.sh)
+PGPORT="${SIGNALS_PG_PORT:-${PGPORT:-5455}}"
 ATLAS_URL="${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
 
 info() { echo "stack-preflight: $*"; }
@@ -34,7 +40,6 @@ WARNINGS=0
 
 tcp_ok() {
   local host="$1" port="$2"
-  # bash /dev/tcp if available
   timeout 2 bash -c "echo >/dev/tcp/${host}/${port}" 2>/dev/null
 }
 
@@ -59,13 +64,114 @@ else
   die "RustFS not reachable at ${RUSTFS_URL} (devenv rustfs — object plane is critical)"
 fi
 
-# Prefer /admin/status (200 when up). /admin/version and / often 401 without session.
 if http_ok "${ATLAS_URL%/}/api/atlas/admin/status" \
   || http_ok "${ATLAS_URL%/}/api/atlas/admin/version" \
   || http_ok "${ATLAS_URL%/}/"; then
   ok "Atlas ${ATLAS_URL}"
 else
-  fail_soft "Atlas not ready at ${ATLAS_URL} (start devenv atlas process)"
+  if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+    die "Atlas not ready at ${ATLAS_URL}"
+  fi
+  fail_soft "Atlas not ready at ${ATLAS_URL}"
+fi
+
+# ── Data plane: Kudu + Impala (wait — may race with parallel process start) ─
+info "=== data plane (Kudu + Impala) ==="
+DATA_PLANE_WAIT="${SIGNALS_STACK_DATA_PLANE_WAIT:-180}"
+wait_http() {
+  local url="$1" label="$2" secs="${3:-$DATA_PLANE_WAIT}"
+  local i
+  for i in $(seq 1 "$secs"); do
+    if http_ok "$url"; then
+      ok "$label"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+wait_tcp() {
+  local host="$1" port="$2" label="$3" secs="${4:-$DATA_PLANE_WAIT}"
+  local i
+  for i in $(seq 1 "$secs"); do
+    if tcp_ok "$host" "$port"; then
+      ok "$label"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+data_plane_ok=1
+if ! wait_http "http://127.0.0.1:8051/" "Kudu master web :8051" "$DATA_PLANE_WAIT"; then
+  data_plane_ok=0
+  if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+    die "Kudu master not up on :8051 after ${DATA_PLANE_WAIT}s (devenv up -d full graph?)"
+  fi
+  fail_soft "Kudu master :8051 not ready"
+fi
+if ! wait_http "http://127.0.0.1:8050/" "Kudu tserver web :8050" 60; then
+  data_plane_ok=0
+  if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+    die "Kudu tserver not up on :8050"
+  fi
+  fail_soft "Kudu tserver :8050 not ready"
+fi
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+  for pair in "25010:statestore" "25020:catalogd" "25000:impalad-web"; do
+    port="${pair%%:*}"; name="${pair##*:}"
+    if ! wait_http "http://127.0.0.1:${port}/" "Impala ${name} :${port}" 120; then
+      data_plane_ok=0
+      if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+        die "Impala ${name} not up on :${port}"
+      fi
+      fail_soft "Impala ${name} :${port} not ready"
+    fi
+  done
+  if ! wait_tcp 127.0.0.1 21050 "Impala HS2 :21050" 60; then
+    data_plane_ok=0
+    if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+      die "Impala HS2 not accepting on :21050"
+    fi
+    fail_soft "Impala HS2 :21050 not ready"
+  fi
+else
+  info "Darwin: Impala process checks skipped (Linux-only)"
+fi
+
+if [[ "$ASSERT_PROCESSES" == "1" || "$ASSERT_PROCESSES" == "true" ]]; then
+  info "=== process graph assert (port probes; no nested devenv) ==="
+  # Already waited on data-plane ports above — assert with short wait for remainder
+  export SIGNALS_PROCESS_ASSERT_WAIT="${SIGNALS_PROCESS_ASSERT_WAIT:-30}"
+  if bash "$ROOT/scripts/devenv_process_assert.sh"; then
+    ok "host process graph (ports)"
+  else
+    if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+      die "process graph incomplete — just stack-reset or devenv processes down && devenv up -d"
+    fi
+    fail_soft "process graph incomplete"
+  fi
+fi
+
+# ── Catalog schema (idempotent) ───────────────────────────────────
+if [[ "$AUTO_CATALOG" == "1" || "$AUTO_CATALOG" == "true" ]]; then
+  if command -v psql >/dev/null 2>&1 && tcp_ok "${PGHOST}" "${PGPORT}"; then
+    # Ensure signals role + catalog schema present
+    if ! PGPASSWORD="${PGPASSWORD:-}" psql -h "$PGHOST" -p "$PGPORT" -U "${USER:-signals}" -d signals_catalog -c '\dt' >/dev/null 2>&1 \
+      && ! PGPASSWORD="${PGPASSWORD:-signals}" psql -h "$PGHOST" -p "$PGPORT" -U signals -d signals_catalog -c '\dt' >/dev/null 2>&1; then
+      info "catalog not ready — running signals:catalog-init path"
+      if command -v devenv >/dev/null 2>&1; then
+        devenv tasks run signals:catalog-init 2>/dev/null || {
+          # Fallback inline minimal role (full schema via task preferred)
+          info "WARN catalog-init task failed — try: devenv tasks run signals:catalog-init"
+        }
+      fi
+    else
+      ok "signals_catalog reachable"
+    fi
+  fi
 fi
 
 # ── RKE2: federation (YK + Knative) ───────────────────────────────
@@ -96,21 +202,9 @@ else
   fi
 fi
 
-# ── RKE2: Airflow 3 (platform production orchestrator) ────────────
+# ── RKE2: Airflow 3 ───────────────────────────────────────────────
 info "=== Airflow (platform production orchestrator) ==="
-pick_kube() {
-  local c
-  for c in "${KUBECONFIG:-}" "${HOME}/.kube/rke2.yaml" "${HOME}/.kube/config"; do
-    [[ -n "$c" && -r "$c" ]] || continue
-    export KUBECONFIG="$c"
-    return 0
-  done
-  return 1
-}
-pick_kube || true
-
 airflow_http_ok() {
-  # AF3 public version endpoint, or UI root accepting
   http_ok "${AF_URL%/}/api/v2/version" \
     || { local c; c="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "${AF_URL%/}/" 2>/dev/null || echo 000)"; [[ "$c" =~ ^(200|302|303|401|403)$ ]]; }
 }
@@ -133,13 +227,26 @@ else
       if [[ "$REQUIRE_AIRFLOW" == "1" || "$REQUIRE_AIRFLOW" == "true" ]]; then
         die "Airflow platform bootstrap failed"
       fi
-      fail_soft "Airflow bootstrap failed — run: just airflow-platform"
+      fail_soft "Airflow bootstrap failed — just airflow-platform"
     fi
   else
     if [[ "$REQUIRE_AIRFLOW" == "1" || "$REQUIRE_AIRFLOW" == "true" ]]; then
-      die "Airflow not deployed (critical). Run: just airflow-platform"
+      die "Airflow not deployed. Run: just airflow-platform"
     fi
-    fail_soft "Airflow not up at ${AF_URL} (SIGNALS_STACK_AUTO_AIRFLOW=0) — just airflow-platform"
+    fail_soft "Airflow not up at ${AF_URL}"
+  fi
+fi
+
+# ── Optional data-plane smoke ─────────────────────────────────────
+if [[ "$data_plane_ok" -eq 1 && ( "$DATA_PLANE_SMOKE" == "1" || "$DATA_PLANE_SMOKE" == "true" ) ]]; then
+  info "=== data-plane smoke ==="
+  if bash "$ROOT/scripts/data_plane_smoke.sh"; then
+    ok "data-plane smoke"
+  else
+    if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
+      die "data-plane smoke failed"
+    fi
+    fail_soft "data-plane smoke failed"
   fi
 fi
 
@@ -148,8 +255,7 @@ info "=== summary ==="
 if [[ "$WARNINGS" -gt 0 ]]; then
   info "completed with ${WARNINGS} warning(s) — critical plane partially degraded"
   info "full policy: docs/current/src/architecture/stack-critical-plane.md"
-  # Soft warnings only (Atlas warm-up, Airflow M2): still exit 0 so devenv up proceeds
   exit 0
 fi
-info "critical plane OK (host data plane + YK + Knative + Metaflow + Airflow)"
+info "critical plane OK (host + Kudu/Impala + YK + Knative + Metaflow + Airflow)"
 info "  YK=$YK_URL  Metaflow=$MF_URL  Airflow=$AF_URL  RustFS=$RUSTFS_URL  PG=${PGHOST}:${PGPORT}"

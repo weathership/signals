@@ -232,16 +232,33 @@ in
   process.manager.implementation = "native";
 
   # Run once before any process (avoid per-process oneshot races on tasks.db).
+  # Kerberos full bootstrap needs KDC up — that is signals:kerberos-bootstrap
+  # (before kudu/impala). Here: data layout + best-effort early krb if KDC already live.
   process.manager.before = ''
     set -euo pipefail
     # shellcheck source=/dev/null
-    . "$PWD/scripts/signals_kerberos.sh"
-    signals_krb_bootstrap "$PWD" || {
-      echo "WARN: signals_krb_bootstrap failed — Kudu/Impala may not start (just bootstrap)"
-    }
-    # shellcheck source=/dev/null
     . "$PWD/scripts/signals_data_root.sh"
     signals_ensure_data_layout
+    echo "process.manager.before: data layout OK"
+    # Port lattice: fail if :5455 is owned by another devenv (never steal).
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_port_lattice.sh"
+    signals_pg_port_claim "$PWD"
+    # Stale postmaster.pid after *our* orphan exit blocks the next postgres start.
+    if [ -f "$PWD/.devenv/state/postgres/postmaster.pid" ]; then
+      _ppid=$(head -1 "$PWD/.devenv/state/postgres/postmaster.pid" 2>/dev/null || true)
+      if [ -n "$_ppid" ] && ! kill -0 "$_ppid" 2>/dev/null; then
+        echo "process.manager.before: removing stale postmaster.pid (dead pid $_ppid)"
+        rm -f "$PWD/.devenv/state/postgres/postmaster.pid"
+      fi
+    fi
+    # shellcheck source=/dev/null
+    . "$PWD/scripts/signals_kerberos.sh"
+    if ss -uln 2>/dev/null | grep -q 8848 || timeout 1 bash -c 'echo >/dev/udp/127.0.0.1/8848' 2>/dev/null; then
+      signals_krb_bootstrap "$PWD" || echo "WARN: early kerberos bootstrap failed — kerberos-bootstrap task will retry after KDC"
+    else
+      echo "process.manager.before: KDC not up yet — kerberos-bootstrap task will run before Kudu/Impala"
+    fi
   '';
 
   # ── Packages ───────────────────────────────────────────────────────────────
@@ -407,9 +424,15 @@ in
       "/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst";
     # Platform Metaflow metadata service (M1) — NodePort 30180
     METAFLOW_SERVICE_URL = "http://127.0.0.1:30180";
+    # Lab Postgres lattice: cybersec 5438 · gaius 5444 · signals 5455 ·
+    # atelier 5533 · aegir 5555 · synth 5566. See scripts/signals_port_lattice.sh
+    # (Do not set env.PGPORT here — services.postgres owns it and conflicts.)
+    SIGNALS_PG_PORT = "5455";
   };
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  # Port 5455 is *reserved for signals* on the shared lab host. Do not share
+  # with aura2ranger or other devenvs; do not auto-bump (strictPorts in devenv.yaml).
   services.postgres = {
     enable = true;
     package = pkgs.postgresql_16;
@@ -628,6 +651,9 @@ in
   # Preflight: task signals:federation-ready (YK + Knative on local RKE2).
   # Port 9889. Keiretsu + logo packs. See signals-control-plane-ui.md
   processes.signals-ui = {
+    # After Atlas so governance is up; stack-ready (before this process) waits
+    # for Kudu/Impala ports + RKE2 critical plane. Do not after-chain impalad:
+    # a failed first stack-ready attempt can strand the UI under native manager.
     after = [ "devenv:processes:atlas" ];
     ready = {
       # /readyz requires YK configured (and process env); not mere /healthz
@@ -644,6 +670,19 @@ in
         echo "ERROR: components/signals-ui missing. git submodule update --init components/signals-ui"
         exit 1
       fi
+      # Turn-key critical plane (Kudu/Impala + YK + Metaflow + Airflow). Runs in-process
+      # so we do not depend on devenv task-before scheduling under native manager.
+      export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+      export METAFLOW_SERVICE_URL="''${METAFLOW_SERVICE_URL:-http://127.0.0.1:30180}"
+      export AIRFLOW_API_URL="''${AIRFLOW_API_URL:-http://127.0.0.1:30800}"
+      export SIGNALS_FEDERATION_PACKAGE="''${SIGNALS_FEDERATION_PACKAGE:-/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst}"
+      export SIGNALS_STACK_REQUIRE_AIRFLOW="''${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
+      export SIGNALS_STACK_REQUIRE_DATA_PLANE="''${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
+      export SIGNALS_STACK_DATA_PLANE_SMOKE="''${SIGNALS_STACK_DATA_PLANE_SMOKE:-0}"
+      export SIGNALS_STACK_ASSERT_PROCESSES="''${SIGNALS_STACK_ASSERT_PROCESSES:-1}"
+      export SIGNALS_PROCESS_ASSERT_WAIT="''${SIGNALS_PROCESS_ASSERT_WAIT:-120}"
+      echo "signals-ui: running stack-ready preflight…"
+      bash "$PWD/scripts/signals_stack_preflight.sh"
       # Stack path forbids allow-no-yk (that is a failure mode, not a lab default).
       unset SIGNALS_UI_ALLOW_NO_YK || true
       export SIGNALS_UI_BIND="''${SIGNALS_UI_BIND:-0.0.0.0:9889}"
@@ -651,12 +690,8 @@ in
       export SIGNALS_UI_CONFIG="''${SIGNALS_UI_CONFIG:-$PWD/build/config/signals-ui.json}"
       export SIGNALS_UI_ASSETS="$UI_DIR/assets"
       export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
-      # Confirm federation surface (task also runs before this process on devenv up).
-      bash "$PWD/scripts/federation_preflight.sh"
-      export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
       if ! curl -sf -m 5 "''${SIGNALS_YK_API_URL%/}/ws/v1/clusters" >/dev/null; then
         echo "ERROR: YuniKorn REST not reachable at $SIGNALS_YK_API_URL"
-        echo "  devenv tasks run signals:federation-ready"
         exit 1
       fi
       mkdir -p "$(dirname "$SIGNALS_UI_CONFIG")"
@@ -1055,7 +1090,9 @@ in
       failure_threshold = 15;
     };
     exec = ''
-      IMPALA_HOME="$PWD/components/impala"
+      # Impala config scripts reference optional toolchain vars — no `set -u`.
+      set -eo pipefail
+      export IMPALA_HOME="$PWD/components/impala"
       if [ ! -f "$IMPALA_HOME/be/build/latest/service/catalogd" ]; then
         echo "Impala not built. Run: devenv tasks run impala:build"; exit 1
       fi
@@ -1064,6 +1101,7 @@ in
       ${impalaLdLibraryPath}
       # shellcheck source=/dev/null
       source "$IMPALA_HOME/bin/impala-config.sh"
+      export IMPALA_HOME="$PWD/components/impala"
       if [ ! -s "$IMPALA_HOME/java/impala-package/target/package-classpath.txt" ]; then
         echo "Impala FE package classpath missing. Run: devenv tasks run impala:build-fe"
         echo "(or full: devenv tasks run impala:build)"
@@ -1079,9 +1117,20 @@ in
       # exist, and GlogAppender failure cascades into GetStaticMethodID SEGV.
       export CLASSPATH="$PWD/config/impala/hadoop-conf:$CLASSPATH"
 
-      # Initialize catalog schema (idempotent). Use TCP host so we do not depend
-      # on the devenv unix-socket path being present in $PGHOST / runtime dir.
-      psql -h 127.0.0.1 -p 5455 -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql"
+      # Wait for Postgres TCP :5455 (strictPorts) then apply catalog schema.
+      echo "Waiting for PostgreSQL 127.0.0.1:5455..."
+      for i in $(seq 1 60); do
+        if timeout 1 bash -c 'echo >/dev/tcp/127.0.0.1/5455' 2>/dev/null; then
+          break
+        fi
+        sleep 1
+        if [ "$i" -eq 60 ]; then
+          echo "ERROR: Postgres not on 127.0.0.1:5455 — check strictPorts and orphan postmasters"
+          exit 1
+        fi
+      done
+      psql -h 127.0.0.1 -p 5455 -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql" \
+        || psql -h 127.0.0.1 -p 5455 -U signals -d signals_catalog -f "$PWD/config/impala/catalog_schema.sql"
 
       # HMS-free props + Java 21 module opens (pre-seed; Impala may append more).
       # Merge BE util/service into java.library.path for NativeLogger fallback load.
@@ -1230,13 +1279,29 @@ in
 
   # ── Tasks ──────────────────────────────────────────────────────────────────
   tasks = {
-    # Kerberos required before data-plane processes
+    # Kerberos required before data-plane processes (hard fail — part of turn-key up -d)
     "signals:kerberos-bootstrap" = {
       exec = ''
         set -euo pipefail
+        # Wait for KDC process (UDP/TCP 8848) — chicken-and-egg with manager.before
+        echo "signals:kerberos-bootstrap: waiting for KDC on :8848..."
+        for i in $(seq 1 60); do
+          if ss -uln 2>/dev/null | grep -q 8848; then
+            break
+          fi
+          if timeout 1 bash -c 'echo >/dev/tcp/127.0.0.1/8848' 2>/dev/null; then
+            break
+          fi
+          sleep 1
+          if [ "$i" -eq 60 ]; then
+            echo "ERROR: KDC not listening on :8848 after 60s — is processes.kdc running?"
+            exit 1
+          fi
+        done
         # shellcheck source=/dev/null
         . "$PWD/scripts/signals_kerberos.sh"
         signals_krb_bootstrap "$PWD"
+        echo "signals:kerberos-bootstrap: OK"
       '';
       before = [
         "devenv:processes:kudu-master"
@@ -1245,7 +1310,23 @@ in
         "devenv:processes:impala-catalogd"
         "devenv:processes:impala-impalad"
       ];
-      description = "Require KDC keytabs + user kinit before Kudu/Impala (Kerberos only)";
+      description = "Wait for KDC then require keytabs + kinit before Kudu/Impala (turn-key)";
+    };
+
+    # ASF binary gate before Kudu/Impala (does not compile — fails with build tasks)
+    "signals:data-plane-preflight" = {
+      exec = ''
+        set -euo pipefail
+        bash "$PWD/scripts/data_plane_preflight.sh"
+      '';
+      before = [
+        "devenv:processes:kudu-master"
+        "devenv:processes:kudu-tserver"
+        "devenv:processes:impala-statestore"
+        "devenv:processes:impala-catalogd"
+        "devenv:processes:impala-impalad"
+      ];
+      description = "Require Kudu/Impala build artifacts + data layout before data-plane processes";
     };
 
     # Ensure /raid/signals/{kudu,rustfs,flink,backups} (or fallback) before data plane
@@ -1402,18 +1483,25 @@ in
       description = "Ensure MiniLM is available via HF_HOME/ST cache (prefer RAID; no tree-local dupe)";
     };
 
-    # Full critical plane before signals-ui: host PG/RustFS/Atlas + YK/Knative + Metaflow.
+    # Full critical plane check (turn-key). Prefer invoking from signals-ui exec
+    # (not task before=) — nested devenv / before-task scheduling under native
+    # manager has stranded the UI. Task remains for `just stack-ready` / manual.
     # Policy: docs/current/src/architecture/stack-critical-plane.md
     "signals:stack-ready" = {
       exec = ''
         set -euo pipefail
         export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
         export METAFLOW_SERVICE_URL="''${METAFLOW_SERVICE_URL:-http://127.0.0.1:30180}"
+        export AIRFLOW_API_URL="''${AIRFLOW_API_URL:-http://127.0.0.1:30800}"
         export SIGNALS_FEDERATION_PACKAGE="''${SIGNALS_FEDERATION_PACKAGE:-/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst}"
+        export SIGNALS_STACK_REQUIRE_AIRFLOW="''${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
+        export SIGNALS_STACK_REQUIRE_DATA_PLANE="''${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
+        export SIGNALS_STACK_DATA_PLANE_SMOKE="''${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}"
+        export SIGNALS_STACK_ASSERT_PROCESSES="''${SIGNALS_STACK_ASSERT_PROCESSES:-1}"
+        export SIGNALS_PROCESS_ASSERT_WAIT="''${SIGNALS_PROCESS_ASSERT_WAIT:-30}"
         bash "$PWD/scripts/signals_stack_preflight.sh"
       '';
-      before = [ "devenv:processes:signals-ui" ];
-      description = "Critical plane: PG+RustFS+YK+Knative+Metaflow+Airflow before signals-ui";
+      description = "Turn-key critical plane check (also run from signals-ui process start)";
     };
 
     # RKE2 federation only (subset of stack-ready).

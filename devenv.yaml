@@ -1,4 +1,11 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# Fail `devenv up` if a required port is taken (do NOT silently bump PG 5455→5456).
+# Partial stacks + auto port shifts break Impala catalogd / Atlas JDBC wiring.
+# Lab lattice: signals owns 5455 (see scripts/signals_port_lattice.sh). Other
+# devenvs: cybersec 5438, gaius 5444, atelier 5533, aegir 5555, synth 5566.
+strictPorts: true
+
 inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling

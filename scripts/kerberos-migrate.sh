@@ -14,8 +14,10 @@ echo "════════════════════════�
 signals_krb_bootstrap "$ROOT" || exit 1
 
 echo ""
-echo "Next:"
-echo "  devenv up -d"
+echo "Next (turn-key):"
+echo "  devenv up -d           # full stack; kerberos also runs as process task"
 echo "  just kerberos-status   # expect GSSAPI OK"
 echo "  just backup            # full portable path"
+echo ""
+echo "Note: just bootstrap is recovery/alias — normal path is devenv up -d alone."
 echo "════════════════════════════════════════════════════════════"

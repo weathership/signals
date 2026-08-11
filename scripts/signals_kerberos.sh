@@ -51,7 +51,7 @@ signals_krb_require_layout() {
     missing=1
   fi
   if [ "$missing" -ne 0 ]; then
-    echo "  Run: just bootstrap" >&2
+    echo "  Fix: devenv up -d (signals:kerberos-bootstrap) or just bootstrap" >&2
     return 1
   fi
   return 0

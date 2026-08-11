@@ -41,18 +41,19 @@ tests may still mock subsystems; the **live stack** does not.
 
 | Tool | Behavior |
 |------|----------|
-| `scripts/signals_stack_preflight.sh` | Host + RKE2 critical checks; optional auto-bootstrap |
-| `just stack-ready` | Same preflight |
-| `devenv tasks run signals:stack-ready` | Runs before **signals-ui** on `devenv up` |
+| `devenv up -d` | Turn-key entry: full process graph + stack-ready before signals-ui |
+| `scripts/signals_stack_preflight.sh` | Host (PG/RustFS/Atlas/**Kudu/Impala**) + RKE2; auto Metaflow/Airflow |
+| `scripts/data_plane_preflight.sh` | Binary gate before Kudu/Impala (no compile) |
+| `scripts/devenv_process_assert.sh` | Fail if process graph is a partial `up` |
+| `just stack-ready` | Same preflight (also automatic on `up -d`) |
+| `signals:kerberos-bootstrap` | Wait for KDC → keytabs + kinit before Kudu/Impala |
 | `signals:federation-ready` | YK + Knative (subset) |
-| `signals:metaflow-platform` | Metaflow metadata M1 (subset) |
-| `signals:airflow-platform` | Airflow 3 LocalExecutor (M2) |
-| Airflow | Auto-bootstrap when `SIGNALS_STACK_AUTO_AIRFLOW=1` (default); hard-fail when `SIGNALS_STACK_REQUIRE_AIRFLOW=1` |
+| `signals:metaflow-platform` / `airflow-platform` | Platform RKE2 services |
 
 ```bash
-just stack-ready                    # default lab gates (auto Airflow)
-just airflow-platform               # Airflow 3 only
-SIGNALS_STACK_REQUIRE_AIRFLOW=1 just stack-ready   # hard-require Airflow
+devenv up -d                        # preferred — full validate + bootstrap
+just stack-ready                    # re-check without restarting processes
+just data-plane-smoke               # Kudu/Impala ports after up
 ```
 
 ## Topology

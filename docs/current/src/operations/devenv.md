@@ -17,21 +17,60 @@ identity (`KRB5_REALM=DEV.VISTA.ZNDX.ORG`, host FQDN) is set in `devenv.nix`.
 secretspec run -- just tag default.my_table   # inject declared secrets for a job
 ```
 
-## Starting Services
+## Starting Services (turn-key)
 
 ```bash
-just bootstrap        # Required: Kerberos KDC keytabs + kinit + FQDN env (no NOSASL path)
-devenv up             # Full stack (foreground)
-devenv up -d          # Full stack (detached) — preferred lab mode
-devenv processes down # Stop the full stack (same control plane as up)
-just kinit            # Refresh user ticket as needed
-just kerberos-status  # Expect: impala HS2 GSSAPI OK
+# New machine (one-time): git submodule update --init --recursive
+# One-time ASF builds if missing: devenv tasks run kudu:build-cpp && devenv tasks run impala:build
+
+just up                 # devenv up -d — full stack; validates + bootstraps
+devenv processes list   # Expect 12: kudu-*, impala-*, atlas, marquez-web, rustfs, signals-ui, …
+just down               # processes down + stop *our* Postgres only (lattice-safe)
+just stack-reset        # down + free our orphans + up -d
+just kinit              # Refresh user ticket if needed
+just kerberos-status    # Expect: impala HS2 GSSAPI OK
 ```
+
+Prefer **`just up` / `just down`** over bare `devenv processes down`: the bare
+command often leaves the signals postmaster on **:5455**, which then blocks the
+next `up` under `strictPorts`. `just down` only stops **this** tree’s
+`.devenv/state/postgres` — never gaius/synth/atelier/system PG.
+
+**`devenv up -d` is the only required runtime command.** It:
+
+1. Ensures data layout under `SIGNALS_DATA_ROOT`
+2. Starts **KDC**, then **kerberos-bootstrap** (keytabs + kinit) before Kudu/Impala
+3. Starts the full host graph (Postgres, RustFS, Atlas, Marquez-web, Ranger, **Kudu**, **Impala**, signals-ui)
+4. Runs **stack-ready** before signals-ui: data-plane health, YuniKorn/Knative, Metaflow, Airflow (auto-deploy when missing)
+
+`just bootstrap` remains a **recovery alias** for Kerberos outside a process session — not a separate curriculum step.
 
 **Full stack is always required.** Host data/governance services and the RKE2
 **critical plane** (YuniKorn, Knative, Metaflow, Airflow) are one Signals
 deployment — not optional bolt-ons. See
 [Critical plane](../architecture/stack-critical-plane.md).
+
+`devenv.yaml` sets **`strictPorts: true`** so Postgres stays on **:5455** (no silent
+bump to :5456 that breaks Impala catalogd / JDBC).
+
+### Postgres port lattice (shared lab host)
+
+Multiple devenv trees share the machine. **Do not reuse each other’s PG ports:**
+
+| Port | Project |
+|------|---------|
+| 5432 | System/apt PostgreSQL (leave alone) |
+| 5438 | cybersec / cyberphy |
+| 5444 | gaius |
+| **5455** | **signals (this tree)** |
+| 5533 | atelier |
+| 5555 | aegir |
+| 5566 | synth |
+
+`scripts/signals_port_lattice.sh` runs at process start: if **:5455** is held by a
+process that is **not** this tree’s postmaster, `devenv up` **fails** with a clear
+message — it will **not** kill another project’s Postgres. Stack reset only stops
+our `.devenv/state/postgres` postmaster.
 
 Do not run Atlas/Marquez/Metaflow as long-lived orphans outside `devenv up` /
 `devenv processes down` (plus RKE2 platform bootstrap).
