@@ -14,6 +14,7 @@ let
     "signals-lineage"
     "weathership-memory"
     "signals-backup"
+    "metaflow"
   ];
 
   # mc wrapper: alias "local" → lab RustFS (path-style S3). Port lattice leaves
@@ -394,6 +395,18 @@ in
     # mc config dir: default $DEVENV_STATE/rustfs/mc (set at runtime by mc wrapper)
     SIGNALS_FLINK_DATA_DIR = signalsDataRoot + "/flink";
     SIGNALS_BACKUP_DIR = signalsDataRoot + "/backups";
+    # ── Federation / signals-ui (RKE2 YuniKorn + Knative) ───────────────
+    # Hard requirement: signals-ui will not start without live YK REST.
+    # Lab default: NodePort from signals-federation package (30080).
+    # `devenv up` runs signals:federation-ready before signals-ui.
+    # Override in .env for non-local clusters only.
+    SIGNALS_YK_API_URL = "http://127.0.0.1:30080";
+    SIGNALS_UI_BIND = "0.0.0.0:9889";
+    SIGNALS_UI_CONFIG = "build/config/signals-ui.json";
+    SIGNALS_FEDERATION_PACKAGE =
+      "/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst";
+    # Platform Metaflow metadata service (M1) — NodePort 30180
+    METAFLOW_SERVICE_URL = "http://127.0.0.1:30180";
   };
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
@@ -611,17 +624,18 @@ in
   };
 
   # ── signals-ui (primary backplane UI — yk-web superset, Rust/Axum) ───────
-  # Once the stack lands, YuniKorn is required (SIGNALS_YK_API_URL).
-  # Port 9889 (yk-web muscle memory). Keiretsu + Cloudera brand (Atelier).
-  # See docs/current/src/architecture/signals-control-plane-ui.md
+  # YuniKorn is **required** — no chrome-only mode in the stack path.
+  # Preflight: task signals:federation-ready (YK + Knative on local RKE2).
+  # Port 9889. Keiretsu + logo packs. See signals-control-plane-ui.md
   processes.signals-ui = {
     after = [ "devenv:processes:atlas" ];
     ready = {
-      exec = "curl -sf -o /dev/null http://127.0.0.1:9889/healthz";
-      initial_delay = 2;
+      # /readyz requires YK configured (and process env); not mere /healthz
+      exec = "curl -sf -o /dev/null http://127.0.0.1:9889/readyz";
+      initial_delay = 3;
       period = 5;
-      probe_timeout = 3;
-      failure_threshold = 12;
+      probe_timeout = 5;
+      failure_threshold = 18;
     };
     exec = ''
       set -euo pipefail
@@ -630,14 +644,22 @@ in
         echo "ERROR: components/signals-ui missing. git submodule update --init components/signals-ui"
         exit 1
       fi
+      # Stack path forbids allow-no-yk (that is a failure mode, not a lab default).
+      unset SIGNALS_UI_ALLOW_NO_YK || true
       export SIGNALS_UI_BIND="''${SIGNALS_UI_BIND:-0.0.0.0:9889}"
       export SIGNALS_ATLAS_HTTP_URL="''${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:''${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
-      # YK required in steady state; lab without YK: SIGNALS_UI_ALLOW_NO_YK=1
-      if [ -z "''${SIGNALS_YK_API_URL:-}" ]; then
-        export SIGNALS_UI_ALLOW_NO_YK="''${SIGNALS_UI_ALLOW_NO_YK:-1}"
-        echo "WARN: SIGNALS_YK_API_URL unset — starting with ALLOW_NO_YK (not production posture)"
-      fi
+      export SIGNALS_UI_CONFIG="''${SIGNALS_UI_CONFIG:-$PWD/build/config/signals-ui.json}"
       export SIGNALS_UI_ASSETS="$UI_DIR/assets"
+      export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+      # Confirm federation surface (task also runs before this process on devenv up).
+      bash "$PWD/scripts/federation_preflight.sh"
+      export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+      if ! curl -sf -m 5 "''${SIGNALS_YK_API_URL%/}/ws/v1/clusters" >/dev/null; then
+        echo "ERROR: YuniKorn REST not reachable at $SIGNALS_YK_API_URL"
+        echo "  devenv tasks run signals:federation-ready"
+        exit 1
+      fi
+      mkdir -p "$(dirname "$SIGNALS_UI_CONFIG")"
       cd "$UI_DIR"
       BIN="$UI_DIR/target/release/signals-ui"
       if [ ! -x "$BIN" ]; then
@@ -645,7 +667,8 @@ in
         cargo build --release -p signals-ui
       fi
       echo "Starting signals-ui (primary backplane) on $SIGNALS_UI_BIND"
-      echo "  YK=''${SIGNALS_YK_API_URL:-<none>}  Atlas=$SIGNALS_ATLAS_HTTP_URL"
+      echo "  YK=$SIGNALS_YK_API_URL  Atlas=$SIGNALS_ATLAS_HTTP_URL"
+      echo "  config=$SIGNALS_UI_CONFIG"
       exec "$BIN"
     '';
     process-compose = {
@@ -653,12 +676,12 @@ in
         atlas = { condition = "process_healthy"; };
       };
       readiness_probe = {
-        exec.command = "curl -sf -o /dev/null http://127.0.0.1:9889/healthz";
-        initial_delay_seconds = 2;
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:9889/readyz";
+        initial_delay_seconds = 3;
         period_seconds = 5;
-        timeout_seconds = 3;
+        timeout_seconds = 5;
         success_threshold = 1;
-        failure_threshold = 12;
+        failure_threshold = 18;
       };
     };
   };
@@ -1377,6 +1400,50 @@ in
         echo "Model cached. Pipeline uses HF_HUB_OFFLINE=1 + existing cache env vars."
       '';
       description = "Ensure MiniLM is available via HF_HOME/ST cache (prefer RAID; no tree-local dupe)";
+    };
+
+    # Full critical plane before signals-ui: host PG/RustFS/Atlas + YK/Knative + Metaflow.
+    # Policy: docs/current/src/architecture/stack-critical-plane.md
+    "signals:stack-ready" = {
+      exec = ''
+        set -euo pipefail
+        export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+        export METAFLOW_SERVICE_URL="''${METAFLOW_SERVICE_URL:-http://127.0.0.1:30180}"
+        export SIGNALS_FEDERATION_PACKAGE="''${SIGNALS_FEDERATION_PACKAGE:-/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst}"
+        bash "$PWD/scripts/signals_stack_preflight.sh"
+      '';
+      before = [ "devenv:processes:signals-ui" ];
+      description = "Critical plane: PG+RustFS+YK+Knative+Metaflow+Airflow before signals-ui";
+    };
+
+    # RKE2 federation only (subset of stack-ready).
+    "signals:federation-ready" = {
+      exec = ''
+        set -euo pipefail
+        export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+        export SIGNALS_FEDERATION_PACKAGE="''${SIGNALS_FEDERATION_PACKAGE:-/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst}"
+        bash "$PWD/scripts/federation_preflight.sh"
+      '';
+      description = "Require YuniKorn + Knative on local RKE2 (auto-deploy package if needed)";
+    };
+
+    # Platform Metaflow metadata service (M1).
+    "signals:metaflow-platform" = {
+      exec = ''
+        set -euo pipefail
+        bash "$PWD/scripts/metaflow_platform_bootstrap.sh"
+      '';
+      description = "Deploy platform Metaflow metadata service on RKE2 (PG + RustFS + NodePort 30180)";
+    };
+
+    # Platform Airflow 3 (M2) — LocalExecutor chart from components/airflow.
+    "signals:airflow-platform" = {
+      exec = ''
+        set -euo pipefail
+        export KUBECONFIG="''${KUBECONFIG:-$HOME/.kube/rke2.yaml}";
+        bash "$PWD/scripts/airflow_platform_bootstrap.sh"
+      '';
+      description = "Deploy platform Airflow 3 on RKE2 (LocalExecutor + host PG + NodePort 30800)";
     };
 
     "signals:catalog-init" = {
@@ -2319,7 +2386,7 @@ SQL
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
     echo "  Marquez Web       — http://localhost:21011 (OL validation only; Atlas + 1)"
-    echo "  signals-ui        — http://localhost:9889 (PRIMARY backplane; yk-web ⊇; just signals-ui)"
+    echo "  signals-ui        — http://localhost:9889 (PRIMARY; requires YK via signals:federation-ready)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  RustFS (S3)       — http://127.0.0.1:9010 (data: \$SIGNALS_RUSTFS_DATA_DIR; mc local)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
@@ -2355,6 +2422,10 @@ SQL
     echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
     echo "  devenv tasks run signals:kudu-kerberos-smoke — PR-K5a keytab/auth probe"
     echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"
+    echo "  devenv tasks run signals:stack-ready — critical plane (PG/RustFS/YK/Knative/Metaflow/Airflow) before signals-ui"
+    echo "  devenv tasks run signals:federation-ready — YK+Knative only"
+    echo "  devenv tasks run signals:metaflow-platform — Metaflow metadata service (M1)"
+    echo "  devenv tasks run signals:airflow-platform — Airflow 3 LocalExecutor (M2, NodePort 30800)"
     echo "  devenv tasks run hms:install          — Download Hive Standalone Metastore"
     echo "  devenv tasks run hms:init-schema      — Initialize HMS schema in PostgreSQL"
     echo "  devenv tasks run polaris:install       — Build and install Polaris"

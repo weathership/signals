@@ -57,3 +57,7 @@
 [submodule "components/signals-ui"]
 	path = components/signals-ui
 	url = git@github.com:weathership/signals-ui.git
+[submodule "components/metaflow"]
+	path = components/metaflow
+	url = git@github.com:weathership/oss-metaflow.git
+	branch = rch/devenv

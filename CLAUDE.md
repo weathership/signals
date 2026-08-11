@@ -260,7 +260,8 @@ All tracked on **`rch/devenv`** branch from `rch` GitHub forks (shared devenv/Ni
 | `impala_fdw` | PostgreSQL FDW → Impala HS2 → **Kudu only** (`weathership/impala_fdw`) |
 | `marquez` | OpenLineage **reference UI** (`zndx/oss-marquez`); SoR is Atlas OL extension — **no Marquez DB** |
 | `iceberg` | Table format for analytic datasets |
-| `airflow` | Workflow orchestration |
+| `airflow` | Workflow orchestration (Metaflow production DAGs on RKE2/YK) |
+| `metaflow` | Platform Metaflow (`weathership/oss-metaflow` **`rch/devenv`**) — not Gaius/Marquez |
 | `nifi` | Data flow routing |
 | `openph` | Optional reference for CUDA PH (CPU path uses Ripser via `signals.persistence`) |
 
@@ -279,8 +280,12 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 | Ranger | port **6080** (admin; when configured) |
 | Kudu | master webserver 8051, tserver 8050; data under `$SIGNALS_DATA_ROOT/kudu` (default `/raid/signals/kudu`) |
 | Impala | HS2 **21050**, beeswax 21001, statestore 24000, catalogd 26000 (HMS-free, config from `config/impala/catalog_config_dir/`), webservers 25000/25010/25020 |
+| **RKE2 critical** | **YuniKorn** REST `:30080`, **Knative** Serving, **Metaflow** metadata `:30180`, **Airflow** (M2) — see `architecture/stack-critical-plane.md` |
+| signals-ui | `:9889` primary backplane (requires stack-ready) |
 
 **Data root:** `SIGNALS_DATA_ROOT` (default `/raid/signals`) — siblings `kudu/`, `rustfs/`, `flink/`, `backups/`. See `docs/current/src/operations/storage-and-backup.md`.
+
+**Critical plane:** `just stack-ready` / `signals:stack-ready` enforces PG + RustFS + YK + Knative + Metaflow before signals-ui. Airflow is policy-critical; hard-fail with `SIGNALS_STACK_REQUIRE_AIRFLOW=1` after M2.
 
 **Kerberos required** for Impala + Kudu + backup (no NOSASL path). FQDN SPNs via `$SIGNALS_KRB_HOST`.
 Product edge identity: Cloudflare Zero Trust + Okta/GitHub (see Gaius); authz via Atlas → Ranger.

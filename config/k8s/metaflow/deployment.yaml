@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metaflow-service
+  namespace: metaflow
+  labels:
+    app.kubernetes.io/name: metaflow-service
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: metaflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metaflow-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metaflow-service
+        app.kubernetes.io/part-of: signals-platform
+        # Do not rewrite image to local Zarf registry until packaged (M2+).
+        zarf.dev/agent: ignore
+        # YuniKorn application id (platform control-plane workload)
+        applicationId: yunikorn-metaflow-platform
+        yunikorn.apache.org/app-id: yunikorn-metaflow-platform
+        yunikorn.apache.org/queue: root.signals
+      annotations:
+        zarf.dev/agent: ignore
+    spec:
+      # Lab: devenv Postgres listens on 127.0.0.1 only — hostNetwork reaches
+      # host PG :5455 / RustFS :9010 without opening listen_addresses.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: metaflow-task
+      containers:
+        - name: metadata
+          # Upstream Outerbounds image; zarf agent ignore until signals-metaflow package
+          image: public.ecr.aws/outerbounds/metaflow_metadata_service:2.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            # hostNetwork requires hostPort == containerPort when set
+            - name: http
+              containerPort: 8080
+              hostPort: 8080
+            - name: migration
+              containerPort: 8082
+              hostPort: 8082
+          env:
+            - name: MF_METADATA_DB_HOST
+              value: "127.0.0.1"
+            - name: MF_METADATA_DB_PORT
+              value: "5455"
+            - name: MF_METADATA_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: metaflow-db
+                  key: MF_METADATA_DB_USER
+            - name: MF_METADATA_DB_PSWD
+              valueFrom:
+                secretKeyRef:
+                  name: metaflow-db
+                  key: MF_METADATA_DB_PSWD
+            - name: MF_METADATA_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: metaflow-db
+                  key: MF_METADATA_DB_NAME
+            - name: MF_METADATA_HOST
+              value: "0.0.0.0"
+            - name: MF_METADATA_PORT
+              value: "8080"
+            - name: MF_MIGRATION_PORT
+              value: "8082"
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

@@ -1,0 +1,35 @@
+# Service account for future Metaflow @kubernetes task pods (M2+ Airflow).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metaflow-task
+  namespace: metaflow
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: metaflow-task
+  namespace: metaflow
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: metaflow-task
+  namespace: metaflow
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: metaflow-task
+subjects:
+  - kind: ServiceAccount
+    name: metaflow-task
+    namespace: metaflow

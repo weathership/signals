@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Remove cybersec-dask app surface so signals-federation takes precedence.
 # Does NOT remove zarf init/registry by default (use --full-zarf for that).
+#
+# NOTE: Sibling repos (e.g. zndx/aegir Tilt Metaflow) will recreate purged
+# namespaces if their devenv/Tilt is still running. Stop those first:
+#   (cd ~/local/src/zndx/aegir && devenv processes down)
+# Longer-term: all K8s work on this node should go through federation + YK
+# queues so scarce capacity is not contended by independent apply loops.
 set -euo pipefail
 KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rke2.yaml}"
 export KUBECONFIG
@@ -16,6 +22,10 @@ NS_REMOVE=(
   # those belong to signals-federation (use zarf package remove)
 )
 echo "Removing app namespaces (cybersec surface)..."
+if pgrep -af '[t]ilt' >/dev/null 2>&1; then
+  echo "WARNING: tilt process(es) still running — purged namespaces may be recreated." >&2
+  echo "  Stop sibling devenvs (e.g. aegir: devenv processes down) then re-run." >&2
+fi
 for ns in "${NS_REMOVE[@]}"; do
   if k get ns "$ns" &>/dev/null; then
     echo "  delete ns/$ns"

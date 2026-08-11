@@ -1,4 +1,4 @@
-# Marquez (UI only)
+# Marquez (UI + API validation harness)
 
 Submodule: `components/marquez` → `git@github.com:zndx/oss-marquez.git` (`main`).
 
@@ -7,11 +7,14 @@ Submodule: `components/marquez` → `git@github.com:zndx/oss-marquez.git` (`main
 | Deployed | Not deployed |
 |----------|--------------|
 | **Marquez-web** (default `devenv` process) | Stock Marquez API |
-| Proxy `/api/v1` → Atlas OpenLineage surface | Marquez Postgres / Flyway schema |
+| Proxy `/api/v1` + `/api/v2beta` → Atlas | Marquez Postgres / Flyway schema |
 
-Signals is the system of record. Marquez is the **OpenLineage reference UI** and
-a source of **API contract tests**. Doctrine:
-[OpenLineage + Atlas](../architecture/openlineage-atlas.md).
+Signals (Atlas OL extension) is the system of record and implements the
+**complete** Marquez OpenLineage API. Marquez is the **reference UI** and the
+**validation harness** that the enhanced API is complete and valid for all
+aspects of OpenLineage (UI request paths + contract shape).
+
+Doctrine: [OpenLineage + Atlas](../architecture/openlineage-atlas.md).
 
 ## Port convention
 
@@ -29,7 +32,7 @@ must not be the lab Marquez bind.
 LAN example (this project’s Atlas on the node IP):
 
 - Atlas: `http://192.168.1.55:21010`
-- Marquez UI: `http://192.168.1.55:21011` → proxies `/api/v1` → Atlas
+- Marquez UI: `http://192.168.1.55:21011` → proxies `/api/v1` + `/api/v2beta` → Atlas
 
 ## Ops
 
@@ -39,3 +42,20 @@ devenv tasks run marquez:build-web   # also before devenv up
 # http://localhost:21011  (or http://<node>:21011)
 # proxies to SIGNALS_OL_API_HOST:PORT (default 127.0.0.1:21010)
 ```
+
+## Acceptance (API completeness)
+
+Marquez-web boot and navigation must not hit 404s on the Marquez API surface.
+Minimum probe against Atlas (not Marquez API):
+
+```bash
+for p in health tags jobs namespaces events/lineage stats/lineage-events search?q=test; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:21010/api/v1/$p")
+  echo "$code  /api/v1/$p"
+done
+curl -sS -o /dev/null -w '%{http_code}\n' 'http://127.0.0.1:21010/api/v2beta/search/jobs?q=test'
+```
+
+Expect **200** (empty collections are fine). After seeding RunEvents via
+`POST /api/v1/lineage`, the UI jobs/datasets/events/lineage views should show
+content.

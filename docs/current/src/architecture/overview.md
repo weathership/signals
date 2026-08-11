@@ -50,3 +50,11 @@ and is loaded from Kudu master. HDFS is not a product tier; longer-term object/b
 storage moves toward **rustfs** and **Ceph**. See [Query Engine & Catalog Stack](./query-engine.md).
 
 **Automated metadata governance.** Tables and columns created in Impala are registered in Atlas and automatically classified by an AI/ML service against a controlled sensitivity vocabulary. Classifications drive Ranger tag-based access policies. See [Metadata Tagging](./meta-tagging.md).
+
+**Uniform critical plane.** A Signals deployment treats host data services
+(Postgres, **RustFS**, Atlas, Ranger, Kudu, Impala) and RKE2 platform services
+(**YuniKorn**, **Knative**, **Metaflow**, **Airflow**) as equally required —
+not optional bolt-ons. `devenv up [-d]` is the entry point; engines consume
+via [signals-protocol](../components/signals-protocol.md). See
+[Critical plane](./stack-critical-plane.md) and
+[Platform Metaflow](./metaflow-platform.md).

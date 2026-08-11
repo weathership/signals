@@ -1,12 +1,20 @@
 embedAdmissionController: true
+# Lab RKE2: NodePort so LAN clients can reach REST/web without port-forward.
+# Chart keys: service.type / service.port / service.portWeb (not free-form ports[]).
 service:
-  type: ClusterIP
+  type: NodePort
+  port: 9080
+  portWeb: 9889
+# Fixed nodePorts applied in yunikorn-rendered.yaml (REST 30080, web 30889).
 web:
   enabled: true
-configuration: |
-  admissionController:
-    filtering:
-      enable: true
+enableWebService: true
+
+# YuniKorn 1.9: runtime config is `yunikornDefaults` → ConfigMap yunikorn-defaults.
+# (Not the older nested `configuration:` blob.)
+# yunikorn-configs (if present) overrides defaults at runtime.
+yunikornDefaults:
+  admissionController.filtering.enable: "true"
   queues.yaml: |
     partitions:
       - name: default

@@ -54,6 +54,33 @@ metadata:
   annotations:
     "helm.sh/resource-policy": keep
 data:
+  admissionController.filtering.enable: "true"
+  queues.yaml: |
+    partitions:
+      - name: default
+        placementrules:
+          - name: tag
+            value: namespace
+            create: false
+          - name: fixed
+            value: root.default
+            create: true
+        queues:
+          - name: root
+            submitacl: '*'
+            queues:
+              - name: default
+                submitacl: '*'
+              - name: aegir
+                submitacl: '*'
+              - name: atelier
+                submitacl: '*'
+              - name: gaius
+                submitacl: '*'
+              - name: signals
+                submitacl: '*'
+              - name: hermes
+                submitacl: '*'
 ---
 # Source: yunikorn/templates/admission-controller-service.yaml
 #
@@ -119,17 +146,23 @@ metadata:
     chart: yunikorn-1.9.0
     release: yunikorn
     heritage: Helm
+  annotations:
+    # Lab: durable LAN/WARP reach without kubectl port-forward.
+    # Classic :9889/:9080 also via `just yk-ui-forward` (binds 0.0.0.0).
+    signals.zndx.org/expose: "lan-nodeport"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 9080
       targetPort: http1
       protocol: TCP
       name: yunikorn-core
+      nodePort: 30080
     - port: 9889
       targetPort: http2
       protocol: TCP
       name: yunikorn-service
+      nodePort: 30889
   selector:
     app: yunikorn
     component: yunikorn-scheduler

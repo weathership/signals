@@ -1,0 +1,230 @@
+# Signals lab-grade Airflow 3.x on local RKE2.
+# Chart: components/airflow/chart (appVersion 3.1.7, chart 1.20.0-dev).
+# Install: scripts/airflow_platform_bootstrap.sh · just airflow-platform
+#
+# Shape:
+#   - LocalExecutor (no Redis / Celery workers)
+#   - External Postgres via host bridge Service signals-postgres
+#   - API server NodePort 30800 (Airflow 3 UI + REST)
+#   - allowPodLaunching for Metaflow KubernetesPodOperator (M2+)
+#   - YuniKorn-friendly labels; ns placement → root.default until queue map extended
+---
+fullnameOverride: ""
+nameOverride: ""
+useStandardNaming: true
+
+uid: 50000
+gid: 0
+
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: "3.1.7"
+airflowVersion: "3.1.7"
+
+executor: LocalExecutor
+allowPodLaunching: true
+allowJobLaunching: false
+multiNamespaceMode: false
+
+labels:
+  app.kubernetes.io/part-of: signals-platform
+  signals.zndx.org/component: airflow
+  # Skip Zarf registry rewrite until airflow is packaged in signals-federation
+  zarf.dev/agent: ignore
+
+# Shared pod annotations (each component also sets podAnnotations below)
+# zarf.dev/agent: ignore — pull apache/airflow:3.1.7 from Docker Hub, not 127.0.0.1:31999
+
+# ── Images ────────────────────────────────────────────────────────
+images:
+  airflow:
+    repository: apache/airflow
+    tag: "3.1.7"
+    pullPolicy: IfNotPresent
+  useDefaultImageForMigration: true
+  migrationsWaitTimeout: 300
+
+# ── External DB (host devenv PG via ns bridge) ─────────────────────
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+data:
+  metadataConnection:
+    user: airflow
+    pass: airflow
+    protocol: postgresql
+    host: signals-postgres
+    port: 5432
+    db: airflow
+    sslmode: disable
+
+# Secrets injected by bootstrap on first install (--set-string / secret file).
+# Do not commit live fernet/jwt keys; bootstrap persists under build/config/.
+fernetKey: ~
+apiSecretKey: ~
+jwtSecret: ~
+
+# ── Config ────────────────────────────────────────────────────────
+config:
+  core:
+    load_examples: "False"
+    executor: LocalExecutor
+  api:
+    # Lab: basic auth for REST / UI (FAB)
+    auth_backends: "airflow.providers.fab.auth_manager.api.auth.backend.session,airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
+  kubernetes_executor:
+    namespace: airflow
+    worker_container_repository: apache/airflow
+    worker_container_tag: "3.1.7"
+
+# Global env (all components)
+env:
+  - name: AIRFLOW__CORE__LOAD_EXAMPLES
+    value: "False"
+  - name: AIRFLOW__API__EXPOSE_CONFIG
+    value: "True"
+  - name: AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK
+    value: "True"
+
+# Mount smoke DAG as a single file (subPath). Mounting a whole ConfigMap dir
+# creates ..timestamp atomic dirs that AF 3 dag-processor treats as recursion.
+volumes:
+  - name: signals-dags
+    configMap:
+      name: signals-airflow-dags
+volumeMounts:
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/signals_smoke_dag.py
+    subPath: signals_smoke_dag.py
+    readOnly: true
+
+# ── Components ────────────────────────────────────────────────────
+# Airflow 3: api-server (not webserver)
+webserver:
+  enabled: false
+
+apiServer:
+  enabled: true
+  replicas: 1
+  labels:
+    signals.zndx.org/role: api-server
+  podAnnotations:
+    zarf.dev/agent: ignore
+  service:
+    type: NodePort
+    ports:
+      - name: api-server
+        port: "8080"
+        targetPort: "8080"
+        nodePort: "30800"
+        protocol: TCP
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+scheduler:
+  enabled: true
+  replicas: 1
+  labels:
+    signals.zndx.org/role: scheduler
+  podAnnotations:
+    zarf.dev/agent: ignore
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# AF3 enables standalone dag-processor by default when enabled is null
+dagProcessor:
+  enabled: true
+  replicas: 1
+  labels:
+    signals.zndx.org/role: dag-processor
+  podAnnotations:
+    zarf.dev/agent: ignore
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+triggerer:
+  enabled: true
+  replicas: 1
+  labels:
+    signals.zndx.org/role: triggerer
+  podAnnotations:
+    zarf.dev/agent: ignore
+  # emptyDir logs for lab (no default StorageClass on this RKE2)
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# LocalExecutor: disable worker PVC so scheduler is Deployment + emptyDir logs
+workers:
+  replicas: 0
+  persistence:
+    enabled: false
+  celery:
+    persistence:
+      enabled: false
+
+flower:
+  enabled: false
+
+statsd:
+  enabled: false
+
+pgbouncer:
+  enabled: false
+
+# Lab admin (createUserJob; AF3 FAB)
+createUserJob:
+  enabled: true
+  useHelmHooks: true
+  annotations:
+    zarf.dev/agent: ignore
+  defaultUser:
+    role: Admin
+    username: admin
+    email: admin@signals.local
+    firstName: Signals
+    lastName: Admin
+    password: admin
+
+migrateDatabaseJob:
+  enabled: true
+  useHelmHooks: true
+  annotations:
+    zarf.dev/agent: ignore
+
+# DAGs: ConfigMap mount (no git-sync for lab baseline)
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: false
+
+logs:
+  persistence:
+    enabled: false
+
+rbac:
+  create: true

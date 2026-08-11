@@ -18,7 +18,8 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [MiNiFi C++](./minifi-cpp.md) | Federation **sentinels** (C2 + OTel) on Knative | Submodule `weathership/oss-minifi-cpp` |
 | [YuniKorn](./yunikorn.md) | Required admission/queues for sentinel pods on RKE2 | Submodule `components/yunikorn-core` |
 | Signals Control UI | **Primary backplane** — yk-web ⊇ + lineage/sentinels (Rust/Axum :9889) | `components/signals-ui` → `weathership/signals-ui` |
-| [Airflow](./airflow.md) | Workflow orchestration | Planned |
+| [Airflow](./airflow.md) | Metaflow production DAGs on RKE2/YK; events via Knative Eventing | Planned — see [Platform Metaflow](../architecture/metaflow-platform.md) |
+| [Metaflow](./metaflow.md) | Platform Metaflow (`components/metaflow` → `weathership/oss-metaflow` **`rch/devenv`**) | Submodule pinned; platform deploy M1+ |
 | [NiFi](./nifi.md) | Data flow routing and transformation | Planned |
 
 ## Submodule Management

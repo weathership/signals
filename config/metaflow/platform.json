@@ -1,0 +1,14 @@
+{
+  "METAFLOW_DEFAULT_METADATA": "service",
+  "METAFLOW_SERVICE_URL": "http://127.0.0.1:30180",
+  "METAFLOW_SERVICE_INTERNAL_URL": "http://metaflow-service.metaflow.svc.cluster.local:8080",
+  "METAFLOW_DEFAULT_DATASTORE": "s3",
+  "METAFLOW_DATASTORE_SYSROOT_S3": "s3://metaflow/metaflow",
+  "METAFLOW_S3_ENDPOINT_URL": "http://127.0.0.1:9010",
+  "METAFLOW_S3_ENDPOINT_INTERNAL_URL": "http://signals-rustfs.metaflow.svc.cluster.local:9010",
+  "METAFLOW_KUBERNETES_NAMESPACE": "metaflow",
+  "METAFLOW_KUBERNETES_SERVICE_ACCOUNT": "metaflow-task",
+  "METAFLOW_KUBERNETES_SECRETS": "metaflow-s3-credentials",
+  "METAFLOW_AIRFLOW_KUBERNETES_CONN_ID": "kubernetes_default",
+  "_comment": "Signals platform Metaflow profile. Copy to ~/.metaflowconfig/config.json or set METAFLOW_PROFILE=platform + METAFLOW_HOME. In-cluster consumers use *_INTERNAL_URL values via pod env."
+}

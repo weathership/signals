@@ -84,3 +84,13 @@ admission per the protocol.
 Federation **owns** Knative / YuniKorn / MiNiFi on this node. Cybersec app
 namespaces (`dask`, `jupyterhub`, `panel-viz`, …) may be removed. Shared Zarf
 registry (`ns/zarf`) is kept unless `--full-zarf`.
+
+## Multi-repo conflict (action required soon)
+
+Sibling engines (Aegir Tilt Metaflow, etc.) share this RKE2 and will
+**recreate** purged namespaces if their `devenv`/Tilt is still up. Stop those
+process trees before teardown. Scarce node capacity must be coordinated
+through **YuniKorn queues** (`root.{aegir,atelier,gaius,signals,hermes}`) and
+eventually a federation control-plane API — not independent apply loops.
+See `docs/current/src/infrastructure/signals-federation-zarf.md` § Multi-engine
+K8s coordination.

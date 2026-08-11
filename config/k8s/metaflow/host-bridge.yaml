@@ -1,0 +1,58 @@
+# Bridge host devenv Postgres (:5455) and RustFS (:9010) into ns/metaflow.
+# Bootstrap patches Endpoints address to the RKE2 node InternalIP.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signals-postgres
+  namespace: metaflow
+  labels:
+    app: signals-postgres
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5455
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: signals-postgres
+  namespace: metaflow
+subsets:
+  - addresses:
+      - ip: "192.168.1.55"
+    ports:
+      - name: postgres
+        port: 5455
+        protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signals-rustfs
+  namespace: metaflow
+  labels:
+    app: signals-rustfs
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: 9010
+      targetPort: 9010
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: signals-rustfs
+  namespace: metaflow
+subsets:
+  - addresses:
+      - ip: "192.168.1.55"
+    ports:
+      - name: s3
+        port: 9010
+        protocol: TCP

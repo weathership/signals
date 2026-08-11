@@ -28,31 +28,40 @@ just kinit            # Refresh user ticket as needed
 just kerberos-status  # Expect: impala HS2 GSSAPI OK
 ```
 
-**Full stack is always required.** Atlas+AGE (governance + OpenLineage SoR),
-Kudu + Impala (scale plane for projections/SQL), and Marquez-web (UI on
-Atlas HTTP + 1 → `:21011`) are one unit under devenv process control. Do not
-run Marquez or Atlas as long-lived orphans outside `devenv up` /
-`devenv processes down`.
+**Full stack is always required.** Host data/governance services and the RKE2
+**critical plane** (YuniKorn, Knative, Metaflow, Airflow) are one Signals
+deployment — not optional bolt-ons. See
+[Critical plane](../architecture/stack-critical-plane.md).
+
+Do not run Atlas/Marquez/Metaflow as long-lived orphans outside `devenv up` /
+`devenv processes down` (plus RKE2 platform bootstrap).
 
 Process manager: **native** (`process.manager.implementation = "native"`). Ordering
-uses process `after` / `ready` (Kudu → Impala; Postgres → Atlas → Marquez). Control:
+uses process `after` / `ready` (Kudu → Impala; Postgres → Atlas → Marquez;
+**signals:stack-ready** before signals-ui). Control:
 
 ```bash
 devenv up -d              # start full graph
-devenv processes list     # expect kudu-*, impala-*, atlas, marquez-web, …
+just stack-ready          # or: devenv tasks run signals:stack-ready
+devenv processes list     # expect kudu-*, impala-*, atlas, marquez-web, rustfs, signals-ui, …
 devenv processes down     # stop full graph
 ```
 
-| Process | Role | Default port(s) |
-|---------|------|-----------------|
-| `postgres` | AGE + Ranger + catalog | 5455 |
+| Process / platform | Role | Default port(s) |
+|--------------------|------|-----------------|
+| `postgres` | AGE + Ranger + catalog + Metaflow DB | 5455 |
 | `kdc` | Kerberos | 8848 |
 | `kudu-master` / `kudu-tserver` | Columnar store | 7051/7050 (web 8051/8050) |
 | `impala-statestore` / `catalogd` / `impalad` | SQL + kudu_scan | HS2 21050 |
 | `atlas` | Governance + OL API | **21010** |
 | `marquez-web` | OL UI → Atlas `/api/v1` | **21011** |
 | `ranger-admin` | Authz | 6080 |
-| `rustfs` | S3 objects | 9010 |
+| `rustfs` | S3 objects (**critical** object plane) | 9010 |
+| `signals-ui` | Control plane UI (requires stack-ready) | **9889** |
+| RKE2 **YuniKorn** | Federation scheduler | REST **30080** |
+| RKE2 **Knative** | Serving (+ Eventing M3) | Serving ns |
+| RKE2 **Metaflow** | Platform metadata service | **30180** |
+| RKE2 **Airflow** | Metaflow production DAGs | M2 (policy-critical) |
 
 **Turn-key first run:** `devenv up [-d]` is the only entry point users need for the
 core stack. Marquez-web is bootstrapped like other heavy UI deps (cybersec pattern):

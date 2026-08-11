@@ -1,0 +1,82 @@
+# Bridge host devenv Postgres (:5455, listen 127.0.0.1 only) into ns/airflow.
+#
+# Lab PG is loopback-bound (devenv.nix). Metaflow reaches it via hostNetwork on
+# the metadata pod; Airflow has many pods, so we run one hostNetwork socat proxy
+# and expose it as ClusterIP Service signals-postgres:5432.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: airflow
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: airflow
+    # Do not rewrite images to local Zarf registry until packaged.
+    zarf.dev/agent: ignore
+  annotations:
+    zarf.dev/agent: ignore
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signals-postgres
+  namespace: airflow
+  labels:
+    app: signals-postgres
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: signals-postgres-proxy
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 15432
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signals-postgres-proxy
+  namespace: airflow
+  labels:
+    app: signals-postgres-proxy
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signals-postgres-proxy
+  template:
+    metadata:
+      labels:
+        app: signals-postgres-proxy
+        app.kubernetes.io/part-of: signals-platform
+        zarf.dev/agent: ignore
+      annotations:
+        zarf.dev/agent: ignore
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: socat
+          # Alpine socat: TCP 15432 on host → 127.0.0.1:5455 (devenv PG)
+          image: alpine/socat:1.8.0.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-d"
+            - "-d"
+            - "TCP-LISTEN:15432,fork,reuseaddr,bind=0.0.0.0"
+            - "TCP:127.0.0.1:5455"
+          ports:
+            - name: postgres
+              containerPort: 15432
+              hostPort: 15432
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

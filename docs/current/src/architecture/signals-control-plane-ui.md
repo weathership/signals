@@ -8,8 +8,12 @@
 
 ## Thesis
 
-Upstream YuniKorn no longer ships a maintained web UI. Marquez-web is an
-OpenLineage **validation harness**, not the long-term operator surface.
+Upstream YuniKorn (Apache) prioritizes **core scheduler features**; the stock
+SPA may ship with a release or ship **disabled** by that preference. It is
+not Signals’ surface to maintain. Marquez-web is an OpenLineage **validation
+harness**, not the long-term operator surface. **Keeping stock YK web
+available is fine** while our pinned YK version still includes it enabled;
+it is never a product dependency.
 
 **`signals-ui` is the primary backplane UI for Signals.** Once the stack lands,
 **YuniKorn is required** (not optional): admission, queues, and process
@@ -288,7 +292,7 @@ Standardize keys in signals-protocol; `signals-ui` BFF implements merge.
 | Non-goal | Why |
 |----------|-----|
 | Node.js service or Node-based devenv dependency for signals-ui | Explicit departure |
-| Shipping stock Angular yunikorn-web | Unmaintained; not Keiretsu |
+| Investing in or owning Angular yunikorn-web | Apache YK focuses on core features; stock SPA may ship disabled. Not Keiretsu. **Optional lab exposure** is OK while our pin still includes it enabled |
 | Growing Marquez-web into control plane | Wrong ownership; temporary validator only |
 | Reimplementing YuniKorn scheduling | Client of `/ws/v1` only |
 | Subset “dashboard-only” replacement of yk-web | Must be **strict superset** |

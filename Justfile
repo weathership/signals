@@ -224,9 +224,62 @@ restore STAMP *ARGS:
 signals-df-build:
     cargo build -p signals-df --release
 
+# ── YuniKorn UI / REST exposure (lab RKE2) ────────────────────────
+# Durable: NodePort 30889 (web) / 30080 (REST) on the node IP.
+# Classic ports: `just yk-ui-forward` binds 0.0.0.0:9889 and :9080.
+# LAN:  http://192.168.1.55:9889  or  http://192.168.1.55:30889
+# REST: http://192.168.1.55:9080  or  http://192.168.1.55:30080
+# ZT:   add 192.168.1.55 (or /24) as a Zero Trust private network route, or
+#       point a cloudflared Access tunnel at http://127.0.0.1:9889.
+
+yk-ui-forward:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+    # Ensure NodePort surface exists (idempotent)
+    kubectl patch svc yunikorn-service -n yunikorn --type=merge -p '{
+      "spec": {
+        "type": "NodePort",
+        "ports": [
+          {"name": "yunikorn-service", "port": 9080, "targetPort": 9080, "nodePort": 30080, "protocol": "TCP"},
+          {"name": "yunikorn-service-web", "port": 9889, "targetPort": 9889, "nodePort": 30889, "protocol": "TCP"}
+        ]
+      }
+    }' >/dev/null
+    if pgrep -f 'kubectl.*port-forward.*yunikorn-service' >/dev/null 2>&1; then
+      echo "port-forward already running:"
+      pgrep -af 'kubectl.*port-forward.*yunikorn-service' || true
+    else
+      LOG="${TMPDIR:-/tmp}/yk-port-forward.log"
+      nohup kubectl port-forward --address=0.0.0.0 -n yunikorn \
+        svc/yunikorn-service 9889:9889 9080:9080 >"$LOG" 2>&1 &
+      sleep 1
+      echo "port-forward started (log $LOG)"
+    fi
+    HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    HOST_IP="${HOST_IP:-192.168.1.55}"
+    echo ""
+    echo "Stock YuniKorn web (if still enabled on this pin):"
+    echo "  NodePort    : http://${HOST_IP}:30889/"
+    echo "  classic pf  : http://${HOST_IP}:9889/  (conflicts with signals-ui)"
+    echo "REST          : http://${HOST_IP}:30080/  (also :9080 with this forward)"
+    echo "signals-ui    : just signals-ui  → http://${HOST_IP}:9889/  (primary)"
+    echo "  SIGNALS_YK_API_URL=http://${HOST_IP}:30080"
+    echo ""
+    echo "Zero Trust: WARP include-mode does not yet route this LAN — either"
+    echo "  (1) Zero Trust → Networks → add private route 192.168.1.0/24 via this host, or"
+    echo "  (2) cloudflared tunnel + Access app → http://127.0.0.1:9889"
+    curl -sS -m 2 -o /dev/null -w "smoke :9889 → HTTP %{http_code}\n" "http://${HOST_IP}:9889/" || true
+
+yk-ui-forward-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pkill -f 'kubectl.*port-forward.*yunikorn-service' 2>/dev/null && echo "stopped" || echo "no port-forward"
+
 # ── signals-ui (primary backplane UI — yk-web superset, Rust/Axum) ─
-# YuniKorn is required once the stack lands (SIGNALS_YK_API_URL).
-# Port 9889. Keiretsu + Cloudera brand. See architecture/signals-control-plane-ui.md
+# YuniKorn required (SIGNALS_YK_API_URL). Default bind 0.0.0.0:9889 (LAN).
+# Stock YK web (when still enabled upstream): NodePort :30889.
+# Lab REST default: NodePort :30080 on the RKE2 node.
 
 signals-ui-build:
     #!/usr/bin/env bash
@@ -235,18 +288,76 @@ signals-ui-build:
     cargo build --release -p signals-ui
     echo "→ components/signals-ui/target/release/signals-ui"
 
-# Run foreground (lab). Without YK: SIGNALS_UI_ALLOW_NO_YK=1 just signals-ui
-# Steady state: SIGNALS_YK_API_URL is required (primary backplane).
+# Foreground run. Release binary if present; else cargo run.
+# Critical plane: PG + RustFS + YK + Knative + Metaflow (Airflow when required).
+# See docs/current/src/architecture/stack-critical-plane.md
+stack-ready:
+    bash scripts/signals_stack_preflight.sh
+
+# Require federation (YK+Knative) only.
+federation-ready:
+    bash scripts/federation_preflight.sh
+
+# Platform Metaflow M1: metadata service on RKE2 + PG + RustFS bucket.
+# Submodule: components/metaflow (weathership/oss-metaflow rch/devenv).
+metaflow-platform:
+    bash scripts/metaflow_platform_bootstrap.sh
+
+metaflow-platform-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+    echo "=== metaflow ns ==="
+    kubectl get all,cm,secret -n metaflow 2>&1 | head -40
+    echo "=== ping ==="
+    curl -sS -m 3 -w "\nHTTP %{http_code}\n" http://127.0.0.1:30180/ping || true
+
+# Platform Airflow 3 M2: LocalExecutor on RKE2 + host PG + NodePort 30800.
+# Chart: components/airflow/chart · values: config/k8s/airflow/values-signals.yaml
+airflow-platform:
+    bash scripts/airflow_platform_bootstrap.sh
+
+airflow-platform-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+    echo "=== airflow ns ==="
+    kubectl get all,cm,secret -n airflow 2>&1 | head -50
+    echo "=== API (public version) ==="
+    curl -sS -m 3 -w "\nHTTP %{http_code}\n" http://127.0.0.1:30800/api/v2/version 2>/dev/null || true
+    echo "=== JWT smoke (admin) ==="
+    TOKEN="$(curl -sS -m 5 -X POST http://127.0.0.1:30800/auth/token \
+      -H 'Content-Type: application/json' \
+      -d '{"username":"admin","password":"admin"}' 2>/dev/null \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null || true)"
+    if [[ -n "$TOKEN" ]]; then
+      curl -sS -m 5 -H "Authorization: Bearer $TOKEN" \
+        'http://127.0.0.1:30800/api/v2/dags?limit=5' 2>/dev/null \
+        | python3 -c 'import sys,json; d=json.load(sys.stdin); print("dags:", [x["dag_id"] for x in d.get("dags",[])])' 2>/dev/null || true
+    else
+      echo "(no token — admin user may not exist yet)"
+    fi
+
+airflow-platform-smoke:
+    bash scripts/airflow_platform_smoke.sh
+
 signals-ui *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd components/signals-ui
+    ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    cd "$ROOT"
+    unset SIGNALS_UI_ALLOW_NO_YK || true
+    export SIGNALS_YK_API_URL="${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
     export SIGNALS_UI_BIND="${SIGNALS_UI_BIND:-0.0.0.0:9889}"
     export SIGNALS_ATLAS_HTTP_URL="${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
+    export SIGNALS_UI_CONFIG="${SIGNALS_UI_CONFIG:-$ROOT/build/config/signals-ui.json}"
+    bash scripts/federation_preflight.sh
+    cd components/signals-ui
     export SIGNALS_UI_ASSETS="$PWD/assets"
-    if [ -z "${SIGNALS_YK_API_URL:-}" ]; then
-      export SIGNALS_UI_ALLOW_NO_YK="${SIGNALS_UI_ALLOW_NO_YK:-1}"
-      echo "WARN: SIGNALS_YK_API_URL unset (lab allow-no-yk). YK is required in steady state."
+    mkdir -p "$(dirname "$SIGNALS_UI_CONFIG")"
+    BIN="$PWD/target/release/signals-ui"
+    if [ -x "$BIN" ]; then
+      exec "$BIN" {{ARGS}}
     fi
     cargo run -p signals-ui -- {{ARGS}}
 

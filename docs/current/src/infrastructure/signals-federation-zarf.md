@@ -76,6 +76,38 @@ python3 -m converge verify
 `min-scale: "0"`. Idle revisions should drop to **0 pods** after the grace
 period; activator wakes them on request.
 
+## Multi-engine K8s coordination (soon)
+
+RKE2 on the lab node is **scarce shared compute**. Multiple sibling repos
+(Aegir, Atelier, Gaius, cybersec, Hermes, …) currently reach the same cluster
+via independent Tilt / Helm / ad-hoc apply paths. That collides with
+federation ownership:
+
+| Failure mode | Example observed |
+|--------------|------------------|
+| Redeploy thrash | Aegir Tilt (`infra/tilt/`) recreated `aegir-metaflow` after `teardown-precedence.sh` |
+| Image-pull noise | Metaflow images rewritten by Zarf agent to missing registry digests |
+| Queue bypass | Workloads not submitted under `root.{aegir,atelier,gaius,signals,hermes}` |
+| Scheduler conflict | Default kube-scheduler vs YuniKorn admission for capacity |
+
+**Direction (federation-owned):**
+
+1. **YuniKorn is the scheduler of record** for all federation and engine
+   workloads on this RKE2 instance — queues already declared in package
+   values (`root.default` + per-engine leaves).
+2. **No long-running out-of-band Tilt** against shared namespaces without an
+   explicit engine queue + resource request/limit that YK can enforce.
+3. **Engine admission via sentinels / package surface** — host gRPC engines
+   stay off-cluster; anything that *does* land on K8s goes through
+   `signals-federation` (or a later per-engine Zarf component) so teardown
+   and converge FSM remain authoritative.
+4. **Coordination API (TBD)** — signals control plane (signals-ui + protocol)
+   should expose queue/capacity and “who may deploy what” so sibling devenvs
+   do not fight for the same node.
+
+Until that lands: stop engine-local process-compose / Tilt that targets RKE2
+before federation teardown or redeploy (`devenv processes down` in Aegir, etc.).
+
 ## See also
 
 - [zarf.md](./zarf.md) (legacy notes)  
