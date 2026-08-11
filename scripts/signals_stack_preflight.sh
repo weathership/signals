@@ -59,7 +59,10 @@ else
   die "RustFS not reachable at ${RUSTFS_URL} (devenv rustfs — object plane is critical)"
 fi
 
-if http_ok "${ATLAS_URL%/}/api/atlas/admin/version" || http_ok "${ATLAS_URL%/}/"; then
+# Prefer /admin/status (200 when up). /admin/version and / often 401 without session.
+if http_ok "${ATLAS_URL%/}/api/atlas/admin/status" \
+  || http_ok "${ATLAS_URL%/}/api/atlas/admin/version" \
+  || http_ok "${ATLAS_URL%/}/"; then
   ok "Atlas ${ATLAS_URL}"
 else
   fail_soft "Atlas not ready at ${ATLAS_URL} (start devenv atlas process)"
