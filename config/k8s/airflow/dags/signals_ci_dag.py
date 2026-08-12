@@ -1,8 +1,9 @@
-"""Legacy dual-map shim: dag_id signals_smoke → same probe as signals_ci.
+"""Signals lab CI DAG — proves Airflow 3 scheduler + dag-processor path.
 
-Prefer signals_ci (config/k8s/airflow/dags/signals_ci_dag.py). This file remains
-so old triggers/docs that still reference signals_smoke keep working during
-transition. New ConfigMaps mount signals_ci_dag.py primarily.
+Elevated platform gate (not a one-off smoke script). Metaflow `airflow create`
+DAGs land in the same ConfigMap / dags volume in a later step.
+
+Legacy dual-map: CloudEvent type `dev.signals.smoke.trigger` still routes here.
 """
 
 from __future__ import annotations
@@ -23,26 +24,26 @@ default_args = {
 }
 
 
-def _smoke_probe(**_context) -> str:
-    msg = "signals-airflow-smoke (legacy alias of signals_ci): ok"
+def _ci_probe(**_context) -> str:
+    msg = "signals-airflow-ci: ok"
     print(msg)
     return msg
 
 
 with DAG(
-    dag_id="signals_smoke",
-    description="Legacy alias of signals_ci (platform M2)",
+    dag_id="signals_ci",
+    description="Platform Airflow M2 CI gate (LocalExecutor)",
     default_args=default_args,
     schedule=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=["signals", "smoke", "legacy", "platform"],
+    tags=["signals", "ci", "platform"],
     max_active_runs=1,
 ) as dag:
     start = EmptyOperator(task_id="start")
     probe = PythonOperator(
-        task_id="smoke_probe",
-        python_callable=_smoke_probe,
+        task_id="ci_probe",
+        python_callable=_ci_probe,
     )
     done = EmptyOperator(task_id="done")
     start >> probe >> done

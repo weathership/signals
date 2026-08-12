@@ -90,10 +90,12 @@ k apply -f "$PLATFORM_DIR/broker-trigger.yaml"
 info "waiting for airflow-dag-trigger..."
 k -n signals-events rollout status deploy/airflow-dag-trigger --timeout=180s
 
-# Ensure eventing smoke DAG is in Airflow ConfigMap (merge with smoke)
+# Ensure eventing CI DAGs are in Airflow ConfigMap (ci primary + legacy smoke dual-map)
 if k get ns "$AIRFLOW_DAGS_CM_NS" >/dev/null 2>&1; then
-  info "updating Airflow DAG ConfigMap (signals_smoke + signals_eventing_smoke)"
+  info "updating Airflow DAG ConfigMap (signals_ci + signals_eventing_ci + legacy)"
   k -n "$AIRFLOW_DAGS_CM_NS" create configmap signals-airflow-dags \
+    --from-file=signals_ci_dag.py="$ROOT/config/k8s/airflow/dags/signals_ci_dag.py" \
+    --from-file=signals_eventing_ci_dag.py="$PLATFORM_DIR/dags/signals_eventing_ci_dag.py" \
     --from-file=signals_smoke_dag.py="$ROOT/config/k8s/airflow/dags/signals_smoke_dag.py" \
     --from-file=signals_eventing_smoke_dag.py="$PLATFORM_DIR/dags/signals_eventing_smoke_dag.py" \
     --dry-run=client -o yaml | k apply -f -
@@ -124,6 +126,6 @@ info "OK — Knative Eventing platform ready"
 info "  Broker: signals-events/default"
 info "  Ingress: ${ingress:-<pending>}"
 info "  Sink:    signals-events/airflow-dag-trigger"
-info "  Smoke:   just airflow-eventing-smoke"
-info "  Publish: scripts/signals_events_publish.sh dev.signals.eventing.smoke"
+info "  CI gate: just airflow-eventing-ci"
+info "  Publish: scripts/signals_events_publish.sh dev.signals.eventing.ci"
 exit 0

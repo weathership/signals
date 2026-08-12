@@ -25,8 +25,8 @@ Full architecture: [Platform Metaflow](../architecture/metaflow-platform.md) ·
 |-------|--------|
 | Component submodule | `components/airflow` |
 | Platform deploy on RKE2 | **M2** — `just airflow-platform` |
-| Smoke DAG | `signals_smoke` (ConfigMap) · `just airflow-platform-smoke` |
-| Knative Eventing → DAG trigger | **M3** — `just knative-eventing` / `just airflow-eventing-smoke` |
+| CI DAG | `signals_ci` (ConfigMap) · `just airflow-platform-ci` |
+| Knative Eventing → DAG trigger | **M3** — `just knative-eventing` / `just airflow-eventing-ci` |
 
 ## Lab operations
 
@@ -37,11 +37,12 @@ just airflow-platform
 # Status
 just airflow-platform-status
 
-# Trigger smoke DAG and wait for success
-just airflow-platform-smoke
+# Trigger CI DAG and wait for success
+just airflow-platform-ci
 
-# Critical plane (auto-bootstraps Airflow when SIGNALS_STACK_AUTO_AIRFLOW=1)
+# Critical plane preflight (auto-bootstraps Airflow when SIGNALS_STACK_AUTO_AIRFLOW=1)
 just stack-ready
+just signals-ready                  # check-only oneshot
 SIGNALS_STACK_REQUIRE_AIRFLOW=1 just stack-ready
 ```
 

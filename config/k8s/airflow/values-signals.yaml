@@ -88,13 +88,22 @@ env:
   - name: AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK
     value: "True"
 
-# Mount smoke DAG as a single file (subPath). Mounting a whole ConfigMap dir
+# Mount CI DAGs as single files (subPath). Mounting a whole ConfigMap dir
 # creates ..timestamp atomic dirs that AF 3 dag-processor treats as recursion.
+# Legacy smoke DAG files still in ConfigMap for dual-map transition.
 volumes:
   - name: signals-dags
     configMap:
       name: signals-airflow-dags
 volumeMounts:
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/signals_ci_dag.py
+    subPath: signals_ci_dag.py
+    readOnly: true
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/signals_eventing_ci_dag.py
+    subPath: signals_eventing_ci_dag.py
+    readOnly: true
   - name: signals-dags
     mountPath: /opt/airflow/dags/signals_smoke_dag.py
     subPath: signals_smoke_dag.py

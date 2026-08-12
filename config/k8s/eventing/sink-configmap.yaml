@@ -37,10 +37,14 @@ data:
             "TYPE_DAG_MAP",
             json.dumps(
                 {
-                    "dev.signals.smoke.trigger": "signals_smoke",
-                    "dev.signals.eventing.smoke": "signals_eventing_smoke",
-                    "dev.metaflow.flow.finished": "signals_eventing_smoke",
-                    "dev.gaius.article.curate.requested": "signals_eventing_smoke",
+                    "dev.signals.ci.trigger": "signals_ci",
+                    "dev.signals.eventing.ci": "signals_eventing_ci",
+                    "dev.metaflow.flow.finished": "signals_eventing_ci",
+                    "dev.gaius.article.curate.requested": "signals_eventing_ci",
+                    "dev.signals.sentinel.activated": "signals_eventing_ci",
+                    # legacy dual-map (pre smoke→ci rename)
+                    "dev.signals.smoke.trigger": "signals_ci",
+                    "dev.signals.eventing.smoke": "signals_eventing_ci",
                 }
             ),
         )

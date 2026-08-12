@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CE_TYPE="${1:-dev.signals.eventing.smoke}"
+CE_TYPE="${1:-dev.signals.eventing.ci}"
 CE_DATA="${2:-{}}"
 CE_SOURCE="${SIGNALS_EVENTS_SOURCE:-dev.signals.cli}"
 CE_SUBJECT="${SIGNALS_EVENTS_SUBJECT:-}"
@@ -70,7 +70,7 @@ try:
     print('HTTP', r.status)
 except Exception as e:
   # Broker may block until the sink finishes Airflow JWT+dagRun (can exceed 30s).
-  # Delivery often still succeeds — smoke scripts poll Airflow separately.
+  # Delivery often still succeeds — CI gates poll Airflow separately.
   print('WARN publish wait:', type(e).__name__, e, file=sys.stderr)
   print('HTTP 000 (client timeout; event may still be delivered)')
 "
@@ -78,4 +78,4 @@ else
   die "airflow-dag-trigger deploy missing — just knative-eventing"
 fi
 
-info "published $CE_ID — check Airflow DAG runs (signals_eventing_smoke / mapped dag)"
+info "published $CE_ID — check Airflow DAG runs (signals_eventing_ci / mapped dag)"

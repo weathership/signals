@@ -13,7 +13,26 @@ metadata:
     # Use MT channel broker (in-memory) — lab default
     eventing.knative.dev/broker.class: MTChannelBasedBroker
 ---
-# Smoke / generic Metaflow-style events → eventing smoke DAG (or signals_smoke)
+# Platform CI events → signals_eventing_ci DAG
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-eventing-ci
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.signals.eventing.ci
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger
+---
+# Legacy dual-map (pre-rename CE type)
 apiVersion: eventing.knative.dev/v1
 kind: Trigger
 metadata:
@@ -32,6 +51,25 @@ spec:
       kind: Service
       name: airflow-dag-trigger
 ---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-signals-ci
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.signals.ci.trigger
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger
+---
+# Legacy dual-map
 apiVersion: eventing.knative.dev/v1
 kind: Trigger
 metadata:

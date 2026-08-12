@@ -1496,12 +1496,24 @@ in
         export SIGNALS_FEDERATION_PACKAGE="''${SIGNALS_FEDERATION_PACKAGE:-/raid/signals/zarf-build/zarf-package-signals-federation-amd64-0.1.0.tar.zst}"
         export SIGNALS_STACK_REQUIRE_AIRFLOW="''${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
         export SIGNALS_STACK_REQUIRE_DATA_PLANE="''${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
-        export SIGNALS_STACK_DATA_PLANE_SMOKE="''${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}"
+        export SIGNALS_STACK_DATA_PLANE_CI="''${SIGNALS_STACK_DATA_PLANE_CI:-''${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}}"
         export SIGNALS_STACK_ASSERT_PROCESSES="''${SIGNALS_STACK_ASSERT_PROCESSES:-1}"
         export SIGNALS_PROCESS_ASSERT_WAIT="''${SIGNALS_PROCESS_ASSERT_WAIT:-30}"
         bash "$PWD/scripts/signals_stack_preflight.sh"
       '';
-      description = "Turn-key critical plane check (also run from signals-ui process start)";
+      description = "Turn-key critical plane preflight (also run from signals-ui process start)";
+    };
+
+    # Check-only readiness oneshot (peers / systemd). No auto-bootstrap.
+    "signals:ready" = {
+      exec = ''
+        set -euo pipefail
+        export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+        export METAFLOW_SERVICE_URL="''${METAFLOW_SERVICE_URL:-http://127.0.0.1:30180}"
+        export AIRFLOW_API_URL="''${AIRFLOW_API_URL:-http://127.0.0.1:30800}"
+        bash "$PWD/scripts/signals_ready.sh"
+      '';
+      description = "Check-only signals-ready (PASS/WARN/FAIL; critical includes Kudu + Metaflow)";
     };
 
     # RKE2 federation only (subset of stack-ready).
@@ -2510,7 +2522,8 @@ SQL
     echo "  devenv tasks run signals:kdc-reset    — Reset KDC database"
     echo "  devenv tasks run signals:kudu-kerberos-smoke — PR-K5a keytab/auth probe"
     echo "  devenv tasks run signals:catalog-init — Initialize catalog registry schema"
-    echo "  devenv tasks run signals:stack-ready — critical plane (PG/RustFS/YK/Knative/Metaflow/Airflow) before signals-ui"
+    echo "  devenv tasks run signals:stack-ready — critical plane preflight before signals-ui"
+    echo "  just signals-ready / devenv tasks run signals:ready — check-only oneshot (Kudu + Metaflow critical)"
     echo "  devenv tasks run signals:federation-ready — YK+Knative only"
     echo "  devenv tasks run signals:metaflow-platform — Metaflow metadata service (M1)"
     echo "  devenv tasks run signals:airflow-platform — Airflow 3 LocalExecutor (M2, NodePort 30800)"

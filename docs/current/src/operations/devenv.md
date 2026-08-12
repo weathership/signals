@@ -41,7 +41,7 @@ next `up` under `strictPorts`. `just down` only stops **this** tree’s
 1. Ensures data layout under `SIGNALS_DATA_ROOT`
 2. Starts **KDC**, then **kerberos-bootstrap** (keytabs + kinit) before Kudu/Impala
 3. Starts the full host graph (Postgres, RustFS, Atlas, Marquez-web, Ranger, **Kudu**, **Impala**, signals-ui)
-4. Runs **stack-ready** before signals-ui: data-plane health, YuniKorn/Knative, Metaflow, Airflow (auto-deploy when missing)
+4. Runs **stack-ready** before signals-ui: data-plane health, YuniKorn/Knative, Metaflow, Airflow (auto-deploy when missing). Peers use **`just signals-ready`** for check-only PASS/WARN/FAIL (critical includes Kudu + Metaflow).
 
 `just bootstrap` remains a **recovery alias** for Kerberos outside a process session — not a separate curriculum step.
 
@@ -81,9 +81,10 @@ uses process `after` / `ready` (Kudu → Impala; Postgres → Atlas → Marquez;
 
 ```bash
 devenv up -d              # start full graph
-just stack-ready          # or: devenv tasks run signals:stack-ready
+just stack-ready          # preflight (+ optional auto-bootstrap)
+just signals-ready        # check-only oneshot for peers / systemd
 devenv processes list     # expect kudu-*, impala-*, atlas, marquez-web, rustfs, signals-ui, …
-devenv processes down     # stop full graph
+devenv processes down     # stop full graph (or: just down)
 ```
 
 | Process / platform | Role | Default port(s) |

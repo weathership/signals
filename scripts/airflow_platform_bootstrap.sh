@@ -128,8 +128,9 @@ k -n "$NAMESPACE" delete endpoints signals-postgres --ignore-not-found 2>/dev/nu
 info "waiting for signals-postgres-proxy..."
 k -n "$NAMESPACE" rollout status deploy/signals-postgres-proxy --timeout=120s
 
-info "applying smoke DAG ConfigMap"
+info "applying CI DAG ConfigMap (signals_ci + legacy smoke dual-map)"
 k -n "$NAMESPACE" create configmap signals-airflow-dags \
+  --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py" \
   --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py" \
   --dry-run=client -o yaml | k apply -f -
 
@@ -233,6 +234,6 @@ info "  UI/API:  $API_URL  (admin / admin; JWT via POST /auth/token)"
 info "  ns:      $NAMESPACE  release=$RELEASE"
 info "  secrets: $SECRET_FILE"
 info "  chart:   components/airflow/chart (3.1.7)"
-info "  smoke:   DAG signals_smoke (ConfigMap signals-airflow-dags)"
-info "  trigger: just airflow-platform-smoke"
+info "  CI DAG:  signals_ci (ConfigMap signals-airflow-dags)"
+info "  trigger: just airflow-platform-ci"
 exit 0

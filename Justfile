@@ -294,8 +294,14 @@ signals-ui-build:
 # Critical plane: PG + RustFS + Kudu/Impala + YK + Knative + Metaflow + Airflow.
 # See docs/current/src/architecture/stack-critical-plane.md
 # Invoked automatically before signals-ui on `devenv up -d`.
+# Preflight may auto-bootstrap Metaflow/Airflow/Eventing; for check-only use signals-ready.
 stack-ready:
     bash scripts/signals_stack_preflight.sh
+
+# Check-only readiness oneshot (Gaius PASS/WARN/FAIL). Critical includes Kudu + Metaflow.
+# Exit 0 iff all critical components PASS. Peers / systemd should wait on this.
+signals-ready *ARGS:
+    bash scripts/signals_ready.sh {{ARGS}}
 
 # Assert devenv process graph includes Kudu/Impala (not a partial up).
 process-assert:
@@ -305,7 +311,11 @@ process-assert:
 data-plane-preflight:
     bash scripts/data_plane_preflight.sh
 
-# Post-up Kudu + Impala smoke.
+# Post-up Kudu + Impala CI gate (elevated system check).
+data-plane-ci:
+    bash scripts/data_plane_ci.sh
+
+# One-off alias → data-plane-ci (prefer *-ci for elevated gates).
 data-plane-smoke:
     bash scripts/data_plane_smoke.sh
 
@@ -321,7 +331,11 @@ knative-eventing:
 events-publish *ARGS:
     bash scripts/signals_events_publish.sh {{ARGS}}
 
-# CE → Airflow DAG smoke (installs eventing if needed).
+# CE → Airflow DAG CI gate (installs eventing if needed).
+airflow-eventing-ci:
+    bash scripts/airflow_eventing_ci.sh
+
+# One-off alias → airflow-eventing-ci.
 airflow-eventing-smoke:
     bash scripts/airflow_eventing_smoke.sh
 
@@ -373,7 +387,7 @@ airflow-platform-status:
     kubectl get all,cm,secret -n airflow 2>&1 | head -50
     echo "=== API (public version) ==="
     curl -sS -m 3 -w "\nHTTP %{http_code}\n" http://127.0.0.1:30800/api/v2/version 2>/dev/null || true
-    echo "=== JWT smoke (admin) ==="
+    echo "=== JWT probe (admin) ==="
     TOKEN="$(curl -sS -m 5 -X POST http://127.0.0.1:30800/auth/token \
       -H 'Content-Type: application/json' \
       -d '{"username":"admin","password":"admin"}' 2>/dev/null \
@@ -386,6 +400,11 @@ airflow-platform-status:
       echo "(no token — admin user may not exist yet)"
     fi
 
+# Trigger signals_ci DAG and wait for success (elevated M2 CI gate).
+airflow-platform-ci:
+    bash scripts/airflow_platform_ci.sh
+
+# One-off alias → airflow-platform-ci.
 airflow-platform-smoke:
     bash scripts/airflow_platform_smoke.sh
 

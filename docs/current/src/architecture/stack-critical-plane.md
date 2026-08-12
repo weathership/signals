@@ -43,18 +43,31 @@ tests may still mock subsystems; the **live stack** does not.
 |------|----------|
 | `devenv up -d` | Turn-key entry: full process graph + stack-ready before signals-ui |
 | `scripts/signals_stack_preflight.sh` | Host (PG/RustFS/Atlas/**Kudu/Impala**) + RKE2; auto Metaflow/Airflow |
+| `scripts/signals_ready.sh` | **Check-only** Gaius-style PASS/WARN/FAIL oneshot (peers / systemd) |
 | `scripts/data_plane_preflight.sh` | Binary gate before Kudu/Impala (no compile) |
 | `scripts/devenv_process_assert.sh` | Fail if process graph is a partial `up` |
-| `just stack-ready` | Same preflight (also automatic on `up -d`) |
+| `just stack-ready` | Preflight + optional auto-bootstrap (also automatic on `up -d`) |
+| `just signals-ready` | Check-only readiness; critical includes **Kudu + Metaflow** |
 | `signals:kerberos-bootstrap` | Wait for KDC → keytabs + kinit before Kudu/Impala |
 | `signals:federation-ready` | YK + Knative (subset) |
 | `signals:metaflow-platform` / `airflow-platform` | Platform RKE2 services |
 
 ```bash
 devenv up -d                        # preferred — full validate + bootstrap
-just stack-ready                    # re-check without restarting processes
-just data-plane-smoke               # Kudu/Impala ports after up
+just stack-ready                    # preflight (may bootstrap missing pieces)
+just signals-ready                  # check-only oneshot for peers / systemd
+just data-plane-ci                  # Kudu/Impala ports after up (elevated CI gate)
 ```
+
+### Naming: ready vs CI vs smoke
+
+| Surface | Role |
+|---------|------|
+| **signals-ready** | Foundation readiness (PASS/WARN/FAIL). Exit 0 iff critical set is ready. |
+| **\*-ci** | Elevated continuous-integration gates (`just airflow-platform-ci`, DAG ids `signals_ci`, CE `dev.signals.eventing.ci`) |
+| **smoke** | One-off scripts under `./scripts/` (and some `./tests/`); thin wrappers may still exist for habit |
+
+Do **not** elevate “smoke” into system recipe / package / CloudEvent API names — that role is **CI**.
 
 ## Topology
 

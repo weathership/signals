@@ -285,7 +285,7 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 
 **Data root:** `SIGNALS_DATA_ROOT` (default `/raid/signals`) — siblings `kudu/`, `rustfs/`, `flink/`, `backups/`. See `docs/current/src/operations/storage-and-backup.md`.
 
-**Critical plane:** `just stack-ready` / `signals:stack-ready` enforces PG + RustFS + YK + Knative + Metaflow before signals-ui. Airflow is policy-critical; hard-fail with `SIGNALS_STACK_REQUIRE_AIRFLOW=1` after M2.
+**Critical plane:** `just stack-ready` / `signals:stack-ready` preflight (may auto-bootstrap) before signals-ui. **Check-only oneshot:** `just signals-ready` (Gaius PASS/WARN/FAIL; critical includes **Kudu + Metaflow** + Airflow + Eventing). Elevated gates use `*-ci` naming (`just airflow-platform-ci`, `signals_ci` DAG); keep `smoke` for one-off `./scripts/`.
 
 **Kerberos required** for Impala + Kudu + backup (no NOSASL path). FQDN SPNs via `$SIGNALS_KRB_HOST`.
 Product edge identity: Cloudflare Zero Trust + Okta/GitHub (see Gaius); authz via Atlas → Ranger.

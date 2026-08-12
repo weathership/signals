@@ -1,6 +1,9 @@
-"""Legacy dual-map shim: dag_id signals_eventing_smoke → same path as signals_eventing_ci.
+"""Eventing CI DAG — proves Knative CE → Airflow path (M3).
 
-Prefer signals_eventing_ci. Kept so old CE types / docs keep working.
+Elevated platform gate. Distinct from signals_ci so event-triggered runs are
+easy to spot in the UI.
+
+Legacy dual-map: CloudEvent type `dev.signals.eventing.smoke` still routes here.
 """
 
 from __future__ import annotations
@@ -23,19 +26,21 @@ default_args = {
 
 def _event_probe(**context) -> str:
     conf = context.get("dag_run").conf if context.get("dag_run") else {}
-    msg = f"signals-eventing-smoke (legacy): ok conf_keys={sorted((conf or {}).keys())}"
+    msg = f"signals-eventing-ci: ok conf_keys={sorted((conf or {}).keys())}"
     print(msg)
+    print("ce_type=", (conf or {}).get("ce_type"))
+    print("ce_source=", (conf or {}).get("ce_source"))
     return msg
 
 
 with DAG(
-    dag_id="signals_eventing_smoke",
-    description="Legacy alias of signals_eventing_ci (platform M3)",
+    dag_id="signals_eventing_ci",
+    description="Platform M3 CI: Knative Eventing → Airflow DAG run",
     default_args=default_args,
     schedule=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=["signals", "smoke", "legacy", "eventing", "platform"],
+    tags=["signals", "ci", "eventing", "platform"],
     max_active_runs=4,
 ) as dag:
     start = EmptyOperator(task_id="start")

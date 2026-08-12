@@ -259,15 +259,15 @@ Service + Endpoints (`signals-postgres`, `signals-rustfs`).
 | Helm values | `config/k8s/airflow/values-signals.yaml` |
 | Host PG bridge | `config/k8s/airflow/host-bridge.yaml` |
 | Cross-ns RBAC | `config/k8s/airflow/rbac-metaflow.yaml` (KPO → `metaflow`) |
-| Smoke DAG | `config/k8s/airflow/dags/signals_smoke_dag.py` |
+| CI DAG | `config/k8s/airflow/dags/signals_ci_dag.py` |
 | Bootstrap | `scripts/airflow_platform_bootstrap.sh` · `just airflow-platform` |
-| Smoke | `just airflow-platform-smoke` |
+| CI gate | `just airflow-platform-ci` |
 | Lab URL | `http://127.0.0.1:30800` (NodePort **30800**, admin/admin) |
 
 Shape: **LocalExecutor**, external PG (`airflow` DB on host :5455 via
 hostNetwork **socat** proxy — devenv PG is loopback-only), no in-cluster
 Bitnami Postgres/Redis. Fernet/JWT/API secrets persist under
-`build/config/airflow-secrets.env`. Smoke DAG `signals_smoke` is live;
+`build/config/airflow-secrets.env`. CI DAG `signals_ci` is live;
 Metaflow `airflow create` DAGs ship next (same ConfigMap / dags path).
 REST: AF3 `/api/v2` with JWT from `POST /auth/token`.
 
@@ -282,7 +282,7 @@ REST: AF3 `/api/v2` with JWT from `POST /auth/token`.
 | Triggers | smoke, metaflow.finished, gaius.curate, … |
 | Bootstrap | `scripts/knative_eventing_bootstrap.sh` · `just knative-eventing` |
 | Publish helper | `scripts/signals_events_publish.sh` · `just events-publish` |
-| Smoke | `just airflow-eventing-smoke` (CE → `signals_eventing_smoke` DAG) |
+| CI gate | `just airflow-eventing-ci` (CE → `signals_eventing_ci` DAG) |
 
 **No Argo.** Engines (Gaius/Aegir/…) and Metaflow finish hooks publish CloudEvents
 to the Broker; Triggers filter by `type` and invoke Airflow. Zarf agent ignore
@@ -298,7 +298,7 @@ until Eventing images are packaged into signals-federation.
 
 Metaflow (with YK, Knative, Airflow, RustFS, and host data services) is part of
 the **uniform critical plane** for Signals — enforced by
-`just stack-ready` / `signals:stack-ready`. See
+`just stack-ready` / `just signals-ready` / `signals:stack-ready`. See
 [Critical plane](./stack-critical-plane.md).
 
 ## Non-goals

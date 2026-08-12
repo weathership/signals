@@ -17,7 +17,8 @@ AUTO_EVENTING="${SIGNALS_STACK_AUTO_EVENTING:-1}"
 REQUIRE_AIRFLOW="${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
 REQUIRE_EVENTING="${SIGNALS_STACK_REQUIRE_EVENTING:-1}"
 REQUIRE_DATA_PLANE="${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
-DATA_PLANE_SMOKE="${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}"
+# Prefer SIGNALS_STACK_DATA_PLANE_CI; legacy SIGNALS_STACK_DATA_PLANE_SMOKE still accepted
+DATA_PLANE_SMOKE="${SIGNALS_STACK_DATA_PLANE_CI:-${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}}"
 AUTO_CATALOG="${SIGNALS_STACK_AUTO_CATALOG:-1}"
 ASSERT_PROCESSES="${SIGNALS_STACK_ASSERT_PROCESSES:-1}"
 
@@ -277,16 +278,17 @@ else
   fi
 fi
 
-# ── Optional data-plane smoke ─────────────────────────────────────
+# ── Optional data-plane CI gate ───────────────────────────────────
+# DATA_PLANE_SMOKE is set from SIGNALS_STACK_DATA_PLANE_CI (preferred) or legacy SMOKE env
 if [[ "$data_plane_ok" -eq 1 && ( "$DATA_PLANE_SMOKE" == "1" || "$DATA_PLANE_SMOKE" == "true" ) ]]; then
-  info "=== data-plane smoke ==="
-  if bash "$ROOT/scripts/data_plane_smoke.sh"; then
-    ok "data-plane smoke"
+  info "=== data-plane CI ==="
+  if bash "$ROOT/scripts/data_plane_ci.sh"; then
+    ok "data-plane CI"
   else
     if [[ "$REQUIRE_DATA_PLANE" == "1" ]]; then
-      die "data-plane smoke failed"
+      die "data-plane CI failed"
     fi
-    fail_soft "data-plane smoke failed"
+    fail_soft "data-plane CI failed"
   fi
 fi
 
