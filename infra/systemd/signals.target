@@ -1,0 +1,9 @@
+[Unit]
+Description=Signals project group (foundation + federated engines)
+Documentation=file:///home/rch/local/src/wxs/signals/infra/systemd/README.md
+Documentation=file:///home/rch/local/src/wxs/signals/config/platform/peer-contract.json
+# Soft-pull foundation + readiness; peers opt in via WantedBy=
+Wants=signals.service signals-ready.service
+
+[Install]
+WantedBy=multi-user.target

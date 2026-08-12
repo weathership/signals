@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "signals-platform-peer",
+  "description": "Stable lab contracts for federated engines and external peers. Process lifecycle is systemd-group; wire is signals-protocol.",
+  "license_boundary": {
+    "signals_core": "Apache-2.0",
+    "external_peers": "May use incompatible licenses (e.g. AGPL Metabase) only as separate processes outside this tree; never vendor their source into signals.",
+    "integration": "Process boundary (systemd units + network) + signals-protocol gRPC; no static link of AGPL into ASL2 binaries."
+  },
+  "foundation": {
+    "repo": "weathership/signals",
+    "working_directory_hint": "~/local/src/wxs/signals",
+    "start": "just up",
+    "stop": "just down",
+    "ready": "just signals-ready",
+    "ready_json": "just signals-ready --json",
+    "preflight_bootstrap": "just stack-ready",
+    "ui_readyz": "http://127.0.0.1:9889/readyz"
+  },
+  "endpoints": {
+    "postgres": { "host": "127.0.0.1", "port": 5455, "owner": "signals", "note": "Do not bind peer devenv Postgres here" },
+    "kerberos": { "realm": "DEV.VISTA.ZNDX.ORG", "kdc_udp": 8848 },
+    "rustfs_s3": { "url": "http://127.0.0.1:9010", "owner": "signals" },
+    "atlas_http": { "url": "http://127.0.0.1:21010" },
+    "ranger": { "url": "http://127.0.0.1:6080" },
+    "impala_hs2": { "port": 21050, "auth": "GSSAPI" },
+    "kudu_master_web": { "url": "http://127.0.0.1:8051" },
+    "yunikorn": { "url": "http://127.0.0.1:30080" },
+    "metaflow_service": { "url": "http://127.0.0.1:30180", "ping": "http://127.0.0.1:30180/ping" },
+    "metaflow_profile": "config/metaflow/platform.json",
+    "airflow": { "url": "http://127.0.0.1:30800", "api": "http://127.0.0.1:30800/api/v2" },
+    "signals_ui": { "url": "http://127.0.0.1:9889" },
+    "eventing_broker": {
+      "namespace": "signals-events",
+      "name": "default",
+      "publish": "just events-publish <ce-type> '<json>'"
+    }
+  },
+  "port_lattice_postgres": {
+    "5432": "system/apt (leave alone; Metabase app DB may use this)",
+    "5438": "cybersec/cyberphy",
+    "5444": "gaius",
+    "5455": "signals",
+    "5533": "atelier",
+    "5555": "aegir",
+    "5566": "synth",
+    "5577": "metabase engine DB (not ASL2 signals)"
+  },
+  "engine_grpc_lattice": {
+    "gaius": 50051,
+    "aegir": 50151,
+    "atelier": 50251,
+    "synth": 50351,
+    "metabase": 50451,
+    "service": "zndx.engine.v1.Engine",
+    "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto"
+  },
+  "cloud_events": {
+    "primary": {
+      "dev.signals.eventing.ci": "signals_eventing_ci",
+      "dev.signals.ci.trigger": "signals_ci",
+      "dev.metaflow.flow.finished": "signals_eventing_ci",
+      "dev.gaius.article.curate.requested": "signals_eventing_ci",
+      "dev.signals.sentinel.activated": "signals_eventing_ci"
+    },
+    "legacy_dual_map": {
+      "dev.signals.eventing.smoke": "signals_eventing_ci",
+      "dev.signals.smoke.trigger": "signals_ci"
+    }
+  },
+  "peers": [
+    {
+      "id": "aegir",
+      "capability_hint": "instruct",
+      "grpc_port": 50151,
+      "pg_port": 5555,
+      "license": "project-specific",
+      "path_hint": "~/local/src/zndx/aegir",
+      "unit": "aegir.service",
+      "after": ["signals-ready.service"]
+    },
+    {
+      "id": "atelier",
+      "capability_hint": "referee",
+      "grpc_port": 50251,
+      "pg_port": 5533,
+      "license": "project-specific",
+      "path_hint": "~/local/src/zndx/atelier",
+      "unit": "atelier.service",
+      "after": ["signals-ready.service"]
+    },
+    {
+      "id": "gaius",
+      "capability_hint": "cognition",
+      "grpc_port": 50051,
+      "pg_port": 5444,
+      "license": "project-specific",
+      "path_hint": "~/local/src/zndx/gaius",
+      "unit": "gaius.service",
+      "after": ["signals-ready.service"]
+    },
+    {
+      "id": "synth",
+      "capability_hint": "synthesis",
+      "grpc_port": 50351,
+      "pg_port": 5566,
+      "license": "project-specific",
+      "path_hint": "~/local/src/zndx/synth",
+      "unit": "synth.service",
+      "after": ["signals-ready.service"]
+    },
+    {
+      "id": "metabase",
+      "capability": "dashboard",
+      "project_status": "metabase",
+      "grpc_port": 50451,
+      "engine_pg_port": 5577,
+      "dashboard_http": "http://127.0.0.1:3200",
+      "license": "AGPL-3.0",
+      "external": true,
+      "path_hint": "~/local/src/agpl/metabase",
+      "unit": "metabase.service",
+      "after": ["signals-ready.service"],
+      "notes": [
+        "AGPL product + mbengine live outside the ASL2 signals tree",
+        "Integrates only via process lifecycle + zndx.engine.v1.Engine",
+        "Vendoring Metabase into signals would create a license conflict — do not"
+      ]
+    }
+  ],
+  "systemd": {
+    "target": "signals.target",
+    "foundation": "signals.service",
+    "ready_oneshot": "signals-ready.service",
+    "samples": "infra/systemd/",
+    "install_hint": "sudo cp infra/systemd/*.service infra/systemd/*.target /etc/systemd/system/ && sudo systemctl daemon-reload"
+  }
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Signals foundation (devenv critical plane)
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architecture/stack-critical-plane.md
+PartOf=signals.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/wxs/signals
+# Prefer login shell so direnv/devenv/nix are available
+ExecStart=/bin/bash -lc 'just up'
+# just down stops host graph and frees lattice Postgres :5455
+ExecStop=/bin/bash -lc 'just down'
+TimeoutStartSec=900
+TimeoutStopSec=300
+
+[Install]
+WantedBy=signals.target

@@ -83,5 +83,7 @@ devenv up [-d]
 ## Related
 
 - [Platform Metaflow](./metaflow-platform.md)
+- [Peer integration](../operations/peer-integration.md) — systemd group + external engines
 - [signals-federation Zarf](../infrastructure/signals-federation-zarf.md)
 - [Development environment](../operations/devenv.md)
+- Sample units: `infra/systemd/` · contract: `config/platform/peer-contract.json`

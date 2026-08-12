@@ -1,0 +1,25 @@
+[Unit]
+Description=Metabase external dashboard engine (AGPL — not part of ASL2 signals tree)
+Documentation=file:///home/rch/local/src/agpl/metabase/README.engine.md
+Documentation=file:///home/rch/local/src/wxs/signals/infra/systemd/README.md
+PartOf=signals.target
+After=signals-ready.service network-online.target
+Wants=signals-ready.service network-online.target
+
+# License: this unit only starts a process in an external AGPL checkout.
+# Do not vendor Metabase sources or jars into weathership/signals.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/agpl/metabase
+# Prefer just up/rebuild path documented in README.engine.md
+ExecStart=/bin/bash -lc 'just up 2>/dev/null || devenv up -d'
+ExecStop=/bin/bash -lc 'just down 2>/dev/null || devenv processes down || true'
+TimeoutStartSec=1200
+TimeoutStopSec=300
+
+[Install]
+WantedBy=signals.target
