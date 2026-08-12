@@ -1,0 +1,199 @@
+# Python sink: CloudEvent HTTP → Airflow 3 JWT + POST /api/v2/dags/{id}/dagRuns
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-dag-trigger-code
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: eventing
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    """Minimal CloudEvents → Airflow 3 DAG-run sink (lab / platform M3).
+
+    Accepts CloudEvents HTTP binary or structured JSON.
+    Maps ce-type (or extension dagid) → DAG id via TYPE_DAG_MAP env JSON.
+    Auth: POST /auth/token then Bearer for /api/v2.
+    """
+    from __future__ import annotations
+
+    import json
+    import os
+    import sys
+    import traceback
+    import urllib.error
+    import urllib.request
+    from datetime import datetime, timezone
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    AIRFLOW_URL = os.environ.get("AIRFLOW_API_URL", "http://airflow-api-server.airflow.svc.cluster.local:8080").rstrip("/")
+    AIRFLOW_USER = os.environ.get("AIRFLOW_ADMIN_USER", "admin")
+    AIRFLOW_PASS = os.environ.get("AIRFLOW_ADMIN_PASSWORD", "admin")
+    # JSON object: CloudEvent type → dag_id
+    TYPE_DAG_MAP = json.loads(
+        os.environ.get(
+            "TYPE_DAG_MAP",
+            json.dumps(
+                {
+                    "dev.signals.smoke.trigger": "signals_smoke",
+                    "dev.signals.eventing.smoke": "signals_eventing_smoke",
+                    "dev.metaflow.flow.finished": "signals_eventing_smoke",
+                    "dev.gaius.article.curate.requested": "signals_eventing_smoke",
+                }
+            ),
+        )
+    )
+    LISTEN = ("0.0.0.0", int(os.environ.get("PORT", "8080")))
+
+    def log(msg: str) -> None:
+        print(msg, flush=True)
+
+    def get_token() -> str:
+        body = json.dumps({"username": AIRFLOW_USER, "password": AIRFLOW_PASS}).encode()
+        req = urllib.request.Request(
+            f"{AIRFLOW_URL}/auth/token",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        tok = data.get("access_token") or data.get("token")
+        if not tok:
+            raise RuntimeError(f"no access_token in auth response: {data!r}")
+        return tok
+
+    def trigger_dag(dag_id: str, conf: dict, run_id: str | None = None) -> dict:
+        token = get_token()
+        now = datetime.now(timezone.utc)
+        rid = run_id or f"ce__{now.strftime('%Y%m%dT%H%M%S%fZ')}"
+        payload = {
+            "dag_run_id": rid,
+            "logical_date": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "conf": conf,
+        }
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"{AIRFLOW_URL}/api/v2/dags/{dag_id}/dagRuns",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode() or "{}")
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode(errors="replace")
+            raise RuntimeError(f"Airflow HTTP {e.code}: {err_body}") from e
+
+    def parse_event(handler: BaseHTTPRequestHandler) -> dict:
+        """Return dict with type, id, source, subject, data, dag_id override."""
+        length = int(handler.headers.get("Content-Length") or 0)
+        raw = handler.rfile.read(length) if length else b""
+        ctype = (handler.headers.get("Content-Type") or "").lower()
+        # Binary mode: ce-* headers + body is data
+        ce_type = handler.headers.get("Ce-Type") or handler.headers.get("ce-type")
+        if ce_type:
+            data = {}
+            if raw:
+                try:
+                    data = json.loads(raw.decode() or "{}")
+                except json.JSONDecodeError:
+                    data = {"raw": raw.decode(errors="replace")}
+            return {
+                "type": ce_type,
+                "id": handler.headers.get("Ce-Id") or handler.headers.get("ce-id") or "",
+                "source": handler.headers.get("Ce-Source") or handler.headers.get("ce-source") or "",
+                "subject": handler.headers.get("Ce-Subject") or handler.headers.get("ce-subject") or "",
+                "dagid": handler.headers.get("Ce-Dagid") or handler.headers.get("ce-dagid") or "",
+                "data": data if isinstance(data, dict) else {"value": data},
+            }
+        # Structured JSON
+        if raw:
+            try:
+                obj = json.loads(raw.decode())
+            except json.JSONDecodeError:
+                obj = {}
+            if isinstance(obj, dict):
+                data = obj.get("data") if isinstance(obj.get("data"), dict) else {"data": obj.get("data")}
+                return {
+                    "type": obj.get("type") or "",
+                    "id": obj.get("id") or "",
+                    "source": obj.get("source") or "",
+                    "subject": obj.get("subject") or "",
+                    "dagid": (obj.get("extensions") or {}).get("dagid") or obj.get("dagid") or "",
+                    "data": data or {},
+                }
+        return {"type": "", "id": "", "source": "", "subject": "", "dagid": "", "data": {}}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args) -> None:
+            log("%s - %s" % (self.address_string(), fmt % args))
+
+        def do_GET(self) -> None:
+            if self.path in ("/healthz", "/readyz", "/"):
+                body = b'{"status":"ok","service":"airflow-dag-trigger"}\n'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_error(404)
+
+        def do_POST(self) -> None:
+            try:
+                ev = parse_event(self)
+                dag_id = (ev.get("dagid") or "").strip() or TYPE_DAG_MAP.get(ev.get("type") or "", "")
+                if not dag_id:
+                    msg = json.dumps(
+                        {
+                            "error": "no dag mapping",
+                            "type": ev.get("type"),
+                            "known_types": list(TYPE_DAG_MAP.keys()),
+                        }
+                    ).encode()
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(msg)))
+                    self.end_headers()
+                    self.wfile.write(msg)
+                    return
+                conf = {
+                    "source": "knative-eventing",
+                    "ce_id": ev.get("id"),
+                    "ce_type": ev.get("type"),
+                    "ce_source": ev.get("source"),
+                    "ce_subject": ev.get("subject"),
+                    "payload": ev.get("data") or {},
+                }
+                result = trigger_dag(dag_id, conf)
+                out = json.dumps({"ok": True, "dag_id": dag_id, "result": result}, default=str).encode()
+                log(f"triggered dag_id={dag_id} type={ev.get('type')} id={ev.get('id')}")
+                self.send_response(202)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+            except Exception as e:
+                log("ERROR: " + traceback.format_exc())
+                msg = json.dumps({"ok": False, "error": str(e)}).encode()
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(msg)))
+                self.end_headers()
+                self.wfile.write(msg)
+
+    def main() -> None:
+        log(f"airflow-dag-trigger listening on {LISTEN[0]}:{LISTEN[1]}")
+        log(f"AIRFLOW_API_URL={AIRFLOW_URL}")
+        log(f"TYPE_DAG_MAP={TYPE_DAG_MAP}")
+        HTTPServer(LISTEN, Handler).serve_forever()
+
+    if __name__ == "__main__":
+        main()

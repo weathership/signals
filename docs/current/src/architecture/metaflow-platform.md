@@ -271,13 +271,22 @@ Bitnami Postgres/Redis. Fernet/JWT/API secrets persist under
 Metaflow `airflow create` DAGs ship next (same ConfigMap / dags path).
 REST: AF3 `/api/v2` with JWT from `POST /auth/token`.
 
-### M3 — Knative Eventing bridge
+### M3 — Knative Eventing bridge (**landed**)
 
-- Install Eventing (alongside Serving already in signals-federation)
-- Broker + Trigger → Airflow DAG-run sink Service
-- Platform `signals.events.publish` helper (CloudEvents)
-- Document Gaius migration: product triggers publish events; drop any Argo
-  dependency forever
+| Artifact | Path |
+|----------|------|
+| Eventing manifests (v1.23.0) | `zarf/federation/manifests/knative/eventing-*.yaml` (+ IMC + MT broker) |
+| Platform ns | `signals-events` |
+| Broker | `signals-events/default` (MTChannelBasedBroker / in-memory) |
+| Sink | `airflow-dag-trigger` (CE HTTP → AF3 JWT + `/api/v2/dags/{id}/dagRuns`) |
+| Triggers | smoke, metaflow.finished, gaius.curate, … |
+| Bootstrap | `scripts/knative_eventing_bootstrap.sh` · `just knative-eventing` |
+| Publish helper | `scripts/signals_events_publish.sh` · `just events-publish` |
+| Smoke | `just airflow-eventing-smoke` (CE → `signals_eventing_smoke` DAG) |
+
+**No Argo.** Engines (Gaius/Aegir/…) and Metaflow finish hooks publish CloudEvents
+to the Broker; Triggers filter by `type` and invoke Airflow. Zarf agent ignore
+until Eventing images are packaged into signals-federation.
 
 ### M4 — Multi-engine consumers
 

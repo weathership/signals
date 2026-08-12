@@ -41,7 +41,7 @@ cd components/metaflow && git checkout rch/devenv && git pull
 | Submodule pin | **Added** (`rch/devenv`) |
 | Platform metadata service on RKE2 | **M1** — `just metaflow-platform` |
 | Airflow + YK | Planned (M2) |
-| Knative Eventing bridge | Planned (M3) |
+| Knative Eventing bridge | **M3** — `just knative-eventing` · CE → Airflow (no Argo) |
 
 ## Lab deploy (M1)
 

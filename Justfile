@@ -313,6 +313,18 @@ data-plane-smoke:
 stack-reset:
     bash scripts/devenv_stack_reset.sh
 
+# M3: Knative Eventing + platform Broker + Airflow DAG-run sink (no Argo).
+knative-eventing:
+    bash scripts/knative_eventing_bootstrap.sh
+
+# Publish CloudEvent to signals-events/default Broker.
+events-publish *ARGS:
+    bash scripts/signals_events_publish.sh {{ARGS}}
+
+# CE → Airflow DAG smoke (installs eventing if needed).
+airflow-eventing-smoke:
+    bash scripts/airflow_eventing_smoke.sh
+
 # Preferred up/down wrappers (turn-key + port lattice hygiene).
 # Bare `devenv processes down` often leaves the postmaster on :5455; we stop
 # only *our* .devenv/state/postgres PID (see signals_port_lattice.sh).

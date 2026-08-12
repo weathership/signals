@@ -26,7 +26,7 @@ Full architecture: [Platform Metaflow](../architecture/metaflow-platform.md) ·
 | Component submodule | `components/airflow` |
 | Platform deploy on RKE2 | **M2** — `just airflow-platform` |
 | Smoke DAG | `signals_smoke` (ConfigMap) · `just airflow-platform-smoke` |
-| Knative Eventing → DAG trigger | Planned (M3) |
+| Knative Eventing → DAG trigger | **M3** — `just knative-eventing` / `just airflow-eventing-smoke` |
 
 ## Lab operations
 

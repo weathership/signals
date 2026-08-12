@@ -99,6 +99,10 @@ volumeMounts:
     mountPath: /opt/airflow/dags/signals_smoke_dag.py
     subPath: signals_smoke_dag.py
     readOnly: true
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/signals_eventing_smoke_dag.py
+    subPath: signals_eventing_smoke_dag.py
+    readOnly: true
 
 # ── Components ────────────────────────────────────────────────────
 # Airflow 3: api-server (not webserver)

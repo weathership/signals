@@ -1,0 +1,13 @@
+# Platform event fabric namespace (Knative Eventing + Airflow sink).
+# Images may pull from gcr.io until packaged into signals-federation Zarf.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: eventing
+    zarf.dev/agent: ignore
+  annotations:
+    zarf.dev/agent: ignore

@@ -12,8 +12,10 @@ cd "$ROOT"
 AUTO_FEDERATION="${SIGNALS_STACK_AUTO_FEDERATION:-1}"
 AUTO_METAFLOW="${SIGNALS_STACK_AUTO_METAFLOW:-1}"
 AUTO_AIRFLOW="${SIGNALS_STACK_AUTO_AIRFLOW:-1}"
+AUTO_EVENTING="${SIGNALS_STACK_AUTO_EVENTING:-1}"
 # Lab default: Airflow is critical once M2 landed
 REQUIRE_AIRFLOW="${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
+REQUIRE_EVENTING="${SIGNALS_STACK_REQUIRE_EVENTING:-1}"
 REQUIRE_DATA_PLANE="${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
 DATA_PLANE_SMOKE="${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}"
 AUTO_CATALOG="${SIGNALS_STACK_AUTO_CATALOG:-1}"
@@ -234,6 +236,44 @@ else
       die "Airflow not deployed. Run: just airflow-platform"
     fi
     fail_soft "Airflow not up at ${AF_URL}"
+  fi
+fi
+
+# ── RKE2: Knative Eventing (M3 — CE → Airflow, no Argo) ───────────
+info "=== Knative Eventing (platform event fabric) ==="
+eventing_ok() {
+  command -v kubectl >/dev/null 2>&1 || return 1
+  kubectl --kubeconfig "${KUBECONFIG:-$HOME/.kube/rke2.yaml}" get ns knative-eventing &>/dev/null 2>&1 || return 1
+  local r
+  r=$(kubectl --kubeconfig "${KUBECONFIG:-$HOME/.kube/rke2.yaml}" -n signals-events \
+    get broker default -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+  [[ "$r" == "True" ]]
+}
+if eventing_ok; then
+  ok "Knative Eventing Broker signals-events/default Ready"
+else
+  if [[ "$AUTO_EVENTING" == "1" || "$AUTO_EVENTING" == "true" ]]; then
+    info "Eventing not ready — running knative_eventing_bootstrap.sh"
+    if bash "$ROOT/scripts/knative_eventing_bootstrap.sh"; then
+      if eventing_ok; then
+        ok "Knative Eventing Broker Ready (after bootstrap)"
+      else
+        if [[ "$REQUIRE_EVENTING" == "1" || "$REQUIRE_EVENTING" == "true" ]]; then
+          die "Eventing bootstrap finished but Broker not Ready"
+        fi
+        fail_soft "Eventing bootstrap finished but Broker not Ready"
+      fi
+    else
+      if [[ "$REQUIRE_EVENTING" == "1" || "$REQUIRE_EVENTING" == "true" ]]; then
+        die "Knative Eventing bootstrap failed"
+      fi
+      fail_soft "Eventing bootstrap failed — just knative-eventing"
+    fi
+  else
+    if [[ "$REQUIRE_EVENTING" == "1" || "$REQUIRE_EVENTING" == "true" ]]; then
+      die "Eventing not ready (SIGNALS_STACK_AUTO_EVENTING=0)"
+    fi
+    fail_soft "Eventing not ready — just knative-eventing"
   fi
 fi
 

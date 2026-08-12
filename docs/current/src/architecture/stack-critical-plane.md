@@ -19,7 +19,7 @@ they do **not** each re-host thrashing control-plane copies of these services.
 | Authz | **Ranger** | Tag/resource policies | `:6080` |
 | Storage / SQL | **Kudu** + **Impala** | Analytic tables | Kudu / HS2 `:21050` |
 | Federation schedule | **YuniKorn** | Multi-tenant pod admission | REST NodePort `:30080` |
-| Scale-to-zero / event fabric | **Knative** Serving (+ Eventing M3) | Sentinels, triggers | Serving ns |
+| Scale-to-zero / event fabric | **Knative** Serving + **Eventing** | Sentinels + CE→Airflow | Serving + `signals-events` Broker |
 | Workflow production | **Airflow 3** | Metaflow DAG orchestration | NodePort `:30800` |
 | Flow metadata | **Metaflow** service | Platform runs for any engine | NodePort `:30180` |
 | Control UI | **signals-ui** | YK ⊇ backplane | `:9889` |

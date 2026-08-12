@@ -1,0 +1,87 @@
+# Default MT Broker + Triggers → airflow-dag-trigger sink.
+# Requires Knative Eventing + in-memory channel + mt-channel-broker.
+---
+apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: default
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: eventing
+  annotations:
+    # Use MT channel broker (in-memory) — lab default
+    eventing.knative.dev/broker.class: MTChannelBasedBroker
+---
+# Smoke / generic Metaflow-style events → eventing smoke DAG (or signals_smoke)
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-eventing-smoke
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.signals.eventing.smoke
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-signals-smoke
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.signals.smoke.trigger
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-metaflow-finished
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.metaflow.flow.finished
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: airflow-gaius-curate
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  broker: default
+  filter:
+    attributes:
+      type: dev.gaius.article.curate.requested
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: airflow-dag-trigger

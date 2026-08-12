@@ -1,0 +1,124 @@
+# Airflow DAG-run sink — receives CloudEvents from Knative Triggers.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-dag-trigger
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: eventing
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-dag-trigger-creds
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/part-of: signals-platform
+type: Opaque
+stringData:
+  # Lab defaults — override before production
+  AIRFLOW_ADMIN_USER: admin
+  AIRFLOW_ADMIN_PASSWORD: admin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-dag-trigger
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/name: airflow-dag-trigger
+    app.kubernetes.io/part-of: signals-platform
+    signals.zndx.org/component: eventing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: airflow-dag-trigger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: airflow-dag-trigger
+        app.kubernetes.io/part-of: signals-platform
+        zarf.dev/agent: ignore
+      annotations:
+        zarf.dev/agent: ignore
+    spec:
+      serviceAccountName: airflow-dag-trigger
+      containers:
+        - name: sink
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/app/server.py"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: AIRFLOW_API_URL
+              value: http://airflow-api-server.airflow.svc.cluster.local:8080
+            - name: AIRFLOW_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-dag-trigger-creds
+                  key: AIRFLOW_ADMIN_USER
+            - name: AIRFLOW_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-dag-trigger-creds
+                  key: AIRFLOW_ADMIN_PASSWORD
+            - name: TYPE_DAG_MAP
+              value: |
+                {
+                  "dev.signals.smoke.trigger": "signals_smoke",
+                  "dev.signals.eventing.smoke": "signals_eventing_smoke",
+                  "dev.metaflow.flow.finished": "signals_eventing_smoke",
+                  "dev.gaius.article.curate.requested": "signals_eventing_smoke",
+                  "dev.signals.sentinel.activated": "signals_eventing_smoke"
+                }
+          volumeMounts:
+            - name: code
+              mountPath: /app
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: code
+          configMap:
+            name: airflow-dag-trigger-code
+            defaultMode: 0555
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-dag-trigger
+  namespace: signals-events
+  labels:
+    app.kubernetes.io/name: airflow-dag-trigger
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  selector:
+    app.kubernetes.io/name: airflow-dag-trigger
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
