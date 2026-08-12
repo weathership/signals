@@ -4,6 +4,33 @@ Sample units for lab hosts that bring **Signals foundation** up with optional
 federated peer engines (Ægir, Atelier, Gaius, Synth) and **external** engines
 (e.g. AGPL Metabase) under one group target.
 
+## Host requirements
+
+| Tool | Why | Lab install |
+|------|-----|-------------|
+| **`just`** | Foundation/peer scripts invoke recipes | `/usr/local/bin/just` (system-wide; not devenv-only) |
+| **`kubectl`** | `signals-ready` probes Knative Eventing Broker | `/usr/local/bin/kubectl` + readable `~/.kube/rke2.yaml` |
+
+```bash
+# just — official prebuilt
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+  | sudo bash -s -- --to /usr/local/bin
+
+# kubectl — Kubernetes release binary (version may match lab RKE2)
+sudo curl -fsSLo /usr/local/bin/kubectl \
+  "https://dl.k8s.io/release/v1.31.6/bin/linux/amd64/kubectl"
+sudo chmod +x /usr/local/bin/kubectl
+
+env -i PATH=/usr/local/bin:/usr/bin:/bin just --version
+env -i PATH=/usr/local/bin:/usr/bin:/bin kubectl version --client
+```
+
+Foundation units call repo wrappers (not bare `just` in the unit file):
+
+- `scripts/systemd_foundation_start.sh` — idempotent up / already-ready
+- `scripts/systemd_foundation_stop.sh` — `just down`
+- `scripts/systemd_signals_ready.sh` — poll `just signals-ready`
+
 ## Topology
 
 ```text
@@ -46,28 +73,26 @@ Paths default to `/home/rch/local/src/...`. Edit `WorkingDirectory=` /
 ```bash
 cd ~/local/src/wxs/signals
 
-# Review and adjust paths/user in the unit files first
+# Preferred installer (foundation only)
+just install-systemd --enable --start
+
+# Later: install peer samples (enable only after peer-unit-spec accept)
+just install-systemd --peers gaius,metabase --enable
+
+systemctl list-dependencies signals.target
+just signals-ready
+just lattice-ci
+```
+
+Manual equivalent:
+
+```bash
 sudo install -m 644 infra/systemd/signals.target \
   infra/systemd/signals.service \
   infra/systemd/signals-ready.service \
   /etc/systemd/system/
-
-# Peers (enable only what you run on this host)
-sudo install -m 644 infra/systemd/aegir.service \
-  infra/systemd/atelier.service \
-  infra/systemd/gaius.service \
-  infra/systemd/synth.service \
-  infra/systemd/metabase.service \
-  /etc/systemd/system/
-
 sudo systemctl daemon-reload
-sudo systemctl enable signals.target signals.service signals-ready.service
-# Optional peers:
-sudo systemctl enable aegir.service atelier.service gaius.service synth.service metabase.service
-
-sudo systemctl start signals.target
-systemctl list-dependencies signals.target
-just signals-ready   # from signals tree; or: systemctl status signals-ready.service
+sudo systemctl enable --now signals.target
 ```
 
 `ExecStart` uses `just up` / `just down` so Postgres lattice stop is correct

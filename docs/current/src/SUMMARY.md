@@ -74,6 +74,7 @@
 - [Operations Guide](./operations/overview.md)
     - [Development Environment](./operations/devenv.md)
     - [Peer integration](./operations/peer-integration.md)
+    - [Peer unit acceptance spec](./operations/peer-unit-spec.md)
     - [Storage and backup](./operations/storage-and-backup.md)
     - [Secrets](./operations/secrets.md)
     - [Services](./operations/services.md)

@@ -131,6 +131,39 @@ sudo systemctl start signals.target
 
 Details: [infra/systemd/README.md](../../../infra/systemd/README.md).
 
+## Lattice CI (after peers claim ready)
+
+Foundation ready ≠ engines listening. Probe the gRPC lattice from the contract:
+
+```bash
+just lattice-ci                      # PASS listening peers; SKIP absent
+just lattice-ci --require gaius,metabase
+just lattice-ci --all                # every peer in contract must answer Status
+just lattice-ci --json
+```
+
+This is an elevated **CI** gate (`scripts/lattice_ci.sh`), not a one-off smoke
+script and not part of `signals-ready` (critical plane only).
+
+## Shared peer-unit specs
+
+Copy-ready acceptance templates for peer-repo sessions:
+
+→ [Peer unit acceptance spec](./peer-unit-spec.md)
+
+## Install systemd (foundation)
+
+**Prerequisite:** system-wide `just` on the host `PATH` used by systemd
+(e.g. `/usr/local/bin/just`). Nix/devenv-only installs are invisible to service
+units — see `infra/systemd/README.md`.
+
+```bash
+just install-systemd --enable --start          # foundation target only
+just install-systemd --peers gaius,metabase --enable   # install samples; enable when ready
+```
+
+Do not enable peer units until that peer’s local unit + Status work is done.
+
 ## Checklist for a new peer
 
 1. Own a lattice Postgres port and gRPC engine port (document in peer-contract).
@@ -139,6 +172,7 @@ Details: [infra/systemd/README.md](../../../infra/systemd/README.md).
 4. Point Metaflow at platform profile when joining federation.
 5. Publish CE to platform Broker; do not add Argo for production Metaflow.
 6. If license ≠ ASL2, keep the tree **external** and integrate only via process + wire.
+7. Satisfy [peer-unit-spec](./peer-unit-spec.md) accept criteria; verify with `just lattice-ci --require <id>`.
 
 ## Related
 
@@ -146,3 +180,4 @@ Details: [infra/systemd/README.md](../../../infra/systemd/README.md).
 - [Platform Metaflow](../architecture/metaflow-platform.md)
 - [signals-protocol](../components/signals-protocol.md)
 - [Development environment](./devenv.md)
+- [Peer unit acceptance spec](./peer-unit-spec.md)

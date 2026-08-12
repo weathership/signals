@@ -303,6 +303,15 @@ stack-ready:
 signals-ready *ARGS:
     bash scripts/signals_ready.sh {{ARGS}}
 
+# gRPC lattice CI: Engine/Status for peers in peer-contract (SKIP if down).
+# Require subset: just lattice-ci --require gaius,metabase
+lattice-ci *ARGS:
+    bash scripts/lattice_ci.sh {{ARGS}}
+
+# Install foundation systemd units (sudo). --peers / --enable / --start optional.
+install-systemd *ARGS:
+    bash scripts/install_signals_systemd.sh {{ARGS}}
+
 # Assert devenv process graph includes Kudu/Impala (not a partial up).
 process-assert:
     bash scripts/devenv_process_assert.sh

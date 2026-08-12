@@ -11,15 +11,9 @@ RemainAfterExit=yes
 User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
 # Poll until critical plane is ready (includes Kudu + Metaflow)
-ExecStart=/bin/bash -lc '\
-  for i in $(seq 1 120); do \
-    if just signals-ready; then exit 0; fi; \
-    echo "signals-ready: waiting (attempt $i/120)…"; \
-    sleep 10; \
-  done; \
-  echo "signals-ready: timed out" >&2; \
-  exit 1'
+ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_signals_ready.sh
 TimeoutStartSec=1500
 
 [Install]

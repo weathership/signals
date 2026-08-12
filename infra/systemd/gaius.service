@@ -10,6 +10,7 @@ RemainAfterExit=yes
 User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/gaius
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
 ExecStart=/bin/bash -lc 'just up 2>/dev/null || devenv up -d'
 ExecStop=/bin/bash -lc 'just down 2>/dev/null || devenv processes down || true'
 TimeoutStartSec=900
