@@ -16,9 +16,10 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/agpl/metabase
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
-# Prefer just up/rebuild path documented in README.engine.md
-ExecStart=/bin/bash -lc 'just up 2>/dev/null || devenv up -d'
-ExecStop=/bin/bash -lc 'just down 2>/dev/null || devenv processes down || true'
+# Wrapper scripts live in the AGPL tree (WorkingDirectory); keep multiline
+# shell out of the unit file (systemd rejects unbalanced quotes).
+ExecStart=/home/rch/local/src/agpl/metabase/scripts/systemd_start.sh
+ExecStop=/home/rch/local/src/agpl/metabase/scripts/systemd_stop.sh
 TimeoutStartSec=1200
 TimeoutStopSec=300
 

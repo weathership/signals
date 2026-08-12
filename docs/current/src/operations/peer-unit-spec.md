@@ -1,12 +1,17 @@
 # Peer unit acceptance spec (shared handoff)
 
-Template for completing **local-to-peer-repo** work (Gaius, Metabase, Ægir, …)
-while preserving that project’s context. Signals owns the contract and lattice
-CI; peers own engine process + gRPC face.
+Template for completing **local-to-peer-repo** work (Gaius, Ægir, Atelier,
+Metabase, …) while preserving that project’s context. Signals owns the contract
+and lattice CI; peers own engine process + gRPC face + systemd wrappers.
 
 **Contract pin:** `config/platform/peer-contract.json` (`schema_version`, commit).  
-**Group control:** `infra/systemd/` · [Peer integration](./peer-integration.md).  
-**Lattice CI (foundation):** `just lattice-ci` / `scripts/lattice_ci.sh`.
+**Ops narrative (all peers):** [Peer integration](./peer-integration.md).  
+**Group control:** `infra/systemd/`.  
+**Lattice CI:** `just lattice-ci` / `scripts/lattice_ci.sh`.
+
+**Pattern source:** Metabase landed first — peer wrappers wait for product
+health **and** `Engine/Status`; unit files call those scripts (no multiline
+shell). See [common peer unit pattern](./peer-integration.md#common-peer-unit-pattern-learned-from-metabase).
 
 ---
 
@@ -17,7 +22,7 @@ Title: peer-unit@<id> lattice join
 Contract: signals peer-contract.json schema_version=<X> @ <signals-git-sha>
 Peer id: <id>
 Repo path: <path_hint from contract>
-Unit: <id>.service
+Unit: <id>.service  (sample: signals infra/systemd/<id>.service)
 gRPC port: <engine_grpc_lattice.<id>>
 Postgres lattice: <pg_port or engine_pg_port>
 Capability (Status): <capability or capability_hint>
@@ -25,19 +30,20 @@ License: <license>   external=<true|false>
 
 Must:
   [ ] WorkingDirectory = path_hint (or documented override)
-  [ ] ExecStart / ExecStop: just up + just down (or named recipes in peer Justfile)
-  [ ] After=signals-ready.service (or poll foundation ready until exit 0)
-  [ ] Listen zndx.engine.v1.Engine on contract gRPC port
+  [ ] scripts/systemd_start.sh + systemd_stop.sh in THIS tree
+  [ ] Unit ExecStart/Stop → those scripts (absolute paths)
+  [ ] After=signals-ready.service · WantedBy/PartOf=signals.target
+  [ ] Start waits until Engine/Status on contract gRPC port
   [ ] Status.project matches contract (or project_status)
-  [ ] Status advertises capability (dashboard / cognition / …)
+  [ ] Status advertises capability
   [ ] No bind on signals :5455 or RustFS :9010
   [ ] If external/AGPL: no source/jar vendored into weathership/signals
 
 Accept:
   [ ] systemctl start <id>.service → active (RemainAfterExit oneshot OK)
   [ ] grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci  (from signals tree) reports peer PASS or expected SKIP
-  [ ] just lattice-ci --require <id>  passes when peer is required
+  [ ] just lattice-ci --require <id>
+  [ ] (optional) product HTTP health
 
 Out of scope:
   - signals critical-plane changes
@@ -45,9 +51,18 @@ Out of scope:
   - Argo / Marquez DB / second Metaflow SoR
 ```
 
+**After accept (Signals operator):**
+
+```bash
+just install-systemd --peers <id> --enable
+sudo systemctl start signals.target   # not bare "signals"
+```
+
 ---
 
 ## Filled: gaius
+
+**Ops:** [Peer integration — Gaius](./peer-integration.md#gaius)
 
 ```text
 Title: peer-unit@gaius lattice join
@@ -61,11 +76,12 @@ Capability (Status): cognition  (capability_hint)
 License: project-specific · external=false
 
 Must:
-  [ ] just up / just down (or devenv up -d / processes down) match unit Exec*
-  [ ] After=signals-ready.service
-  [ ] zndx.engine.v1.Engine on :50051 (beside native Gaius service if any)
+  [ ] scripts/systemd_start.sh + systemd_stop.sh (Metabase pattern)
+  [ ] Unit Exec* → those scripts; After=signals-ready.service
+  [ ] Wait until zndx.engine.v1.Engine/Status on :50051
   [ ] Status.project ~ gaius; capability advertised
-  [ ] PG only on :5444 lattice — never :5455
+  [ ] PG only on :5444 — never :5455
+  [ ] Platform Metaflow URL when joining federation (not Tilt as SoR)
 
 Accept:
   [ ] systemctl start gaius.service → active
@@ -73,22 +89,102 @@ Accept:
   [ ] just lattice-ci --require gaius
 
 Out of scope:
-  - Metabase/AGPL, Ægir product internals
+  - Metabase AGPL product, Ægir/Atelier internals
   - signals critical plane
 ```
 
-**Peer session focus:** unit realism + federation Status on `:50051`; health/FMEA
-stays Gaius-local.
+**Peer session focus:** wrappers + federation Status on `:50051`; health/FMEA
+stays Gaius-local. Reference: `src/gaius/engine/FEDERATION.md`.
+
+---
+
+## Filled: aegir
+
+**Ops:** [Peer integration — Aegir](./peer-integration.md#aegir)
+
+```text
+Title: peer-unit@aegir lattice join
+Contract: signals peer-contract.json schema_version=1.0.0
+Peer id: aegir
+Repo path: ~/local/src/zndx/aegir
+Unit: aegir.service  (sample: signals infra/systemd/aegir.service)
+gRPC port: 50151
+Postgres lattice: 5555
+Capability (Status): instruct  (capability_hint)
+License: project-specific · external=false
+
+Must:
+  [ ] scripts/systemd_start.sh + systemd_stop.sh
+  [ ] Start ensures capability engine Status on :50151
+      (just up stack-health alone is NOT sufficient if engine is separate)
+  [ ] After=signals-ready.service · WantedBy=signals.target
+  [ ] PG only on :5555
+  [ ] GPU co-tenancy / leases respected on stop
+
+Accept:
+  [ ] systemctl start aegir.service → active
+  [ ] grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
+  [ ] just lattice-ci --require aegir
+  [ ] (optional) gateway http://127.0.0.1:8091/api/health
+
+Out of scope:
+  - signals critical plane; other peers' GPU engines
+```
+
+**Peer session focus:** unit start must bring **:50151**, not only gateway/vite
+from `just up` / `stack-health`. Recipes: `engine-serve`, `engine-ready`,
+`engine-supervise` as needed inside the wrapper.
+
+---
+
+## Filled: atelier
+
+**Ops:** [Peer integration — Atelier](./peer-integration.md#atelier)
+
+```text
+Title: peer-unit@atelier lattice join
+Contract: signals peer-contract.json schema_version=1.0.0
+Peer id: atelier
+Repo path: ~/local/src/zndx/atelier
+Unit: atelier.service  (sample: signals infra/systemd/atelier.service)
+gRPC port: 50251          # lattice / capability engine
+Native servicer (co-tenant): 50071   # not lattice accept port
+Postgres lattice: 5533
+Capability (Status): referee  (capability_hint)
+License: project-specific · external=false
+
+Must:
+  [ ] scripts/systemd_start.sh + systemd_stop.sh
+  [ ] Wait on Engine/Status at :50251 (not only :50071 servicer ready)
+  [ ] After=signals-ready.service · WantedBy=signals.target
+  [ ] Document dual-port layout for operators
+  [ ] PG only on :5533
+
+Accept:
+  [ ] systemctl start atelier.service → active
+  [ ] grpcurl -plaintext 127.0.0.1:50251 zndx.engine.v1.Engine/Status
+  [ ] just lattice-ci --require atelier
+
+Out of scope:
+  - CAI single-tenant :50051 defaults on co-tenant hosts
+  - signals critical plane
+```
+
+**Peer session focus:** lattice port **50251** is the accept gate; native
+servicer **50071** is product API on multi-engine labs.
 
 ---
 
 ## Filled: metabase (AGPL external)
 
+Optional peer — core Signals does not require Metabase. Operators:
+[Peer integration — Metabase](./peer-integration.md#external-engines-metabase-agpl).
+
 ```text
 Title: peer-unit@metabase lattice join
 Contract: signals peer-contract.json schema_version=1.0.0
 Peer id: metabase
-Repo path: ~/local/src/agpl/metabase
+Repo path: ~/local/src/agpl/metabase   (or any path outside signals)
 Unit: metabase.service  (sample: signals infra/systemd/metabase.service)
 gRPC port: 50451
 Engine PG: 5577 · dashboard HTTP: :3200
@@ -96,38 +192,37 @@ Capability (Status): dashboard  (required)
 License: AGPL-3.0 · external=true
 
 Must:
-  [ ] WorkingDirectory = AGPL checkout only
-  [ ] just up / just down per README.engine.md
-  [ ] After=signals-ready.service
-  [ ] mbengine: zndx.engine.v1.Engine on :50451
-  [ ] Status.project=metabase · capability=dashboard · non-secret base_url
-  [ ] Never vendor Metabase into weathership/signals
+  [x] WorkingDirectory / ExecStart scripts = AGPL checkout only
+  [x] scripts/systemd_start.sh + systemd_stop.sh (wait health+Status)
+  [x] After=signals-ready.service · WantedBy/PartOf=signals.target
+  [x] mbengine: zndx.engine.v1.Engine on :50451
+  [x] Status.project=metabase · capability=dashboard · non-secret base_url
+  [x] Never vendor Metabase into weathership/signals
 
-Accept:
-  [ ] systemctl start metabase.service → active
-  [ ] grpcurl -plaintext 127.0.0.1:50451 zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require metabase
-  [ ] (optional product) GET http://127.0.0.1:3200/api/health
+Accept (lab host):
+  [x] systemctl start metabase.service → active (or start signals.target)
+  [x] grpcurl -plaintext 127.0.0.1:50451 zndx.engine.v1.Engine/Status
+  [x] just lattice-ci --require metabase
+  [x] GET http://127.0.0.1:3200/api/health
 
 Out of scope:
   - ASL2 signals packaging of AGPL product
   - other engine ports
 ```
 
-**Peer session focus:** process lifecycle + mbengine Status; product bootstrap
-stays in metabase tree.
+**Operator one-liner:** from signals tree,
+`just install-systemd --peers metabase --enable` then
+`sudo systemctl start signals.target` (not bare `systemctl start signals`).
 
 ---
 
-## Filled stubs (same pattern)
+## Synth (stub)
 
 | id | port | path_hint | capability_hint |
 |----|------|-----------|-----------------|
-| aegir | 50151 | ~/local/src/zndx/aegir | instruct |
-| atelier | 50251 | ~/local/src/zndx/atelier | referee |
 | synth | 50351 | ~/local/src/zndx/synth | synthesis |
 
-Copy the blank template; fill from `peer-contract.json` `peers[]` entry.
+Copy blank template when scheduled.
 
 ---
 
@@ -138,6 +233,7 @@ Copy the blank template; fill from `peer-contract.json` `peers[]` entry.
 | Foundation ready | `just signals-ready` · `signals-ready.service` |
 | Group control samples | `infra/systemd/` |
 | Contract | `config/platform/peer-contract.json` |
-| Probe enabled lattice | `just lattice-ci` |
+| Probe lattice | `just lattice-ci` |
+| Ops for all peers | [peer-integration.md](./peer-integration.md) |
 
 Peers implement engines; signals verifies the lattice after they claim ready.

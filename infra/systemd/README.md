@@ -58,25 +58,61 @@ Peers are **peer-to-peer** with each other (no ordering edges). All order after
 
 ## License boundary (Metabase)
 
+Metabase is **optional**. Core Signals does not ship or require it. Operators who
+want a federated **dashboard** peer install a separate AGPL product tree and
+opt into `metabase.service` under `signals.target`.
+
 | Tree | License | Role |
 |------|---------|------|
-| `weathership/signals` | Apache-2.0 | Foundation + critical plane |
-| `~/local/src/agpl/metabase` | AGPL-3.0 | External `dashboard` engine |
+| `weathership/signals` (this repo) | Apache-2.0 | Foundation + critical plane |
+| Metabase product checkout (separate) | AGPL-3.0 | External `dashboard` engine |
 
 Metabase **must not** be a submodule, jar, or source copy inside signals.
 Integration is:
 
-1. **Process** — `metabase.service` `WorkingDirectory=` points at the AGPL checkout
+1. **Process** — `metabase.service` points `WorkingDirectory=` / `ExecStart=` at
+   the AGPL checkout (`scripts/systemd_start.sh` / `systemd_stop.sh` live there)
 2. **Wire** — shared `signals-protocol` submodule in *that* tree; gRPC `:50451`
 3. **Platform** — Metaflow / Airflow / Eventing / YK consumed via published endpoints
 
 Static-linking or shipping AGPL sources inside ASL2 artifacts is out of scope
 and legally undesirable; keep the boundary at the OS process + network.
 
+Full operator guide (clone → path edit → enable → accept):
+[Peer integration — External engines: Metabase](../../docs/current/src/operations/peer-integration.md#external-engines-metabase-agpl).
+
+### Optional: add Metabase to the group
+
+```bash
+# 1) Product tree exists and answers health + Status on its own
+#    (see that repo's README.engine.md)
+
+# 2) Edit infra/systemd/metabase.service absolute paths if needed:
+#    User/Group, WorkingDirectory, ExecStart/ExecStop → AGPL scripts
+
+# 3) From this signals checkout:
+just install-systemd --peers metabase --enable
+
+# 4) Group bring-up (includes Metabase when enabled)
+sudo systemctl start signals.target
+
+# 5) Accept
+systemctl is-active metabase.service
+grpcurl -plaintext 127.0.0.1:50451 zndx.engine.v1.Engine/Status
+curl -sf http://127.0.0.1:3200/api/health
+just lattice-ci --require metabase
+```
+
+| Command | Starts Metabase? |
+|---------|------------------|
+| `systemctl start signals` | **No** — foundation unit only |
+| `systemctl start signals.target` | **Yes**, if `metabase.service` is enabled for the target |
+| `systemctl start metabase` | Yes (peer alone; still `After=signals-ready`) |
+
 ## Install (system units)
 
-Paths default to `/home/rch/local/src/...`. Edit `WorkingDirectory=` /
-`Environment=` if your layout differs.
+Paths in samples default to `/home/rch/local/src/...`. Edit `WorkingDirectory=` /
+`ExecStart=` / `User=` if your layout differs.
 
 ```bash
 cd ~/local/src/wxs/signals
@@ -85,14 +121,14 @@ cd ~/local/src/wxs/signals
 just install-systemd --enable --start
 
 # Later: install peer samples (enable only after peer-unit-spec accept)
-just install-systemd --peers gaius,metabase --enable
+just install-systemd --peers gaius,aegir,atelier,metabase --enable
 
 systemctl list-dependencies signals.target
 just signals-ready
-just lattice-ci
+just lattice-ci --require gaius,aegir,atelier,metabase   # whichever enabled
 ```
 
-Manual equivalent:
+Manual equivalent (foundation):
 
 ```bash
 sudo install -m 644 infra/systemd/signals.target \
@@ -103,8 +139,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now signals.target
 ```
 
-`ExecStart` uses `just up` / `just down` so Postgres lattice stop is correct
+Foundation `ExecStart` uses repo wrappers so Postgres lattice stop is correct
 (never bare `devenv processes down` alone).
+
+**Peer pattern (required before enable):** each peer tree owns
+`scripts/systemd_start.sh` / `systemd_stop.sh` that block until
+`Engine/Status` on the contract port (Metabase is the reference implementation).
+Sample units for gaius/aegir/atelier still point at temporary `just up` shells
+until those peer sessions land — then update units to absolute wrapper paths.
+
+Full ops for every peer:
+[docs/current/src/operations/peer-integration.md](../../docs/current/src/operations/peer-integration.md).
 
 ## User units alternative
 

@@ -135,6 +135,10 @@ participants**, not second SoRs:
 Signals may ship thin adapters (e.g. Metabase → dataset namespace mapping) under
 ops docs; the **contract** remains discovery + OL + Atlas/Ranger.
 
+Optional install (separate AGPL checkout + `metabase.service` under
+`signals.target`, never vendored into this tree):
+[Peer integration — Metabase](../operations/peer-integration.md#external-engines-metabase-agpl).
+
 ## KServe Open Inference Protocol (OIP)
 
 `signals-protocol` already patterns after OIP and maps `Complete`/`Status` as a

@@ -18,18 +18,48 @@
     "ui_readyz": "http://127.0.0.1:9889/readyz"
   },
   "endpoints": {
-    "postgres": { "host": "127.0.0.1", "port": 5455, "owner": "signals", "note": "Do not bind peer devenv Postgres here" },
-    "kerberos": { "realm": "DEV.VISTA.ZNDX.ORG", "kdc_udp": 8848 },
-    "rustfs_s3": { "url": "http://127.0.0.1:9010", "owner": "signals" },
-    "atlas_http": { "url": "http://127.0.0.1:21010" },
-    "ranger": { "url": "http://127.0.0.1:6080" },
-    "impala_hs2": { "port": 21050, "auth": "GSSAPI" },
-    "kudu_master_web": { "url": "http://127.0.0.1:8051" },
-    "yunikorn": { "url": "http://127.0.0.1:30080" },
-    "metaflow_service": { "url": "http://127.0.0.1:30180", "ping": "http://127.0.0.1:30180/ping" },
+    "postgres": {
+      "host": "127.0.0.1",
+      "port": 5455,
+      "owner": "signals",
+      "note": "Do not bind peer devenv Postgres here"
+    },
+    "kerberos": {
+      "realm": "DEV.VISTA.ZNDX.ORG",
+      "kdc_udp": 8848
+    },
+    "rustfs_s3": {
+      "url": "http://127.0.0.1:9010",
+      "owner": "signals"
+    },
+    "atlas_http": {
+      "url": "http://127.0.0.1:21010"
+    },
+    "ranger": {
+      "url": "http://127.0.0.1:6080"
+    },
+    "impala_hs2": {
+      "port": 21050,
+      "auth": "GSSAPI"
+    },
+    "kudu_master_web": {
+      "url": "http://127.0.0.1:8051"
+    },
+    "yunikorn": {
+      "url": "http://127.0.0.1:30080"
+    },
+    "metaflow_service": {
+      "url": "http://127.0.0.1:30180",
+      "ping": "http://127.0.0.1:30180/ping"
+    },
     "metaflow_profile": "config/metaflow/platform.json",
-    "airflow": { "url": "http://127.0.0.1:30800", "api": "http://127.0.0.1:30800/api/v2" },
-    "signals_ui": { "url": "http://127.0.0.1:9889" },
+    "airflow": {
+      "url": "http://127.0.0.1:30800",
+      "api": "http://127.0.0.1:30800/api/v2"
+    },
+    "signals_ui": {
+      "url": "http://127.0.0.1:9889"
+    },
     "eventing_broker": {
       "namespace": "signals-events",
       "name": "default",
@@ -77,7 +107,15 @@
       "license": "project-specific",
       "path_hint": "~/local/src/zndx/aegir",
       "unit": "aegir.service",
-      "after": ["signals-ready.service"]
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "In-org peer \u2014 unit start must bring :50151 Status (just up stack-health alone may not)",
+        "Lattice accept: Engine/Status on :50151",
+        "Operator: just install-systemd --peers aegir --enable; systemctl start signals.target",
+        "Ops guide: docs/current/src/operations/peer-integration.md#aegir"
+      ]
     },
     {
       "id": "atelier",
@@ -87,7 +125,15 @@
       "license": "project-specific",
       "path_hint": "~/local/src/zndx/atelier",
       "unit": "atelier.service",
-      "after": ["signals-ready.service"]
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "In-org peer \u2014 lattice :50251 (capability); native servicer may be :50071 on co-tenant hosts",
+        "Lattice accept: Engine/Status on :50251",
+        "Operator: just install-systemd --peers atelier --enable; systemctl start signals.target",
+        "Ops guide: docs/current/src/operations/peer-integration.md#atelier"
+      ]
     },
     {
       "id": "gaius",
@@ -97,7 +143,15 @@
       "license": "project-specific",
       "path_hint": "~/local/src/zndx/gaius",
       "unit": "gaius.service",
-      "after": ["signals-ready.service"]
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "In-org peer \u2014 implement scripts/systemd_{start,stop}.sh in gaius tree (Metabase pattern)",
+        "Lattice accept: Engine/Status on :50051",
+        "Operator: just install-systemd --peers gaius --enable; systemctl start signals.target",
+        "Ops guide: docs/current/src/operations/peer-integration.md#gaius"
+      ]
     },
     {
       "id": "synth",
@@ -107,7 +161,9 @@
       "license": "project-specific",
       "path_hint": "~/local/src/zndx/synth",
       "unit": "synth.service",
-      "after": ["signals-ready.service"]
+      "after": [
+        "signals-ready.service"
+      ]
     },
     {
       "id": "metabase",
@@ -120,11 +176,17 @@
       "external": true,
       "path_hint": "~/local/src/agpl/metabase",
       "unit": "metabase.service",
-      "after": ["signals-ready.service"],
+      "after": [
+        "signals-ready.service"
+      ],
       "notes": [
+        "Optional peer \u2014 core Signals does not require Metabase",
         "AGPL product + mbengine live outside the ASL2 signals tree",
         "Integrates only via process lifecycle + zndx.engine.v1.Engine",
-        "Vendoring Metabase into signals would create a license conflict — do not"
+        "Unit ExecStart/Stop: AGPL scripts/systemd_start.sh and systemd_stop.sh",
+        "Opt-in: just install-systemd --peers metabase --enable; start signals.target (not bare signals)",
+        "Operator guide: docs/current/src/operations/peer-integration.md#external-engines-metabase-agpl",
+        "Vendoring Metabase into signals would create a license conflict \u2014 do not"
       ]
     }
   ],
@@ -133,6 +195,15 @@
     "foundation": "signals.service",
     "ready_oneshot": "signals-ready.service",
     "samples": "infra/systemd/",
-    "install_hint": "sudo cp infra/systemd/*.service infra/systemd/*.target /etc/systemd/system/ && sudo systemctl daemon-reload"
+    "install_hint": "just install-systemd --enable --start; peers: just install-systemd --peers gaius,aegir,atelier,metabase --enable; one-command group: systemctl start signals.target (bare 'signals' is foundation only)",
+    "docs": {
+      "systemd_readme": "infra/systemd/README.md",
+      "peer_integration": "docs/current/src/operations/peer-integration.md",
+      "peer_unit_spec": "docs/current/src/operations/peer-unit-spec.md",
+      "gaius": "docs/current/src/operations/peer-integration.md#gaius",
+      "aegir": "docs/current/src/operations/peer-integration.md#aegir",
+      "atelier": "docs/current/src/operations/peer-integration.md#atelier",
+      "metabase_optional": "docs/current/src/operations/peer-integration.md#external-engines-metabase-agpl"
+    }
   }
 }

@@ -3,6 +3,18 @@
 How sibling engines and **license-external** services attach to the Signals
 foundation without re-hosting the critical plane.
 
+**End state (lab):** after each peer finishes its local unit work and is
+**enabled** under the group:
+
+```bash
+sudo systemctl start signals.target
+# → foundation (signals.service) + signals-ready + every enabled peer
+```
+
+Bare `systemctl start signals` starts **only** the foundation unit — not peers.
+
+---
+
 ## Two layers
 
 | Layer | What | How peers use it |
@@ -10,8 +22,12 @@ foundation without re-hosting the critical plane.
 | **Process / group** | `signals.target` + foundation ready gate | systemd `After=signals-ready.service` |
 | **Wire / product** | signals-protocol + platform endpoints | gRPC `zndx.engine.v1.Engine`, Metaflow/Airflow/CE, Atlas |
 
-Machine-readable contract: [`config/platform/peer-contract.json`](../../../config/platform/peer-contract.json).  
-Unit samples: [`infra/systemd/`](../../../infra/systemd/).
+| Artifact | Path |
+|----------|------|
+| Machine-readable contract | [`config/platform/peer-contract.json`](../../../config/platform/peer-contract.json) |
+| Unit samples | [`infra/systemd/`](../../../infra/systemd/) |
+| Peer-repo acceptance templates | [Peer unit acceptance spec](./peer-unit-spec.md) |
+| Group control README | [`infra/systemd/README.md`](../../../infra/systemd/README.md) |
 
 ```text
                     ┌─────────────────────────────┐
@@ -21,15 +37,20 @@ Unit samples: [`infra/systemd/`](../../../infra/systemd/).
                                   │
            ┌──────────────────────┼──────────────────────┐
            ▼                      ▼                      ▼
-   signals.service      signals-ready.service     (optional peers)
+   signals.service      signals-ready.service     (enabled peers)
    just up / down       just signals-ready        After=ready
            │                      │                      │
            ▼                      ▼                      ▼
-   critical plane          PASS ⇒ exit 0           aegir · atelier
-   PG Kudu Impala          Kudu+Metaflow           gaius · synth
-   YK Metaflow AF          critical included       metabase (AGPL ext.)
+   critical plane          PASS ⇒ exit 0           gaius · aegir
+   PG Kudu Impala          Kudu+Metaflow           atelier · synth
+   YK Metaflow AF          critical included       metabase (AGPL opt.)
    Eventing Broker
 ```
+
+Peers are **peer-to-peer** with each other (no ordering edges among engines).
+All order after **`signals-ready.service`**.
+
+---
 
 ## Foundation lifecycle
 
@@ -39,140 +60,391 @@ just up
 just signals-ready          # check-only; exit 0 when critical plane is ready
 just down                   # lattice-safe stop
 
-# Group control (after installing infra/systemd samples)
+# Group control
 sudo systemctl start signals.target
 systemctl list-dependencies signals.target
 sudo systemctl stop signals.target
 ```
 
 **Do not** treat `devenv up -d` returning as “ready.” Peers wait on
-`signals-ready` (or the oneshot unit that polls it). Prefer `just down` over bare
+`signals-ready` (or the oneshot that polls it). Prefer `just down` over bare
 `devenv processes down` so Postgres `:5455` is released.
+
+### Host tools (system-wide)
+
+Service units do **not** inherit devenv/nix PATH. Install under `/usr/local/bin`
+(or equivalent on systemd `PATH`):
+
+| Tool | Used by |
+|------|---------|
+| **`just`** | Foundation + peer wrappers |
+| **`kubectl`** | `signals-ready` (Eventing Broker) |
+| **`grpcurl`** | `lattice-ci` + peer accept probes |
+
+See [infra/systemd/README.md](../../../infra/systemd/README.md).
+
+---
 
 ## What peers consume (not re-host)
 
 | Concern | Use platform | Avoid |
 |---------|--------------|--------|
-| Workflow metadata | Metaflow `:30180` + `config/metaflow/platform.json` | Engine-local Tilt Metaflow as SoR |
+| Workflow metadata | Metaflow `:30180` + `config/metaflow/platform.json` | Engine-local Tilt Metaflow as SoR when in platform mode |
 | DAG production | Airflow `:30800` | Argo Workflows for Metaflow prod |
 | Events | Knative Broker `signals-events/default` | Argo Events |
 | Schedule / STZ | YuniKorn + Knative Serving | Unscheduled free-for-all pods |
-| Lineage / governance | Atlas OL + tags | Peer Marquez DB |
+| Lineage / governance | Atlas OL + tags (`:21010`) | Peer Marquez DB |
 | Analytic tables | Impala HS2 + Kudu (Kerberos) | Parallel warehouses on `:5455` |
 | Object store | RustFS `:9010` | Competing S3 on same ports |
 
-Port lattice (Postgres): cybersec `5438` · gaius `5444` · **signals `5455`** ·
-atelier `5533` · aegir `5555` · synth `5566` · metabase engine `5577` ·
-system/Metabase app DB may use `5432`.
+**Postgres port lattice** (do not collide):
 
-## signals-protocol engines
+| Port | Owner |
+|------|--------|
+| 5432 | system/apt (Metabase app DB may use) |
+| 5438 | cybersec / cyberphy |
+| **5444** | **Gaius** |
+| **5455** | **Signals foundation** |
+| **5533** | **Atelier** |
+| **5555** | **Ægir** |
+| 5566 | Synth |
+| 5577 | Metabase engine DB (AGPL product) |
+
+---
+
+## signals-protocol engines (gRPC lattice)
 
 Each peer registers **`zndx.engine.v1.Engine`** (federation face) beside any
-native service. Lab gRPC lattice:
+native service. Lab lattice:
 
-| Peer | Port | Notes |
-|------|------|--------|
-| Gaius | 50051 | Cognition / product engine |
-| Ægir | 50151 | Instruct / inference peer |
-| Atelier | 50251 | Referee / CAI |
-| Synth | 50351 | Synthesis |
-| Metabase (external) | 50451 | Capability **`dashboard`** |
+| Peer | Port | Capability (Status) | Unit sample | Notes |
+|------|------|---------------------|-------------|--------|
+| **Gaius** | **50051** | `cognition` | `gaius.service` | Product engine / federation mesh |
+| **Ægir** | **50151** | `instruct` | `aegir.service` | Capability engine (+ native face) |
+| **Atelier** | **50251** | `referee` | `atelier.service` | Capability engine; native servicer may be `:50071` on co-tenant hosts |
+| Synth | 50351 | `synthesis` | `synth.service` | Optional peer |
+| Metabase | 50451 | `dashboard` | `metabase.service` | **Optional AGPL** external |
 
-Discovery: `grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status`.  
-Spec: [signals-protocol](../components/signals-protocol.md) submodule
-`components/signals-protocol`.
+```bash
+grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
+just lattice-ci                      # SKIP absent; PASS listening
+just lattice-ci --require gaius,aegir,atelier
+```
+
+Spec: [signals-protocol](../components/signals-protocol.md) ·
+`components/signals-protocol` submodule in each peer tree.
 
 OIP (KServe Open Inference Protocol) is the long-term portable inference face;
 `Complete` remains a transitional convenience on many engines.
 
+---
+
+## Common peer unit pattern (learned from Metabase)
+
+Metabase was the first peer to land a **production-shaped** unit. In-org peers
+(Gaius, Ægir, Atelier) should copy this pattern, not bare `just up` in the unit
+file.
+
+### Must
+
+1. **`After=signals-ready.service`** + `Wants=signals-ready.service`  
+   Soft dependency: foundation failure does not hard-fail the peer (`Requires=`
+   only if you want a hard gate).
+
+2. **`PartOf=` / `WantedBy=signals.target`**  
+   Group stop/restart and opt-in membership via `systemctl enable/disable`.
+
+3. **Wrappers in the peer tree** (not signals, not multiline shell in the unit):
+   - `scripts/systemd_start.sh` — idempotent up; **block until accept probes pass**
+   - `scripts/systemd_stop.sh` — lattice-safe / product-safe down  
+   Unit `ExecStart=` / `ExecStop=` point at those absolute paths under the peer
+   checkout. systemd rejects fragile multiline shell; Metabase hit this first.
+
+4. **Accept = federation face ready**, not “process-compose started”:
+   - TCP listen on the **contract gRPC port**
+   - `grpcurl … zndx.engine.v1.Engine/Status` succeeds  
+   - Optional product health (HTTP `/api/health`, gateway, etc.)
+
+5. **Idempotent start**  
+   If accept probes already pass, exit 0 without tearing down a live stack
+   (same idea as `scripts/systemd_foundation_start.sh`).
+
+6. **PATH**  
+   `Environment=PATH=/usr/local/bin:/usr/bin:/bin:…` so system-wide `just` /
+   `grpcurl` work; use `bash -lc` inside wrappers when devenv/direnv is required.
+
+7. **Never bind** Signals `:5455` or RustFS `:9010`.
+
+### Operator flow (any peer)
+
+```bash
+# In peer repo: implement wrappers + federation Status; standalone accept
+# In signals:
+just install-systemd --enable --start                    # foundation once
+just install-systemd --peers <id> --enable               # opt-in peer sample
+# Edit /etc/systemd/system/<id>.service paths if checkout ≠ lab default
+sudo systemctl daemon-reload
+sudo systemctl start signals.target                      # one-command group
+just lattice-ci --require <id>
+```
+
+| Command | Starts |
+|---------|--------|
+| `systemctl start signals` | **Foundation only** |
+| **`systemctl start signals.target`** | Foundation + ready + **all enabled peers** |
+| `systemctl start <peer>` | That peer alone (still `After=signals-ready`) |
+
+Acceptance templates: [peer-unit-spec](./peer-unit-spec.md).
+
+---
+
+## Federated in-org peers
+
+These sections are the **operations reference** for peer-repo integration
+sessions and for Signals operators who enable the peer after that work lands.
+Status: **Metabase complete**; Gaius / Ægir / Atelier **pattern ready — implement
+in peer tree**, then tick accept in [peer-unit-spec](./peer-unit-spec.md).
+
+### Gaius
+
+| Fact | Value |
+|------|--------|
+| Role | Cognition / product engine; federation mesh participant |
+| Checkout (lab) | `~/local/src/zndx/gaius` |
+| Unit sample | [`infra/systemd/gaius.service`](../../../infra/systemd/gaius.service) |
+| gRPC lattice | **`:50051`** — `zndx.engine.v1.Engine` (+ native Gaius service) |
+| Postgres lattice | **`:5444`** (`zndx_gaius`) — never `:5455` |
+| Capability hint | `cognition` |
+| Product lifecycle | `just up` / devenv processes (`gaius-engine`, …) |
+| Platform Metaflow | Prefer `METAFLOW_SERVICE_URL=http://127.0.0.1:30180` + platform profile when joining Signals; avoid treating local Tilt Metaflow as SoR |
+| Events | e.g. `dev.gaius.article.curate.requested` → platform Broker (mapped in contract) |
+| Peer session focus | [peer-unit-spec — gaius](./peer-unit-spec.md#filled-gaius) |
+| Product notes | `src/gaius/engine/FEDERATION.md`, `just` / devenv process graph |
+
+**Peer session deliverables (in Gaius tree):**
+
+1. `scripts/systemd_start.sh` / `systemd_stop.sh` (Metabase pattern): start stack,
+   wait until `Engine/Status` on **:50051** (and any product ready you define).
+2. Align sample unit `ExecStart`/`ExecStop` with those scripts; `TimeoutStartSec`
+   large enough for engine + GPU cold start if applicable.
+3. Confirm `Status.project` / capability advertising for lattice soft checks.
+4. Document platform Metaflow/CE usage for production flows.
+
+**Operator (after peer accept):**
+
+```bash
+cd ~/local/src/wxs/signals
+just install-systemd --peers gaius --enable
+# fix paths in /etc/systemd/system/gaius.service if needed
+sudo systemctl start signals.target
+grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
+just lattice-ci --require gaius
+```
+
+**Caution:** Gaius historically co-hosts other lab surfaces (e.g. local Metabase
+on `:3100`). Platform dashboard is the **AGPL Metabase peer** on `:3200` /
+`:50451` — do not re-bind Signals ports or treat Gaius-local Metabase as the
+federation dashboard capability.
+
+---
+
+### Aegir
+
+Ægir instruct / inference peer (product name often styled “Ægir”).
+
+| Fact | Value |
+|------|--------|
+| Role | Instruct / inference peer; capability→model owned by engine |
+| Checkout (lab) | `~/local/src/zndx/aegir` |
+| Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) |
+| gRPC lattice | **`:50151`** — `zndx.engine.v1.Engine` (+ native `aegir.engine`) |
+| Postgres lattice | **`:5555`** |
+| Capability hint | `instruct` |
+| Product lifecycle | `just up` = `devenv up -d` + **stack-health** (gateway `:8091`, vite, …) |
+| Engine face | Capability engine may be **separate** from web stack (`just engine-serve` / `engine-ready`) — unit start **must** bring **:50151** Status, not only gateway health |
+| Platform Metaflow | Use platform service when scheduling federated jobs; local mode remains for isolated eval |
+| YK | RKE2 tasks → queue `root.aegir` (or contract queue names) |
+| Peer session focus | [peer-unit-spec — aegir](./peer-unit-spec.md#filled-aegir) |
+| Product notes | `Justfile` engine recipes; `components/signals-protocol` |
+
+**Peer session deliverables (in Ægir tree):**
+
+1. `scripts/systemd_start.sh` that ensures **federation face :50151** is ready
+   (if `just up` alone does not start the capability engine, chain
+   `engine-serve` / supervisor + `engine-ready` or equivalent).
+2. `scripts/systemd_stop.sh` that does not kill foreign peers’ GPU leases
+   carelessly (respect co-tenancy / lease tooling).
+3. Accept: `grpcurl …:50151 …/Status` + optional gateway health if product needs it.
+4. Pin signals-protocol submodule; keep OIP / `Complete` mapping current.
+
+**Operator (after peer accept):**
+
+```bash
+just install-systemd --peers aegir --enable
+sudo systemctl start signals.target
+grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
+just lattice-ci --require aegir
+```
+
+**Caution:** Ægir `just up` stack-health probes **gateway/vite**, not necessarily
+the lattice port. A unit that only runs `just up` can be `active` while lattice-ci
+still FAILs on `:50151` — fix that in the peer wrappers before enable.
+
+---
+
+### Atelier
+
+| Fact | Value |
+|------|--------|
+| Role | Referee / CAI; capability engine on lattice |
+| Checkout (lab) | `~/local/src/zndx/atelier` |
+| Unit sample | [`infra/systemd/atelier.service`](../../../infra/systemd/atelier.service) |
+| gRPC lattice | **`:50251`** — capability / `zndx.engine.v1.Engine` |
+| Native servicer (devenv co-tenant) | **`:50071`** (`ATELIER_GRPC_PORT`) — product API; **not** the lattice accept port |
+| Postgres lattice | **`:5533`** |
+| Capability hint | `referee` |
+| Product lifecycle | `just up` / devenv (grpc-server, gateway, qdrant, …) |
+| Engine face | Capability engine recipes in `justfile` (`:50251`; vLLM children on foreign CUDA env) |
+| Peer session focus | [peer-unit-spec — atelier](./peer-unit-spec.md#filled-atelier) |
+
+**Peer session deliverables (in Atelier tree):**
+
+1. Wrappers that wait on **`Engine/Status` at :50251** (lattice), not only
+   native `:50071` readiness.
+2. Document dual-port layout clearly for operators (servicer vs federation).
+3. Align `infra/systemd/atelier.service` sample paths; long `TimeoutStartSec` if
+   models load at start.
+4. Platform Metaflow/Airflow only when joining federated production paths.
+
+**Operator (after peer accept):**
+
+```bash
+just install-systemd --peers atelier --enable
+sudo systemctl start signals.target
+grpcurl -plaintext 127.0.0.1:50251 zndx.engine.v1.Engine/Status
+just lattice-ci --require atelier
+```
+
+**Caution:** README defaults sometimes mention gRPC `:50051` (CAI / single-tenant).
+On a host co-tenant with Gaius, devenv uses **`:50071`** for the servicer and
+**`:50251`** for the capability engine. Lattice CI only cares about **`:50251`**.
+
+---
+
 ## External engines: Metabase (AGPL)
 
-Metabase is **AGPL-3.0**. Signals is **Apache-2.0**. Those licenses conflict if
-Metabase source or binaries are **combined into** the signals distribution.
+Metabase is an **optional** external peer. The core Signals stack does **not**
+require it. Install only when you want federated **`dashboard`** capability.
 
-### Correct integration (process boundary)
+| Fact | Value |
+|------|--------|
+| License | **AGPL-3.0** (Signals is **Apache-2.0**) |
+| Role | External `dashboard` engine (`Status.project=metabase`) |
+| gRPC | `:50451` — `zndx.engine.v1.Engine` |
+| Product HTTP | `:3200` (health: `GET /api/health`) |
+| Engine Postgres | `:5577` (product-local; not signals `:5455`) |
+| Sample unit | [`infra/systemd/metabase.service`](../../../infra/systemd/metabase.service) |
+| Wrappers | AGPL tree `scripts/systemd_start.sh` / `systemd_stop.sh` |
+| Peer contract | `peers[]` id `metabase` |
+| Product docs | AGPL tree `README.engine.md` |
+| Accept template | [peer-unit-spec — metabase](./peer-unit-spec.md#filled-metabase-agpl-external) (**landed**) |
+
+### License boundary
 
 | Do | Don't |
 |----|--------|
-| Keep checkout under `~/local/src/agpl/metabase` (or equivalent AGPL tree) | Add Metabase as a signals submodule / vendored jar |
-| Run `metabase.service` with `WorkingDirectory=` on that tree | Ship AGPL sources inside ASL2 containers without a separate legal plan |
-| Vendor **only** `signals-protocol` inside the Metabase tree | Copy Metabase FE/BE into `weathership/signals` |
-| Advertise via engine `Status` (`capability=dashboard`, non-secret `base_url`) | Put DB passwords on the federation wire |
-| Order `After=signals-ready.service` | Start dashboard before Kudu/Metaflow/Airflow are ready |
+| Separate checkout (e.g. `~/local/src/agpl/metabase`) | Submodule / jar-vendor into signals |
+| Unit `WorkingDirectory` / Exec* → AGPL tree only | Ship AGPL inside ASL2 images without a legal plan |
+| Vendor only `signals-protocol` in Metabase | Copy FE/BE into `weathership/signals` |
+| Process + network integration | Secrets on the federation wire |
 
-mbengine (in the Metabase tree) is the gRPC daemon: product HTTP `:3200`,
-federation gRPC `:50451`. See that tree’s `README.engine.md`.
-
-### What “leverage signals-federation” means for Metabase
-
-1. **Foundation ready** — Atlas, Impala/Kudu, Metaflow, Airflow, Eventing, YK.
-2. **Optional platform Metaflow profile** — same `platform.json` as other peers
-   for flows that produce dashboards or CE triggers.
-3. **CloudEvents** — e.g. curate-finished → Broker → Airflow CI DAG (extend
-   `TYPE_DAG_MAP` when a real Metabase DAG exists).
-4. **YK queues** — if Metabase-related K8s work lands on RKE2, use
-   `root.<engine>` style queues; do not bypass YuniKorn for production tasks.
-5. **No second critical plane** — Metabase’s engine Postgres (`:5577`) and app
-   DB (`:5432`) are **local to that product**, not replacements for signals PG.
-
-## Systemd membership
+### Optional install (operators)
 
 ```bash
-# Enable only peers that exist on this host
-sudo systemctl enable signals.target signals.service signals-ready.service
-sudo systemctl enable gaius.service metabase.service   # example subset
-sudo systemctl start signals.target
+# 1. Standalone product (AGPL tree)
+cd ~/local/src/agpl/metabase
+just up   # or just rebuild
+curl -sf http://127.0.0.1:3200/api/health
+grpcurl -plaintext 127.0.0.1:50451 zndx.engine.v1.Engine/Status
+
+# 2. From signals — opt in
+cd ~/local/src/wxs/signals
+just install-systemd --enable --start
+just install-systemd --peers metabase --enable
+# Edit unit paths if needed
+sudo systemctl start signals.target   # not bare "signals"
+
+# 3. Accept
+systemctl is-active metabase.service
+just lattice-ci --require metabase
 ```
 
-- `PartOf=signals.target` — stop/restart of the group propagates.
-- `WantedBy=signals.target` — enable/disable controls membership.
-- Peers use `Wants=signals-ready.service` (soft): foundation failure does not
-  hard-fail peer units; switch to `Requires=` if you need a hard gate.
+### Federation leverage (Metabase)
 
-Details: [infra/systemd/README.md](../../../infra/systemd/README.md).
+1. Foundation ready before start.  
+2. Optional platform Metaflow profile for flows that feed dashboards.  
+3. CloudEvents via platform Broker when DAGs exist.  
+4. YK queues for any RKE2 work.  
+5. No second critical plane (engine/app DBs stay product-local).
 
-## Lattice CI (after peers claim ready)
+---
 
-Foundation ready ≠ engines listening. Probe the gRPC lattice from the contract:
+## Synth (stub)
+
+| Fact | Value |
+|------|--------|
+| gRPC | `:50351` |
+| Postgres | `:5566` |
+| Unit | `synth.service` |
+| Status | Same pattern as Gaius/Ægir/Atelier when scheduled |
+
+---
+
+## Systemd membership (multi-peer)
 
 ```bash
-just lattice-ci                      # PASS listening peers; SKIP absent
-just lattice-ci --require gaius,metabase
-just lattice-ci --all                # every peer in contract must answer Status
+# Foundation once
+just install-systemd --enable --start
+
+# Enable only peers whose local unit + Status work is done
+just install-systemd --peers gaius,aegir,atelier,metabase --enable
+
+sudo systemctl start signals.target
+systemctl list-dependencies signals.target
+just lattice-ci --require gaius,aegir,atelier,metabase   # whatever is enabled
+```
+
+- `PartOf=signals.target` — stop/restart of the group propagates.  
+- `WantedBy=signals.target` — enable/disable controls membership.  
+- Do **not** enable a peer until [peer-unit-spec](./peer-unit-spec.md) accept is green.
+
+---
+
+## Lattice CI
+
+```bash
+just lattice-ci
+just lattice-ci --require gaius,aegir,atelier
+just lattice-ci --all
 just lattice-ci --json
 ```
 
-This is an elevated **CI** gate (`scripts/lattice_ci.sh`), not a one-off smoke
-script and not part of `signals-ready` (critical plane only).
+Elevated **CI** gate — not part of `signals-ready` (critical plane only).
 
-## Shared peer-unit specs
-
-Copy-ready acceptance templates for peer-repo sessions:
-
-→ [Peer unit acceptance spec](./peer-unit-spec.md)
-
-## Install systemd (foundation)
-
-**Prerequisite:** system-wide tools on the host `PATH` used by systemd (not
-devenv/nix-only): **`just`**, **`kubectl`**, and **`grpcurl`** (for
-`just lattice-ci`). See `infra/systemd/README.md`.
-
-```bash
-just install-systemd --enable --start          # foundation target only
-just install-systemd --peers gaius,metabase --enable   # install samples; enable when ready
-```
-
-Do not enable peer units until that peer’s local unit + Status work is done.
+---
 
 ## Checklist for a new peer
 
-1. Own a lattice Postgres port and gRPC engine port (document in peer-contract).
-2. Vendor `signals-protocol`; implement `zndx.engine.v1.Engine/Status` (+ OIP path).
-3. `After=signals-ready.service`; never bind `:5455` / `:9010`.
-4. Point Metaflow at platform profile when joining federation.
-5. Publish CE to platform Broker; do not add Argo for production Metaflow.
-6. If license ≠ ASL2, keep the tree **external** and integrate only via process + wire.
-7. Satisfy [peer-unit-spec](./peer-unit-spec.md) accept criteria; verify with `just lattice-ci --require <id>`.
+1. Own lattice Postgres + gRPC ports (document in `peer-contract.json`).  
+2. Vendor `signals-protocol`; implement `zndx.engine.v1.Engine/Status` (+ OIP path).  
+3. Peer-tree `scripts/systemd_{start,stop}.sh`; unit points at them.  
+4. `After=signals-ready.service`; never bind `:5455` / `:9010`.  
+5. Start blocks until **lattice** Status (and product health if required).  
+6. Platform Metaflow / CE / YK when joining production federation.  
+7. If license ≠ ASL2 → external tree only (Metabase pattern).  
+8. `just lattice-ci --require <id>` green; then `install-systemd --peers <id> --enable`.
+
+---
 
 ## Related
 
