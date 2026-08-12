@@ -20,7 +20,7 @@
 
 - `/usr/local/bin/just` 1.40.0 — required for all units
 - `/usr/local/bin/kubectl` — required for signals-ready Eventing probe under systemd
-
+- `/usr/local/bin/grpcurl` 1.9.3 — required for lattice-ci Status probes
 ## Verified on this host
 
 ```text

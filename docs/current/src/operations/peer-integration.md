@@ -153,9 +153,9 @@ Copy-ready acceptance templates for peer-repo sessions:
 
 ## Install systemd (foundation)
 
-**Prerequisite:** system-wide `just` on the host `PATH` used by systemd
-(e.g. `/usr/local/bin/just`). Nix/devenv-only installs are invisible to service
-units — see `infra/systemd/README.md`.
+**Prerequisite:** system-wide tools on the host `PATH` used by systemd (not
+devenv/nix-only): **`just`**, **`kubectl`**, and **`grpcurl`** (for
+`just lattice-ci`). See `infra/systemd/README.md`.
 
 ```bash
 just install-systemd --enable --start          # foundation target only

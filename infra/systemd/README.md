@@ -10,6 +10,7 @@ federated peer engines (Ægir, Atelier, Gaius, Synth) and **external** engines
 |------|-----|-------------|
 | **`just`** | Foundation/peer scripts invoke recipes | `/usr/local/bin/just` (system-wide; not devenv-only) |
 | **`kubectl`** | `signals-ready` probes Knative Eventing Broker | `/usr/local/bin/kubectl` + readable `~/.kube/rke2.yaml` |
+| **`grpcurl`** | `just lattice-ci` Engine/Status probes | `/usr/local/bin/grpcurl` |
 
 ```bash
 # just — official prebuilt
@@ -21,8 +22,15 @@ sudo curl -fsSLo /usr/local/bin/kubectl \
   "https://dl.k8s.io/release/v1.31.6/bin/linux/amd64/kubectl"
 sudo chmod +x /usr/local/bin/kubectl
 
+# grpcurl — lattice-ci Status RPC (fullstorydev release)
+curl -fsSL \
+  "https://github.com/fullstorydev/grpcurl/releases/download/v1.9.3/grpcurl_1.9.3_linux_x86_64.tar.gz" \
+  | sudo tar -xz -C /usr/local/bin grpcurl
+sudo chmod +x /usr/local/bin/grpcurl
+
 env -i PATH=/usr/local/bin:/usr/bin:/bin just --version
 env -i PATH=/usr/local/bin:/usr/bin:/bin kubectl version --client
+env -i PATH=/usr/local/bin:/usr/bin:/bin grpcurl --version
 ```
 
 Foundation units call repo wrappers (not bare `just` in the unit file):
