@@ -147,10 +147,13 @@
         "signals-ready.service"
       ],
       "notes": [
-        "In-org peer \u2014 implement scripts/systemd_{start,stop}.sh in gaius tree (Metabase pattern)",
-        "Lattice accept: Engine/Status on :50051",
-        "Operator: just install-systemd --peers gaius --enable; systemctl start signals.target",
-        "Ops guide: docs/current/src/operations/peer-integration.md#gaius"
+        "In-org peer \u2014 wrappers + zndx.engine.v1.Engine face landed in gaius tree",
+        "Unit Exec*: gaius scripts/systemd_{start,stop}.sh; After=signals-ready",
+        "TCP :50051 \u2260 Status until engine recycled with lattice servicer",
+        "Accept: recycle gaius-engine then just lattice-ci --require gaius",
+        "Product ops: gaius docs/current/src/operations/peer-unit.md",
+        "Ops guide: docs/current/src/operations/peer-integration.md#gaius",
+        "Stop path must not teardown / GPU-wipe sibling leases"
       ]
     },
     {

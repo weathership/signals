@@ -161,8 +161,9 @@ file.
    checkout. systemd rejects fragile multiline shell; Metabase hit this first.
 
 4. **Accept = federation face ready**, not “process-compose started”:
-   - TCP listen on the **contract gRPC port**
-   - `grpcurl … zndx.engine.v1.Engine/Status` succeeds  
+   - `grpcurl … zndx.engine.v1.Engine/Status` succeeds on the **contract port**
+   - **TCP listen alone is not enough** (Gaius: native service predates the
+     lattice face — same port, missing Status until servicer registered + recycle)
    - Optional product health (HTTP `/api/health`, gateway, etc.)
 
 5. **Idempotent start**  
