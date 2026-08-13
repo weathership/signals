@@ -38,7 +38,7 @@ Must:
   [ ] Status.project matches contract (or project_status)
   [ ] Status advertises capability
   [ ] **Peer-scoped unit stop**: fully stop this engine + its workers; do NOT
-      host-wide teardown / gpu-deep-cleanup that kills siblings (not "peer-scoped unit stop")
+      host-wide teardown / gpu-deep-cleanup that kills siblings (not a weak stop)
   [ ] No bind on signals :5455 or RustFS :9010
   [ ] If external/AGPL: no source/jar vendored into weathership/signals
 
@@ -89,8 +89,8 @@ Must:
   [x] Status.project ~ gaius; capability cognition advertised
   [x] PG only on :5444 — never :5455
   [x] Platform Metaflow URL when joining federation (not Tilt as SoR)
-  [x] systemd_stop / just down = devenv processes down only
-      (never just teardown / gpu-deep-cleanup — those kill sibling GPU leases)
+  [x] Peer-scoped unit stop = devenv processes down for this tree only
+      (never host teardown / gpu-deep-cleanup that kill sibling GPU leases)
 
 Accept:
   [x] Recycle via `systemctl restart signals.target` (lab 2026-08-13) + orphan :50051 cleanup

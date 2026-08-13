@@ -198,10 +198,10 @@ Gaius/Ægir/Atelier — Metabase is
    `docs/current/src/operations/peer-unit.md` — unit SoR for that project;
    not mesh/`FEDERATION.md` history.
 
-### Unit stop: peer-scoped, not “soft”
+### Unit stop: peer-scoped (not “soft”)
 
-**Avoid the phrase “peer-scoped unit stop” in peer docs going forward.** It sounds like
-incomplete shutdown. The real requirement is:
+**Do not call this “soft stop.”** That sounds like incomplete shutdown. The
+requirement is **full stop of this peer’s unit**, scoped so co-tenants survive.
 
 | Must | Must not |
 |------|----------|
@@ -216,8 +216,7 @@ co-tenant GPUs. That is **lease-safe / co-tenant-safe**, not “don’t really s
 Engine-only units (Ægir, Atelier) should stop the **engine hard**; they should
 not run product teardown.
 
-**Preferred names in docs/scripts:** *peer-scoped stop*, *unit stop*, or
-*lease-safe stop* — not *peer-scoped unit stop*.
+**Preferred names:** *peer-scoped stop*, *unit stop*, or *lease-safe stop*.
 
 ### Operator flow (any peer)
 
