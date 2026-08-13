@@ -335,7 +335,7 @@ session** after Gaius.
 > `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
 > Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
 > on codegen Status (not gateway stack-health), peer-scoped unit stop, product peer-unit.md.  
-> Do not re-architect the multi-face engine.
+> Do not re-architect the multi-service engine.
 
 | Fact | Value |
 |------|--------|
@@ -356,7 +356,7 @@ session** after Gaius.
 
 **Already in good shape (do not re-architect):**
 
-- Multi-face engine on `:50151` (native + zndx + OIP)
+- Multi-service engine on `:50151` (native + zndx + OIP)
 - `ZndxEngineServicer` with Status / Complete / **Remediate**
 - `grpcio-reflection` present in lockfile (Linux) — **enabled at server start**
 - GPU guard / `/tmp/zndx-gpu-leases` co-tenancy

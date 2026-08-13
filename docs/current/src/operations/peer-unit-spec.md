@@ -148,7 +148,7 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
 > `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
 > Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
 > on codegen Status (not gateway stack-health), peer-scoped unit stop, product  
-> `docs/current/src/operations/peer-unit.md`. Do not re-architect the multi-face engine.
+> `docs/current/src/operations/peer-unit.md`. Do not re-architect the multi-service engine.
 
 ```text
 Title: peer-unit@aegir lattice join
@@ -162,7 +162,7 @@ Capability (Status): instruct  (project=aegir)
 License: project-specific · external=false · architecture_class=core_federated_engine
 
 Already present (do not rebuild engine architecture):
-  [x] Multi-face on :50151 — native AegirEngine + zndx.engine.v1 + OIP
+  [x] Multi-service on :50151 — native AegirEngine + zndx.engine.v1 + OIP
   [x] ZndxEngineServicer Status / Complete / Remediate
   [x] grpcio-reflection in lockfile (Linux) — must still ENABLE in serve()
 
@@ -185,7 +185,7 @@ Accept:
 
 Out of scope:
   - signals critical plane
-  - redesigning multi-face engine (already correct)
+  - redesigning multi-service engine (already correct)
   - requiring full vLLM cold-load for unit active (Status at gRPC bind is enough)
 ```
 

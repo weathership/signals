@@ -38,7 +38,7 @@ implement enough in the engine to ship product value, then **promote** stable
 shapes into the protocol so every peer can speak them.
 
 **Core peer engines** (Gaius, Ægir, Atelier, and planned siblings such as synth
-or vigil) form one architectural family: multi-face gRPC, capability-not-model,
+or vigil) form one architectural family: multi-service gRPC, capability-not-model,
 private vLLM (or equivalent), lattice ports, and co-tenancy leases. That family
 grew in those codebases as product work demanded it; protocol requirements
 continue to surface there first.
@@ -59,7 +59,7 @@ lattice-ci, Metaflow/CE) meets a gap, prefer extending **signals-protocol**
 | Layer | Maturity (honest) | Where it lives |
 |-------|-------------------|----------------|
 | Native product gRPC | Mature in each **core** peer | Gaius / Ægir / Atelier / … trees |
-| Multi-face + capability engines | In production use; still converging | **Core** peer `engine/` packages |
+| Multi-service + capability engines | In production use; still converging | **Core** peer `engine/` packages |
 | `zndx.engine.v1` shared face | **v1 landed; incomplete relative to real peer needs** | `signals-protocol` + per-peer bindings |
 | OIP dual-registration / mapping | Partial (stronger in some engines than others) | Protocol spec + peer OIP servicers |
 | License-external engines | Isolated adapters (e.g. mbengine) | Separate trees (e.g. AGPL Metabase) |
@@ -75,7 +75,7 @@ before “federation complete” is a fair claim.
 ### Signals as hub, peers as engine depth
 
 This product **comes in late on the gRPC engine axis**: Gaius, Ægir, and Atelier
-already carry the thick capability-engine implementations (multi-face gRPC,
+already carry the thick capability-engine implementations (multi-service gRPC,
 vLLM managers, co-tenancy, Remediate, product services). Signals is
 intentionally **thin** there because the job is to **build on that foundation**
 — not re-implement engines in this tree.
@@ -156,7 +156,7 @@ peer-unit sessions.
 |--|----------------------------|----------------------------|
 | Examples | Gaius, Ægir, Atelier; future **synth**, **vigil**, … | **Metabase** (AGPL) today |
 | Why separate trees | Product modularity; shared ASL2 (or compatible) line | **License incompatibility** (AGPL ↛ ASL2 combine) |
-| Engine architecture | Shared **family** (capability engines, multi-face gRPC, co-tenancy) | **Isolated** product engine (e.g. mbengine); not Gaius-lineage |
+| Engine architecture | Shared **family** (capability engines, multi-service gRPC, co-tenancy) | **Isolated** product engine (e.g. mbengine); not Gaius-lineage |
 | Protocol role | Primary source of organic `signals-protocol` requirements | Speaks enough wire to join; not the design center for core engine law |
 | Platform attach | `signals.target`, lattice ports, Metaflow/CE/YK as applicable | Same *process* pattern optional; no source/jar into Signals or core peers |
 | SoR | Never — Atlas/lineage/authz stay on Signals | Never — same |
