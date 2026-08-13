@@ -292,6 +292,23 @@ That is the optional AGPL Metabase peer (`:3200` / `:50451`).
 Ægir instruct / inference peer (product name often styled “Ægir”). **Next peer
 session** after Gaius.
 
+**Agent one-liner (full paths for the Aegir session):**
+
+> Implement `peer-unit@aegir` per  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md`  
+> (**Filled: aegir**) and  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md`  
+> (**Aegir** / `#aegir`). Contract:  
+> `/home/rch/local/src/wxs/signals/config/platform/peer-contract.json`.  
+> Mirror:  
+> `/home/rch/local/src/zndx/gaius/docs/current/src/operations/peer-unit.md`,  
+> `/home/rch/local/src/zndx/gaius/scripts/systemd_start.sh`,  
+> `/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh`,  
+> `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
+> Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
+> on codegen Status (not gateway stack-health), soft stop, product peer-unit.md.  
+> Do not re-architect the multi-face engine.
+
 | Fact | Value |
 |------|--------|
 | Role | Instruct / inference peer; capability→model owned by engine |

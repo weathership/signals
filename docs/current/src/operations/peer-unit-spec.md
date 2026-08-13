@@ -131,6 +131,23 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
 **Ops:** [Peer integration — Aegir](./peer-integration.md#aegir)  
 **Copy into Aegir session as the work order.**
 
+**Agent one-liner (full paths):**
+
+> Implement `peer-unit@aegir` per  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md`  
+> (section **Filled: aegir**) and  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md`  
+> (section **Aegir** / `#aegir`). Contract pin:  
+> `/home/rch/local/src/wxs/signals/config/platform/peer-contract.json`.  
+> Reference implementation:  
+> `/home/rch/local/src/zndx/gaius/docs/current/src/operations/peer-unit.md` and  
+> `/home/rch/local/src/zndx/gaius/scripts/systemd_start.sh`,  
+> `/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh`,  
+> `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
+> Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
+> on codegen Status (not gateway stack-health), soft stop, product  
+> `docs/current/src/operations/peer-unit.md`. Do not re-architect the multi-face engine.
+
 ```text
 Title: peer-unit@aegir lattice join
 Contract: signals peer-contract.json schema_version=1.0.0
