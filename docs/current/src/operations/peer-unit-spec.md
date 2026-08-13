@@ -89,11 +89,11 @@ Must:
       (never just teardown / gpu-deep-cleanup — those kill sibling GPU leases)
 
 Accept:
-  [ ] Recycle running gaius-engine so the lattice servicer is bound
-  [ ] systemctl start gaius.service → active (oneshot; skip-up if Status already OK)
-  [ ] grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
-      (lattice-ci proto fallback is fine — grpc reflection often absent)
-  [ ] just lattice-ci --require gaius     # elevated CI gate, not a smoke
+  [x] Recycle via `systemctl restart signals.target` (lab 2026-08-13) + orphan :50051 cleanup
+  [x] systemctl start/restart gaius.service → active (oneshot; Status body project=gaius)
+  [x] grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
+      (reflection after grpcio-reflection; proto fallback remains ops path)
+  [x] just lattice-ci --require gaius     # elevated CI gate, not a smoke
 
 Out of scope:
   - Metabase AGPL product, Ægir/Atelier internals
