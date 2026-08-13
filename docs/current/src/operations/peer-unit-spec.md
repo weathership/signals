@@ -203,10 +203,14 @@ servicer **50071** is product API on multi-engine labs.
 
 ---
 
-## Filled: metabase (AGPL external)
+## Filled: metabase (AGPL external — isolated)
 
-Optional peer — core Signals does not require Metabase. Operators:
-[Peer integration — Metabase](./peer-integration.md#external-engines-metabase-agpl).
+**License-external by requirement** (AGPL ↛ ASL2). mbengine is architecturally
+**isolated** from the core engine family (Gaius / Ægir / Atelier / synth /
+vigil). Process attachment may follow the same unit pattern; engine lineage
+does not. Operators:
+[Peer integration — Metabase](./peer-integration.md#external-engines-metabase-agpl) ·
+[Core vs external](../architecture/signals-protocol-core.md#core-vs-license-external-engines).
 
 ```text
 Title: peer-unit@metabase lattice join

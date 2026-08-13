@@ -2,9 +2,10 @@
 
 Signals is the **system of record** and the **central discovery surface** for the
 zndx federation: lineage, governance metadata, and authz decision inputs live
-here. Federated engines (Ægir, Atelier, Gaius, and **external** peers such as
-Metabase) operate on the fleet; they **discover and call** centralized services
-instead of each growing a private catalog, lineage store, or policy engine.
+here. **Core** federated engines (Gaius, Ægir, Atelier, and future in-family
+projects such as synth or vigil) and **license-external** peers (e.g. Metabase)
+operate on the fleet; they **discover and call** centralized services instead of
+each growing a private catalog, lineage store, or policy engine.
 **Hermes Agent** is a multi-agent runtime we integrate with (**plugins first,
 not a core fork for now**) for **reasoning-enabled memory** and **context
 compaction**, with Weathership as the path to an
@@ -36,26 +37,37 @@ Status fields for GPU leases, OIP tensor conventions) follow the same pattern:
 implement enough in the engine to ship product value, then **promote** stable
 shapes into the protocol so every peer can speak them.
 
-Peer projects (Gaius, Ægir, Atelier, external engines such as Metabase) already
-share a family of practices — multi-face gRPC, capability-not-model, private
-vLLM, lattice ports — that grew in those codebases as product work demanded
-them. Signals **hosts** the platform (governance SoR, critical plane, process
-group control) and **pins** the protocol submodule; it does not invent a
-parallel engine architecture for peers to retrofit. When attachment work
-(peer units, lattice-ci, Metaflow/CE) meets a gap, prefer extending
-**signals-protocol** (or documenting an explicit interim) over forking
-per-project wire dialects.
+**Core peer engines** (Gaius, Ægir, Atelier, and planned siblings such as synth
+or vigil) form one architectural family: multi-face gRPC, capability-not-model,
+private vLLM (or equivalent), lattice ports, and co-tenancy leases. That family
+grew in those codebases as product work demanded it; protocol requirements
+continue to surface there first.
+
+**License-external peers** (Metabase today) are different by **requirement**,
+not preference. AGPL (and similar) cannot be combined into ASL2 Signals or core
+peer distributions, so their engines must live in an **isolated** tree: process
+boundary + protocol wire only. mbengine is a real federation participant
+(`Status` / lattice unit) but it is **not** a core Signals engine project and
+is not expected to share the Gaius-lineage engine stack. See
+[Core vs license-external engines](#core-vs-license-external-engines).
+
+Signals **hosts** the platform (governance SoR, critical plane, process group
+control) and **pins** the protocol submodule. When attachment work (peer units,
+lattice-ci, Metaflow/CE) meets a gap, prefer extending **signals-protocol**
+(or documenting an explicit interim) over forking per-project wire dialects.
 
 | Layer | Maturity (honest) | Where it lives |
 |-------|-------------------|----------------|
-| Native product gRPC | Mature in each peer | Gaius / Ægir / Atelier / … trees |
-| Multi-face + capability engines | In production use; still converging | Peer `engine/` packages |
+| Native product gRPC | Mature in each **core** peer | Gaius / Ægir / Atelier / … trees |
+| Multi-face + capability engines | In production use; still converging | **Core** peer `engine/` packages |
 | `zndx.engine.v1` shared face | **v1 landed; incomplete relative to real peer needs** | `signals-protocol` + per-peer bindings |
 | OIP dual-registration / mapping | Partial (stronger in some engines than others) | Protocol spec + peer OIP servicers |
+| License-external engines | Isolated adapters (e.g. mbengine) | Separate trees (e.g. AGPL Metabase) |
 | Platform process attachment | Lab-usable (ready gate, units, lattice-ci) | This repo (`peer-contract`, systemd) |
 | Cross-engine product flows | Early (CE map, Remediate, federated Complete) | Protocol + peers together |
 
 **Working stance:** treat protocol growth as co-evolution with peer engines —
+especially **core** peers, where shared engine practice is densest —
 requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
@@ -88,9 +100,29 @@ before “federation complete” is a fair claim.
   │ Hermes Agent │  tools / hooks / multi-agent ops
   └──────────────┘
 
-  * AGPL Metabase (and similar) are *external* federation peers: they consume
-    catalog/lineage/authz discovery; they do not become SoR.
+  * AGPL Metabase is a *license-external* peer (isolated engine, not core family):
+    process + wire only; consumes catalog/lineage/authz; never SoR or vendored.
 ```
+
+## Core vs license-external engines
+
+Two kinds of “peer” attach to Signals. Conflating them muddies protocol work and
+peer-unit sessions.
+
+| | **Core federated engines** | **License-external peers** |
+|--|----------------------------|----------------------------|
+| Examples | Gaius, Ægir, Atelier; future **synth**, **vigil**, … | **Metabase** (AGPL) today |
+| Why separate trees | Product modularity; shared ASL2 (or compatible) line | **License incompatibility** (AGPL ↛ ASL2 combine) |
+| Engine architecture | Shared **family** (capability engines, multi-face gRPC, co-tenancy) | **Isolated** product engine (e.g. mbengine); not Gaius-lineage |
+| Protocol role | Primary source of organic `signals-protocol` requirements | Speaks enough wire to join; not the design center for core engine law |
+| Platform attach | `signals.target`, lattice ports, Metaflow/CE/YK as applicable | Same *process* pattern optional; no source/jar into Signals or core peers |
+| SoR | Never — Atlas/lineage/authz stay on Signals | Never — same |
+
+Metabase is external **by requirement**: introducing an engine there is
+inherently isolated so the product can federate without licensing contamination.
+Architecturally it is distinct from Gaius / Ægir / Atelier and from any future
+**core** Signals projects. Operator install and dual-map still matter; they do
+not make Metabase “another Atelier.”
 
 | Concern | Authority | Client surface |
 |---------|-----------|----------------|
@@ -163,8 +195,10 @@ Engines **converge** by:
 
 ## External engines (Metabase and peers)
 
-Metabase (AGPL) and similar BI/agent tools are **first-class external
-participants**, not second SoRs:
+Metabase (AGPL) and similar BI/agent tools are **license-external**
+participants — **architecturally isolated** from the core engine family (see
+[above](#core-vs-license-external-engines)). They are first-class on the
+**wire and process group**, not second SoRs and not core engine projects:
 
 | They may | They must not |
 |----------|----------------|

@@ -4,8 +4,10 @@
   "description": "Stable lab contracts for federated engines and external peers. Process lifecycle is systemd-group; wire is signals-protocol.",
   "license_boundary": {
     "signals_core": "Apache-2.0",
-    "external_peers": "May use incompatible licenses (e.g. AGPL Metabase) only as separate processes outside this tree; never vendor their source into signals.",
-    "integration": "Process boundary (systemd units + network) + signals-protocol gRPC; no static link of AGPL into ASL2 binaries."
+    "core_peers": "Gaius, Aegir, Atelier, and future in-family projects (e.g. synth, vigil) \u2014 shared engine family; protocol co-evolution center",
+    "external_peers": "License-incompatible products (e.g. AGPL Metabase) \u2014 external by requirement; isolated engines; process+wire only",
+    "integration": "Process boundary (systemd units + network) + signals-protocol gRPC; no static link or vendoring of AGPL into ASL2 binaries or core peer trees",
+    "architecture_note": "Metabase is not a core Signals engine project; do not treat mbengine as Gaius-lineage"
   },
   "foundation": {
     "repo": "weathership/signals",
@@ -115,7 +117,8 @@
         "Lattice accept: Engine/Status on :50151",
         "Operator: just install-systemd --peers aegir --enable; systemctl start signals.target",
         "Ops guide: docs/current/src/operations/peer-integration.md#aegir"
-      ]
+      ],
+      "architecture_class": "core_federated_engine"
     },
     {
       "id": "atelier",
@@ -133,7 +136,8 @@
         "Lattice accept: Engine/Status on :50251",
         "Operator: just install-systemd --peers atelier --enable; systemctl start signals.target",
         "Ops guide: docs/current/src/operations/peer-integration.md#atelier"
-      ]
+      ],
+      "architecture_class": "core_federated_engine"
     },
     {
       "id": "gaius",
@@ -154,7 +158,8 @@
         "Product ops: gaius docs/current/src/operations/peer-unit.md",
         "Ops guide: docs/current/src/operations/peer-integration.md#gaius",
         "Stop path must not teardown / GPU-wipe sibling leases"
-      ]
+      ],
+      "architecture_class": "core_federated_engine"
     },
     {
       "id": "synth",
@@ -166,7 +171,8 @@
       "unit": "synth.service",
       "after": [
         "signals-ready.service"
-      ]
+      ],
+      "architecture_class": "core_federated_engine"
     },
     {
       "id": "metabase",
@@ -183,6 +189,9 @@
         "signals-ready.service"
       ],
       "notes": [
+        "Architecture: docs/current/src/architecture/signals-protocol-core.md#core-vs-license-external-engines",
+        "Architecturally distinct from core peers (gaius/aegir/atelier/synth/vigil)",
+        "License-external by requirement (AGPL); engine inherently isolated",
         "Optional peer \u2014 core Signals does not require Metabase",
         "AGPL product + mbengine live outside the ASL2 signals tree",
         "Integrates only via process lifecycle + zndx.engine.v1.Engine",
@@ -190,7 +199,8 @@
         "Opt-in: just install-systemd --peers metabase --enable; start signals.target (not bare signals)",
         "Operator guide: docs/current/src/operations/peer-integration.md#external-engines-metabase-agpl",
         "Vendoring Metabase into signals would create a license conflict \u2014 do not"
-      ]
+      ],
+      "architecture_class": "license_external_isolated"
     }
   ],
   "systemd": {

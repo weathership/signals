@@ -129,7 +129,7 @@ Lab lattice:
 | **Ægir** | **50151** | `instruct` | `aegir.service` | Capability engine (+ native face) |
 | **Atelier** | **50251** | `referee` | `atelier.service` | Capability engine; native servicer may be `:50071` on co-tenant hosts |
 | Synth | 50351 | `synthesis` | `synth.service` | Optional peer |
-| Metabase | 50451 | `dashboard` | `metabase.service` | **Optional AGPL** external |
+| Metabase | 50451 | `dashboard` | `metabase.service` | **License-external** (AGPL); isolated engine, not core family |
 
 ```bash
 grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
@@ -145,12 +145,13 @@ OIP (KServe Open Inference Protocol) is the long-term portable inference face;
 
 ---
 
-## Common peer unit pattern (learned from Metabase)
+## Common peer unit pattern (process attachment)
 
-Metabase was the first peer to land a **production-shaped** unit. In-org peers
-(Gaius, Ægir, Atelier) should copy this pattern, not bare `just up` in the unit
-file.
-
+Metabase was the first peer to land a **production-shaped systemd unit**
+(wrappers that wait on Status). That **process** pattern is reusable for
+**core** peers (Gaius, Ægir, Atelier, synth, vigil, …). It does **not** mean
+Metabase shares the core engine architecture — Metabase is
+[license-external and isolated](../architecture/signals-protocol-core.md#core-vs-license-external-engines).
 ### Must
 
 1. **`After=signals-ready.service`** + `Wants=signals-ready.service`  
