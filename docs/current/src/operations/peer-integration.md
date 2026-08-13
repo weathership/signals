@@ -360,6 +360,27 @@ stay separate start paths; unit accept is engine Status only (mirror this unit).
 
 ### Atelier
 
+**Agent one-liner (full paths) — lock-in session (lattice already green):**
+
+> Lock in `peer-unit@atelier` under `signals.target`. Read:  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md`  
+> (**Filled: atelier**),  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md`  
+> (**Atelier** / `#atelier`),  
+> `/home/rch/local/src/wxs/signals/config/platform/peer-contract.json`,  
+> `/home/rch/local/src/wxs/signals/docs/scratch/2026-08-13/025900_atelier-peer-unit.md`.  
+> Mirror:  
+> `/home/rch/local/src/zndx/aegir/docs/current/src/operations/peer-unit.md` and  
+> `/home/rch/local/src/zndx/aegir/scripts/systemd_start.sh`,  
+> `/home/rch/local/src/zndx/aegir/scripts/systemd_stop.sh`,  
+> `/home/rch/local/src/zndx/aegir/scripts/zndx_status_ok.py`.  
+> Already live: engine-only `:50251`, reflection, codegen Status,  
+> `atelier.service` active, lattice-ci with gaius+aegir+metabase green.  
+> Commit untracked Atelier peer files, wire SUMMARY, verify dual-port docs  
+> (`:50251` lattice vs `:50071` product), re-run  
+> `/home/rch/local/src/wxs/signals` `just lattice-ci --require atelier` and bare  
+> `grpcurl` list/Status. Do not use product `just up` as lattice accept.
+
 | Fact | Value |
 |------|--------|
 | Role | Referee / CAI; capability engine on lattice |

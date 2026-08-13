@@ -203,7 +203,44 @@ Out of scope:
 ## Filled: atelier
 
 **Ops:** [Peer integration — Atelier](./peer-integration.md#atelier)  
-**Accept closed 2026-08-13** (engine-only unit, mirror Ægir).
+**Accept closed 2026-08-13** (engine-only unit, mirror Ægir). Lattice green live.
+
+**Agent one-liner (full paths) — lock-in / converge session:**
+
+> Lock in `peer-unit@atelier` under `signals.target`. Coordination (read fully):  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md`  
+> (section **Filled: atelier**),  
+> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md`  
+> (section **Atelier** / `#atelier`),  
+> `/home/rch/local/src/wxs/signals/config/platform/peer-contract.json`,  
+> `/home/rch/local/src/wxs/signals/docs/scratch/2026-08-13/025900_atelier-peer-unit.md`.  
+> Reference units:  
+> `/home/rch/local/src/zndx/aegir/docs/current/src/operations/peer-unit.md`,  
+> `/home/rch/local/src/zndx/aegir/scripts/systemd_start.sh`,  
+> `/home/rch/local/src/zndx/aegir/scripts/systemd_stop.sh`,  
+> `/home/rch/local/src/zndx/aegir/scripts/zndx_status_ok.py`  
+> (and Gaius  
+> `/home/rch/local/src/zndx/gaius/docs/current/src/operations/peer-unit.md`  
+> for co-tenancy/soft-stop).  
+> **Already landed on this host (do not re-architect):** engine-only unit on  
+> `:50251` (`python -m atelier.engine.server`), reflection, codegen Status  
+> (`project=atelier`), product servicer `:50071` off the unit path;  
+> `atelier.service` active;  
+> `just lattice-ci --require gaius,aegir,atelier,metabase` green from  
+> `/home/rch/local/src/wxs/signals`.  
+> **This session:** commit untracked Atelier peer files  
+> (`scripts/systemd_{start,stop}.sh`, `scripts/zndx_status_ok.py`,  
+> `src/atelier/engine/server.py` reflection + Status placeholders,  
+> `pyproject.toml` grpcio-reflection,  
+> `docs/current/src/operations/peer-unit.md`); add SUMMARY link if missing;  
+> add a small Status/reflection test if useful; verify dual-port docs  
+> (lattice `:50251` vs product `:50071`); confirm soft stop does not touch  
+> Gaius/Ægir leases; re-run  
+> `cd /home/rch/local/src/wxs/signals && just lattice-ci --require atelier`  
+> and bare  
+> `grpcurl -plaintext 127.0.0.1:50251 list` / `Engine/Status`.  
+> Do not start product `just up` as the lattice accept path; do not wait  
+> vLLM SERVING for unit active.
 
 ```text
 Title: peer-unit@atelier lattice join
