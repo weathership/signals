@@ -123,10 +123,12 @@
         "signals-ready.service"
       ],
       "notes": [
-        "In-org peer \u2014 unit start must bring :50151 Status (just up stack-health alone may not)",
-        "Lattice accept: Engine/Status on :50151",
-        "Operator: just install-systemd --peers aegir --enable; systemctl start signals.target",
-        "Ops guide: docs/current/src/operations/peer-integration.md#aegir"
+        "Next peer session after Gaius \u2014 core_federated_engine",
+        "Engine multi-face already on :50151; enable reflection in serve()",
+        "Unit must start engine-serve path not only just up stack-health",
+        "Checklist: docs/current/src/operations/peer-unit-spec.md#filled-aegir",
+        "Ops: docs/current/src/operations/peer-integration.md#aegir",
+        "Do not enable for production lattice until lattice-ci --require aegir"
       ],
       "architecture_class": "core_federated_engine"
     },

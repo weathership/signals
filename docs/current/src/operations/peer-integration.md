@@ -150,11 +150,12 @@ OIP (KServe Open Inference Protocol) is the long-term portable inference face;
 
 ## Common peer unit pattern (process attachment)
 
-Metabase was the first peer to land a **production-shaped systemd unit**
-(wrappers that wait on Status). That **process** pattern is reusable for
-**core** peers (Gaius, Ægir, Atelier, synth, vigil, …). It does **not** mean
-Metabase shares the core engine architecture — Metabase is
+Reference implementations: **Metabase** (unit shape, license-external) and
+**Gaius** (core peer, first full lattice accept under `signals.target`). The
+**process** pattern is shared; **engine lineage** for core peers is
+Gaius/Ægir/Atelier — Metabase is
 [license-external and isolated](../architecture/signals-protocol-core.md#core-vs-license-external-engines).
+
 ### Must
 
 1. **`After=signals-ready.service`** + `Wants=signals-ready.service`  
@@ -170,21 +171,31 @@ Metabase shares the core engine architecture — Metabase is
    Unit `ExecStart=` / `ExecStop=` point at those absolute paths under the peer
    checkout. systemd rejects fragile multiline shell; Metabase hit this first.
 
-4. **Accept = federation face ready**, not “process-compose started”:
-   - `grpcurl … zndx.engine.v1.Engine/Status` succeeds on the **contract port**
-   - **TCP listen alone is not enough** (Gaius: native service predates the
-     lattice face — same port, missing Status until servicer registered + recycle)
-   - Optional product health (HTTP `/api/health`, gateway, etc.)
+4. **Accept = federation face ready**, not “product stack healthy alone”:
+   - **Codegen Status** (preferred in-peer): generated `zndx.engine.v1` stubs,
+     `project` matches contract (see Signals `scripts/zndx_engine_status.py` /
+     Gaius `scripts/zndx_status_ok.py`)
+   - **Reflection** on the lattice port so external bare `grpcurl` works
+     (install `grpcio-reflection` / enable ServerReflection — **required**)
+   - **TCP listen alone is not enough** (Gaius lesson)
+   - Optional product health (gateway, dashboard HTTP, …)
 
 5. **Idempotent start**  
-   If accept probes already pass, exit 0 without tearing down a live stack
-   (same idea as `scripts/systemd_foundation_start.sh`).
+   If accept probes already pass, exit 0 without tearing down a live stack.
 
-6. **PATH**  
-   `Environment=PATH=/usr/local/bin:/usr/bin:/bin:…` so system-wide `just` /
-   `grpcurl` work; use `bash -lc` inside wrappers when devenv/direnv is required.
+6. **Single owner of the lattice port**  
+   Avoid dual listeners (orphan devenv + unit). Reclaim or refuse multi-bind
+   (Gaius lesson on `:50051`).
 
-7. **Never bind** Signals `:5455` or RustFS `:9010`.
+7. **PATH**  
+   System-wide `just` / `grpcurl` / `kubectl` on systemd `PATH`; `bash -lc`
+   inside wrappers when devenv/direnv is required.
+
+8. **Never bind** Signals `:5455` or RustFS `:9010`.
+
+9. **Product doc** in the peer tree (Gaius pattern):
+   `docs/current/src/operations/peer-unit.md` — unit SoR for that project;
+   not mesh/`FEDERATION.md` history.
 
 ### Operator flow (any peer)
 
@@ -216,9 +227,10 @@ sessions and for Signals operators who enable the peer after that work lands.
 
 | Peer | Status |
 |------|--------|
-| **Metabase** | Complete (AGPL optional) |
-| **Gaius** | Wrappers + unit + `zndx.engine.v1.Engine` face **landed**; **accept open** until live engine recycle binds Status on `:50051` |
-| **Ægir / Atelier** | Pattern ready — implement in peer tree |
+| **Metabase** | Complete (license-external AGPL; isolated engine) |
+| **Gaius** | Complete under `signals.target` (codegen Status + reflection + lattice-ci) |
+| **Ægir** | **Next** — engine face exists; unit wrappers + reflection + product peer-unit.md |
+| **Atelier** | Pattern ready after Ægir |
 
 Tick accept in [peer-unit-spec](./peer-unit-spec.md).
 
@@ -277,45 +289,61 @@ That is the optional AGPL Metabase peer (`:3200` / `:50451`).
 
 ### Aegir
 
-Ægir instruct / inference peer (product name often styled “Ægir”).
+Ægir instruct / inference peer (product name often styled “Ægir”). **Next peer
+session** after Gaius.
 
 | Fact | Value |
 |------|--------|
 | Role | Instruct / inference peer; capability→model owned by engine |
+| Architecture class | **core_federated_engine** (Gaius-lineage capability engine) |
 | Checkout (lab) | `~/local/src/zndx/aegir` |
-| Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) |
-| gRPC lattice | **`:50151`** — `zndx.engine.v1.Engine` (+ native `aegir.engine`) |
+| Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) — still temporary `just up` until wrappers land |
+| gRPC lattice | **`:50151`** — native `AegirEngine` + **`zndx.engine.v1.Engine`** + OIP (already co-registered in `aegir.engine.server`) |
 | Postgres lattice | **`:5555`** |
-| Capability hint | `instruct` |
-| Product lifecycle | `just up` = `devenv up -d` + **stack-health** (gateway `:8091`, vite, …) |
-| Engine face | Capability engine may be **separate** from web stack (`just engine-serve` / `engine-ready`) — unit start **must** bring **:50151** Status, not only gateway health |
-| Platform Metaflow | Use platform service when scheduling federated jobs; local mode remains for isolated eval |
-| YK | RKE2 tasks → queue `root.aegir` (or contract queue names) |
-| Peer session focus | [peer-unit-spec — aegir](./peer-unit-spec.md#filled-aegir) |
-| Product notes | `Justfile` engine recipes; `components/signals-protocol` |
+| Capability / Status | `Status.project=aegir`, default capability **`instruct`** (Remediate is rich here) |
+| Product stack | `just up` = devenv + **stack-health** (gateway `:8091`, vite, …) — **not** lattice accept |
+| Engine process | **`just engine-serve`** / `engine-supervise` / `engine-ready` — separate from web stack |
+| Reflection | **Gap:** `serve()` registers three faces but does **not** yet enable ServerReflection — required for lattice-ci external check |
+| Platform Metaflow | Platform URL when federated; local mode OK for isolated eval |
+| YK | RKE2 → queue `root.aegir` (or contract name) |
+| Session checklist | [peer-unit-spec — aegir](./peer-unit-spec.md#filled-aegir) |
+| Product SoR (to create) | `docs/current/src/operations/peer-unit.md` (mirror Gaius) |
+
+**Already in good shape (do not re-architect):**
+
+- Multi-face engine on `:50151` (native + zndx + OIP)
+- `ZndxEngineServicer` with Status / Complete / **Remediate**
+- `grpcio-reflection` present in lockfile (Linux) — needs **enable at server start**
+- GPU guard / `/tmp/zndx-gpu-leases` co-tenancy
 
 **Peer session deliverables (in Ægir tree):**
 
-1. `scripts/systemd_start.sh` that ensures **federation face :50151** is ready
-   (if `just up` alone does not start the capability engine, chain
-   `engine-serve` / supervisor + `engine-ready` or equivalent).
-2. `scripts/systemd_stop.sh` that does not kill foreign peers’ GPU leases
-   carelessly (respect co-tenancy / lease tooling).
-3. Accept: `grpcurl …:50151 …/Status` + optional gateway health if product needs it.
-4. Pin signals-protocol submodule; keep OIP / `Complete` mapping current.
+1. Enable **gRPC server reflection** on the engine port (advertise
+   `zndx.engine.v1.Engine`).
+2. `scripts/systemd_start.sh` / `systemd_stop.sh`:
+   - start **capability engine** on `:50151` (not only `just up` stack-health);
+   - wait using **codegen** Status (`project=aegir`) — Gaius
+     `scripts/zndx_status_ok.py` pattern;
+   - soft stop (no teardown / GPU wipe of siblings).
+3. Update Signals sample unit Exec* → those scripts (or open PR in signals).
+4. Product `docs/current/src/operations/peer-unit.md`.
+5. Accept: bare `grpcurl` list/Status + `just lattice-ci --require aegir`.
 
 **Operator (after peer accept):**
 
 ```bash
 just install-systemd --peers aegir --enable
-sudo systemctl start signals.target
+# edit /etc/systemd/system/aegir.service paths if needed
+sudo systemctl start signals.target   # or: sudo systemctl start aegir
+grpcurl -plaintext 127.0.0.1:50151 list
 grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
-just lattice-ci --require aegir
+just lattice-ci --require gaius,aegir,metabase
 ```
 
-**Caution:** Ægir `just up` stack-health probes **gateway/vite**, not necessarily
-the lattice port. A unit that only runs `just up` can be `active` while lattice-ci
-still FAILs on `:50151` — fix that in the peer wrappers before enable.
+**Caution:** A unit that only runs `just up` can go `active` while lattice-ci
+still FAILs on `:50151`. Status-at-gRPC-bind is enough for lattice ready; do not
+block unit success on full vLLM cold-load unless product requires it (Gaius:
+Status early, models later).
 
 ---
 

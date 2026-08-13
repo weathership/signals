@@ -128,7 +128,8 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
 
 ## Filled: aegir
 
-**Ops:** [Peer integration — Aegir](./peer-integration.md#aegir)
+**Ops:** [Peer integration — Aegir](./peer-integration.md#aegir)  
+**Copy into Aegir session as the work order.**
 
 ```text
 Title: peer-unit@aegir lattice join
@@ -138,30 +139,40 @@ Repo path: ~/local/src/zndx/aegir
 Unit: aegir.service  (sample: signals infra/systemd/aegir.service)
 gRPC port: 50151
 Postgres lattice: 5555
-Capability (Status): instruct  (capability_hint)
-License: project-specific · external=false
+Capability (Status): instruct  (project=aegir)
+License: project-specific · external=false · architecture_class=core_federated_engine
 
-Must:
-  [ ] scripts/systemd_start.sh + systemd_stop.sh
-  [ ] Start ensures capability engine Status on :50151
-      (just up stack-health alone is NOT sufficient if engine is separate)
-  [ ] After=signals-ready.service · WantedBy=signals.target
-  [ ] PG only on :5555
-  [ ] GPU co-tenancy / leases respected on stop
+Already present (do not rebuild engine architecture):
+  [x] Multi-face on :50151 — native AegirEngine + zndx.engine.v1 + OIP
+  [x] ZndxEngineServicer Status / Complete / Remediate
+  [x] grpcio-reflection in lockfile (Linux) — must still ENABLE in serve()
+
+Must (this session):
+  [ ] Enable gRPC server reflection on engine port (advertise zndx.engine.v1.Engine)
+  [ ] scripts/systemd_start.sh + systemd_stop.sh in aegir tree
+  [ ] Start brings capability engine on :50151 (engine-serve / supervise),
+      NOT only just up stack-health (gateway/vite)
+  [ ] Start waits on codegen Status project=aegir (mirror gaius scripts/zndx_status_ok.py)
+  [ ] Soft stop — no teardown / GPU wipe of Gaius or other siblings
+  [ ] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
+  [ ] docs/current/src/operations/peer-unit.md (product SoR for the unit)
+  [ ] PG only on :5555; never :5455 / :9010
 
 Accept:
   [ ] systemctl start aegir.service → active
+  [ ] grpcurl -plaintext 127.0.0.1:50151 list   # includes zndx.engine.v1.Engine
   [ ] grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require aegir
-  [ ] (optional) gateway http://127.0.0.1:8091/api/health
+  [ ] just lattice-ci --require aegir   # codegen + reflection
+  [ ] (optional) gateway http://127.0.0.1:8091/api/health for product UX
 
 Out of scope:
-  - signals critical plane; other peers' GPU engines
+  - signals critical plane
+  - redesigning multi-face engine (already correct)
+  - requiring full vLLM cold-load for unit active (Status at gRPC bind is enough)
 ```
 
-**Peer session focus:** unit start must bring **:50151**, not only gateway/vite
-from `just up` / `stack-health`. Recipes: `engine-serve`, `engine-ready`,
-`engine-supervise` as needed inside the wrapper.
+**Peer session focus:** process attachment + reflection + unit wrappers. Engine
+faces already exist — wire them into `signals.target` the way Gaius did.
 
 ---
 
