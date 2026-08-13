@@ -165,22 +165,21 @@ Already present (do not rebuild engine architecture):
   [x] grpcio-reflection in lockfile (Linux) — must still ENABLE in serve()
 
 Must (this session):
-  [ ] Enable gRPC server reflection on engine port (advertise zndx.engine.v1.Engine)
-  [ ] scripts/systemd_start.sh + systemd_stop.sh in aegir tree
-  [ ] Start brings capability engine on :50151 (engine-serve / supervise),
-      NOT only just up stack-health (gateway/vite)
-  [ ] Start waits on codegen Status project=aegir (mirror gaius scripts/zndx_status_ok.py)
-  [ ] Soft stop — no teardown / GPU wipe of Gaius or other siblings
-  [ ] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
-  [ ] docs/current/src/operations/peer-unit.md (product SoR for the unit)
-  [ ] PG only on :5555; never :5455 / :9010
+  [x] Enable gRPC server reflection on engine port (advertise zndx.engine.v1.Engine)
+  [x] scripts/systemd_start.sh + systemd_stop.sh in aegir tree
+  [x] Start brings capability engine on :50151 via `python -m aegir.engine.server`
+      (NOT just up stack-health; NOT engine-supervise / SERVING wait)
+  [x] Start waits on codegen Status project=aegir (scripts/zndx_status_ok.py)
+  [x] Soft stop — TERM engine only; no teardown / GPU wipe of siblings
+  [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
+  [x] docs/current/src/operations/peer-unit.md (product SoR for the unit)
+  [x] PG only on :5555; never :5455 / :9010
 
 Accept:
-  [ ] systemctl start aegir.service → active
-  [ ] grpcurl -plaintext 127.0.0.1:50151 list   # includes zndx.engine.v1.Engine
-  [ ] grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require aegir   # codegen + reflection
-  [ ] (optional) gateway http://127.0.0.1:8091/api/health for product UX
+  [x] systemctl start/enable aegir.service → active under signals.target
+  [x] grpcurl -plaintext 127.0.0.1:50151 list / Engine/Status
+  [x] just lattice-ci --require aegir   # codegen + reflection (live w/ gaius+metabase)
+  [ ] (optional) gateway http://127.0.0.1:8091/api/health — product UX only
 
 Out of scope:
   - signals critical plane
@@ -188,8 +187,16 @@ Out of scope:
   - requiring full vLLM cold-load for unit active (Status at gRPC bind is enough)
 ```
 
-**Peer session focus:** process attachment + reflection + unit wrappers. Engine
-faces already exist — wire them into `signals.target` the way Gaius did.
+**Implementation notes (2026-08-13):**
+
+- **Cleaner than Gaius process model for lattice:** unit starts only the capability
+  engine (`setsid` + pid/log under `/tmp/aegir-engine/`), not the whole devenv
+  graph. Accept is pure lattice face.
+- **Explicitly not `engine-supervise`:** supervise waits SERVING (vLLM load);
+  lattice ready is Status at bind. Models load on first Complete/Remediate.
+- Dual-bind guard on `:50151` (Gaius orphan lesson).
+- Commit Ægir-tree peer files if still untracked (`scripts/systemd_*`,
+  `zndx_status_ok.py`, `peer-unit.md`, reflection in `server.py`).
 
 ---
 

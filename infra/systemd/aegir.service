@@ -1,11 +1,7 @@
 [Unit]
 Description=Aegir federated engine (signals peer)
 Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md
-Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md
-# Peer session must replace Exec* with aegir scripts/systemd_{start,stop}.sh:
-#   - start capability engine on :50151 (not only just up stack-health)
-#   - wait codegen Status project=aegir + enable gRPC reflection
-#   - soft stop (GPU lease-safe)
+Documentation=file:///home/rch/local/src/zndx/aegir/docs/current/src/operations/peer-unit.md
 PartOf=signals.target
 After=signals-ready.service network-online.target
 Wants=signals-ready.service network-online.target
@@ -17,10 +13,10 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/aegir
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
-# Temporary until peer wrappers land — DO NOT enable for production lattice
-# until Exec* points at systemd_start/stop and lattice-ci --require aegir passes.
-ExecStart=/bin/bash -lc 'just up 2>/dev/null || devenv up -d'
-ExecStop=/bin/bash -lc 'just down 2>/dev/null || devenv processes down || true'
+# Wrappers live in the Ægir tree; they block until Engine/Status on :50151
+# (capability engine — not just up stack-health).
+ExecStart=/home/rch/local/src/zndx/aegir/scripts/systemd_start.sh
+ExecStop=/home/rch/local/src/zndx/aegir/scripts/systemd_stop.sh
 TimeoutStartSec=1200
 TimeoutStopSec=300
 

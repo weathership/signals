@@ -229,7 +229,7 @@ sessions and for Signals operators who enable the peer after that work lands.
 |------|--------|
 | **Metabase** | Complete (license-external AGPL; isolated engine) |
 | **Gaius** | Complete under `signals.target` (codegen Status + reflection + lattice-ci) |
-| **Ægir** | **Next** — engine face exists; unit wrappers + reflection + product peer-unit.md |
+| **Ægir** | Complete under `signals.target` (codegen Status + reflection + lattice-ci) |
 | **Atelier** | Pattern ready after Ægir |
 
 Tick accept in [peer-unit-spec](./peer-unit-spec.md).
@@ -314,37 +314,32 @@ session** after Gaius.
 | Role | Instruct / inference peer; capability→model owned by engine |
 | Architecture class | **core_federated_engine** (Gaius-lineage capability engine) |
 | Checkout (lab) | `~/local/src/zndx/aegir` |
-| Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) — still temporary `just up` until wrappers land |
+| Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) → Ægir `scripts/systemd_{start,stop}.sh` |
 | gRPC lattice | **`:50151`** — native `AegirEngine` + **`zndx.engine.v1.Engine`** + OIP (already co-registered in `aegir.engine.server`) |
 | Postgres lattice | **`:5555`** |
 | Capability / Status | `Status.project=aegir`, default capability **`instruct`** (Remediate is rich here) |
 | Product stack | `just up` = devenv + **stack-health** (gateway `:8091`, vite, …) — **not** lattice accept |
-| Engine process | **`just engine-serve`** / `engine-supervise` / `engine-ready` — separate from web stack |
-| Reflection | **Gap:** `serve()` registers three faces but does **not** yet enable ServerReflection — required for lattice-ci external check |
+| Engine process (unit) | **`python -m aegir.engine.server` only** — not `just up`, not `engine-supervise` |
+| Reflection | Enabled at `serve()` (`enable_reflection`; advertises `zndx.engine.v1.Engine`) |
 | Platform Metaflow | Platform URL when federated; local mode OK for isolated eval |
 | YK | RKE2 → queue `root.aegir` (or contract name) |
 | Session checklist | [peer-unit-spec — aegir](./peer-unit-spec.md#filled-aegir) |
-| Product SoR (to create) | `docs/current/src/operations/peer-unit.md` (mirror Gaius) |
+| Product SoR | Ægir tree `docs/current/src/operations/peer-unit.md` |
 
 **Already in good shape (do not re-architect):**
 
 - Multi-face engine on `:50151` (native + zndx + OIP)
 - `ZndxEngineServicer` with Status / Complete / **Remediate**
-- `grpcio-reflection` present in lockfile (Linux) — needs **enable at server start**
+- `grpcio-reflection` present in lockfile (Linux) — **enabled at server start**
 - GPU guard / `/tmp/zndx-gpu-leases` co-tenancy
 
-**Peer session deliverables (in Ægir tree):**
+**Landed in Ægir tree (peer session):**
 
-1. Enable **gRPC server reflection** on the engine port (advertise
-   `zndx.engine.v1.Engine`).
-2. `scripts/systemd_start.sh` / `systemd_stop.sh`:
-   - start **capability engine** on `:50151` (not only `just up` stack-health);
-   - wait using **codegen** Status (`project=aegir`) — Gaius
-     `scripts/zndx_status_ok.py` pattern;
-   - soft stop (no teardown / GPU wipe of siblings).
-3. Update Signals sample unit Exec* → those scripts (or open PR in signals).
-4. Product `docs/current/src/operations/peer-unit.md`.
-5. Accept: bare `grpcurl` list/Status + `just lattice-ci --require aegir`.
+1. gRPC server reflection on `:50151` (advertises `zndx.engine.v1.Engine`).
+2. `scripts/systemd_start.sh` / `systemd_stop.sh` — start capability engine,
+   wait on codegen Status (`project=aegir`); soft stop (no teardown / GPU wipe).
+3. Product `docs/current/src/operations/peer-unit.md`.
+4. Sample unit Exec* → those scripts.
 
 **Operator (after peer accept):**
 

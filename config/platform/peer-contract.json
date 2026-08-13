@@ -123,12 +123,11 @@
         "signals-ready.service"
       ],
       "notes": [
-        "Next peer session after Gaius \u2014 core_federated_engine",
-        "Engine multi-face already on :50151; enable reflection in serve()",
-        "Unit must start engine-serve path not only just up stack-health",
-        "Checklist: docs/current/src/operations/peer-unit-spec.md#filled-aegir",
-        "Ops: docs/current/src/operations/peer-integration.md#aegir",
-        "Do not enable for production lattice until lattice-ci --require aegir"
+        "Complete under signals.target (2026-08-13)",
+        "Unit starts python -m aegir.engine.server only \u2014 not just up / not engine-supervise",
+        "codegen Status + reflection; soft stop; dual-bind guard on :50151",
+        "Product SoR: aegir docs/current/src/operations/peer-unit.md",
+        "Ops: docs/current/src/operations/peer-integration.md#aegir"
       ],
       "architecture_class": "core_federated_engine"
     },
