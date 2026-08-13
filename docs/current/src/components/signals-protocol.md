@@ -9,10 +9,15 @@ components/signals-protocol  →  git@github.com:zndx/signals-protocol.git  (tru
 
 ## Role in Signals
 
-Signals pins this repo so the product SoR and the fleet share **one** protocol
-source of truth. Engines (Ægir, Atelier, Gaius) and external peers generate
-bindings from `proto/`; Signals publishes discovery for Atlas, OpenLineage, and
-Ranger and adopts OIP mapping for multi-agent model ops.
+Signals pins this repo so the product SoR and the fleet share **one** wire
+contract. Engines (Ægir, Atelier, Gaius) and external peers generate bindings
+from `proto/`; Signals publishes discovery for Atlas, OpenLineage, and Ranger
+and adopts OIP mapping for multi-agent model ops.
+
+The protocol is **not finished foundation** — it grows as peer engines surface
+needs that belong on a shared path (additive within a version). Signals does
+not replace peer engine design; it holds the pin and platform attachment.
+See [How the federation contract evolves](../architecture/signals-protocol-core.md#how-the-federation-contract-evolves).
 
 See [Signals protocol core](../architecture/signals-protocol-core.md).
 

@@ -115,7 +115,13 @@ See [infra/systemd/README.md](../../../infra/systemd/README.md).
 ## signals-protocol engines (gRPC lattice)
 
 Each peer registers **`zndx.engine.v1.Engine`** (federation face) beside any
-native service. Lab lattice:
+native service. That face is the **shared federation contract in progress** —
+it evolves as real peer needs land in engines and get promoted into
+`signals-protocol` (see [protocol core — evolution](../architecture/signals-protocol-core.md#how-the-federation-contract-evolves)).
+Peer units and lattice-ci only attach process lifecycle to whatever Status the
+contract currently requires; they do not define the full engine architecture.
+
+Lab lattice:
 
 | Peer | Port | Capability (Status) | Unit sample | Notes |
 |------|------|---------------------|-------------|--------|

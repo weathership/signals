@@ -20,6 +20,46 @@ Wire contracts live in the shared submodule
 that repo first (additive-only within a version), then propagate by submodule
 bump — one proto, every adopter.
 
+## How the federation contract evolves
+
+**signals-protocol is the shared federation contract** (engine-to-engine wire,
+capability semantics, co-tenancy conventions, OIP mapping). It is still early:
+much of the foundational work for a durable multi-engine contract remains
+ahead of us.
+
+That work is **organic, not top-down**. Requirements surface when a peer engine
+needs something the wire does not yet express — the first live cross-engine
+call exposed package-scoped service paths (`UNIMPLEMENTED` despite matching
+messages), which is why `zndx.engine.v1.Engine` sits **beside** each project’s
+native service. Later needs (structured `Complete`, boundary `Remediate`,
+Status fields for GPU leases, OIP tensor conventions) follow the same pattern:
+implement enough in the engine to ship product value, then **promote** stable
+shapes into the protocol so every peer can speak them.
+
+Peer projects (Gaius, Ægir, Atelier, external engines such as Metabase) already
+share a family of practices — multi-face gRPC, capability-not-model, private
+vLLM, lattice ports — that grew in those codebases as product work demanded
+them. Signals **hosts** the platform (governance SoR, critical plane, process
+group control) and **pins** the protocol submodule; it does not invent a
+parallel engine architecture for peers to retrofit. When attachment work
+(peer units, lattice-ci, Metaflow/CE) meets a gap, prefer extending
+**signals-protocol** (or documenting an explicit interim) over forking
+per-project wire dialects.
+
+| Layer | Maturity (honest) | Where it lives |
+|-------|-------------------|----------------|
+| Native product gRPC | Mature in each peer | Gaius / Ægir / Atelier / … trees |
+| Multi-face + capability engines | In production use; still converging | Peer `engine/` packages |
+| `zndx.engine.v1` shared face | **v1 landed; incomplete relative to real peer needs** | `signals-protocol` + per-peer bindings |
+| OIP dual-registration / mapping | Partial (stronger in some engines than others) | Protocol spec + peer OIP servicers |
+| Platform process attachment | Lab-usable (ready gate, units, lattice-ci) | This repo (`peer-contract`, systemd) |
+| Cross-engine product flows | Early (CE map, Remediate, federated Complete) | Protocol + peers together |
+
+**Working stance:** treat protocol growth as co-evolution with peer engines —
+requirements materialize in real projects; the contract absorbs what should be
+shared. Expect substantial further foundation work on signals-protocol itself
+before “federation complete” is a fair claim.
+
 ## Layers
 
 ```text
