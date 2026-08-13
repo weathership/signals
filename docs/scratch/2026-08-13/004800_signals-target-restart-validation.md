@@ -20,9 +20,8 @@
 1. **gRPC reflection missing on Gaius** — code already enabled reflection but
    `grpcio-reflection` was not in the env. Installed into
    `.devenv/state/venv`; bare grpcurl works after engine restart.
-2. **Status probes reflection-only** — unit wrappers now prefer reflection and
-   **fall back to vendored proto** (same as lattice-ci). Gaius also requires
-   `"project":"gaius"` in the body (not mere RPC success).
+2. **Status probes** — unit wrappers require a real Status body; lattice-ci
+   uses **gRPC server reflection** (now a signals-protocol install requirement).
 3. **Dual/triple listeners on :50051** — orphan engines from prior devenv
    sessions + unit start made Status flaky (one process had lattice face, one
    did not). Killed orphans; start script warns and best-effort TERMs extra
@@ -32,7 +31,8 @@
 
 - Full target restart stops foundation (`just down`) then peers; ~1–2+ min when
   stacks are warm, longer cold.
-- Prefer proto fallback as the **reliable** accept path; reflection is DX.
+- **Reflection is required** on lattice ports (install `grpcio-reflection` /
+  enable ServerReflection). That is the accept path we define — not optional DX.
 - Core vs license-external: Metabase remains isolated AGPL peer; process group
   co-start does not change architecture class.
 

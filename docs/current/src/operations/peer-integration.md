@@ -132,13 +132,16 @@ Lab lattice:
 | Metabase | 50451 | `dashboard` | `metabase.service` | **License-external** (AGPL); isolated engine, not core family |
 
 ```bash
+# Reflection required on the lattice port (signals-protocol install requirement)
+grpcurl -plaintext 127.0.0.1:<port> list   # must include zndx.engine.v1.Engine
 grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
-just lattice-ci                      # SKIP absent; PASS listening
+just lattice-ci                      # SKIP absent; PASS listening (uses reflection)
 just lattice-ci --require gaius,aegir,atelier
 ```
 
-Spec: [signals-protocol](../components/signals-protocol.md) ·
-`components/signals-protocol` submodule in each peer tree.
+Python engines: depend on `grpcio-reflection` and enable reflection at server
+start. Spec: [engine_grpc.md — Server reflection](../../../components/signals-protocol/specification/protocol/engine_grpc.md#server-reflection-required) ·
+[signals-protocol](../components/signals-protocol.md).
 
 OIP (KServe Open Inference Protocol) is the long-term portable inference face;
 `Complete` remains a transitional convenience on many engines.
@@ -253,7 +256,7 @@ Tick accept in [peer-unit-spec](./peer-unit-spec.md).
 | **Stop is soft** | `just down` / processes down only — never teardown / GPU-deep-cleanup in the unit stop path |
 | **One engine process** | Two devenv daemons can both claim `:50051`; recycle *this* checkout’s engine for accept |
 | **FEDERATION.md vs peer-unit.md** | Mesh write-up ≠ lattice accept gate |
-| **lattice-ci** | Elevated CI gate; reflection optional (proto fallback OK) |
+| **lattice-ci** | Elevated CI gate; **reflection required** on lattice port |
 
 **Operator — finish accept (after engine recycle):**
 
@@ -357,13 +360,22 @@ On a host co-tenant with Gaius, devenv uses **`:50071`** for the servicer and
 
 ## External engines: Metabase (AGPL)
 
-Metabase is an **optional** external peer. The core Signals stack does **not**
-require it. Install only when you want federated **`dashboard`** capability.
+Metabase is **external by license requirement** (AGPL vs ASL2), not merely
+“optional product preference.” The Metabase engine (mbengine) is therefore
+**inherently isolated**: separate checkout, no vendoring into Signals or core
+peer trees, process + wire only. Architecturally it is **distinct** from the
+core federated engine family (Gaius, Ægir, Atelier, and future core projects
+such as synth or vigil). See
+[Core vs license-external engines](../architecture/signals-protocol-core.md#core-vs-license-external-engines).
+
+The core Signals stack does **not** require Metabase. Install only when you
+want federated **`dashboard`** capability.
 
 | Fact | Value |
 |------|--------|
-| License | **AGPL-3.0** (Signals is **Apache-2.0**) |
-| Role | External `dashboard` engine (`Status.project=metabase`) |
+| License | **AGPL-3.0** (Signals is **Apache-2.0**) — isolation is required |
+| Architecture | Isolated product engine; **not** Gaius-lineage / core peer family |
+| Role | License-external `dashboard` engine (`Status.project=metabase`) |
 | gRPC | `:50451` — `zndx.engine.v1.Engine` |
 | Product HTTP | `:3200` (health: `GET /api/health`) |
 | Engine Postgres | `:5577` (product-local; not signals `:5455`) |

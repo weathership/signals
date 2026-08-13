@@ -85,7 +85,13 @@
     "synth": 50351,
     "metabase": 50451,
     "service": "zndx.engine.v1.Engine",
-    "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto"
+    "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto",
+    "server_reflection": {
+      "required": true,
+      "accept": "grpcurl -plaintext host:port zndx.engine.v1.Engine/Status",
+      "spec": "components/signals-protocol/specification/protocol/engine_grpc.md#server-reflection-required",
+      "python": "grpcio-reflection enabled at engine server start"
+    }
   },
   "cloud_events": {
     "primary": {

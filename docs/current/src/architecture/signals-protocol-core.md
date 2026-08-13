@@ -72,6 +72,20 @@ requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
 
+### Install / configuration increments we define
+
+The contract is not only `.proto` files on disk — it includes **how engines
+present that contract on the wire**. One such increment:
+
+| Requirement | Why |
+|-------------|-----|
+| **gRPC server reflection** on every lattice `zndx.engine.v1.Engine` port | Operators and lattice-ci invoke the **same** gRPC methods with standard tools (`grpcurl host:port Service/Method`) without a second descriptor channel. Aligns with OIP-style “spec is the proto/gRPC service.” |
+
+Python engines: depend on `grpcio-reflection` (or equivalent) and enable
+reflection at server start so `grpcurl -plaintext <host>:<port> list` shows
+`zndx.engine.v1.Engine`. Lattice accept **fails** engines that omit it — this is
+intentional, not a gap.
+
 ## Layers
 
 ```text

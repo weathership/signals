@@ -34,6 +34,7 @@ Must:
   [ ] Unit ExecStart/Stop → those scripts (absolute paths)
   [ ] After=signals-ready.service · WantedBy/PartOf=signals.target
   [ ] Start waits until Engine/Status on contract gRPC port
+  [ ] gRPC **server reflection** enabled (`grpcio-reflection` or equivalent)
   [ ] Status.project matches contract (or project_status)
   [ ] Status advertises capability
   [ ] No bind on signals :5455 or RustFS :9010
@@ -41,8 +42,9 @@ Must:
 
 Accept:
   [ ] systemctl start <id>.service → active (RemainAfterExit oneshot OK)
+  [ ] grpcurl -plaintext 127.0.0.1:<port> list   # includes zndx.engine.v1.Engine
   [ ] grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require <id>
+  [ ] just lattice-ci --require <id>   # reflection path only
   [ ] (optional) product HTTP health
 
 Out of scope:
@@ -91,9 +93,8 @@ Must:
 Accept:
   [x] Recycle via `systemctl restart signals.target` (lab 2026-08-13) + orphan :50051 cleanup
   [x] systemctl start/restart gaius.service → active (oneshot; Status body project=gaius)
-  [x] grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
-      (reflection after grpcio-reflection; proto fallback remains ops path)
-  [x] just lattice-ci --require gaius     # elevated CI gate, not a smoke
+  [x] grpcurl -plaintext 127.0.0.1:50051 list / Engine/Status (reflection)
+  [x] just lattice-ci --require gaius     # elevated CI; reflection required
 
 Out of scope:
   - Metabase AGPL product, Ægir/Atelier internals
@@ -120,9 +121,8 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
   recycled, not a second stack.
 - Gaius-local Metabase `:3100` is not capability `dashboard` (AGPL peer
   `:3200` / `:50451`).
-- Unit already `install-systemd --peers gaius --enable`; **Accept still open**
-  until the live engine recycle above (lattice-ci currently FAILs Status RPC
-  on the pre-change process).
+- Unit enabled; **accept closed** after full `signals.target` restart validation
+  (2026-08-13): dual :50051 orphans fixed; reflection + lattice-ci green.
 
 ---
 

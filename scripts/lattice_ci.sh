@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # lattice-ci — elevated CI gate: probe zndx.engine.v1.Engine/Status on the gRPC lattice.
 #
+# Accept path uses gRPC *server reflection* (signals-protocol requirement):
+#   grpcurl -plaintext host:port zndx.engine.v1.Engine/Status
+# Engines MUST enable reflection on the lattice port. Local -proto is not accept.
+#
 # Reads config/platform/peer-contract.json. Default: peers that are *listening*
 # or have an active systemd unit are required; others are SKIP (not FAIL).
 #
@@ -104,22 +108,24 @@ FAILS=0
 PASSES=0
 SKIPS=0
 
+# Federation accept uses gRPC server reflection (signals-protocol requirement).
+# Bare grpcurl against the live port — no local -proto path for accept.
 probe_status() {
   local port="$1"
-  local out
-  if out=$(grpcurl -plaintext -max-time 3 "127.0.0.1:${port}" "$METHOD" 2>/dev/null); then
+  local out err
+  err=$(mktemp)
+  if out=$(grpcurl -plaintext -max-time 3 "127.0.0.1:${port}" "$METHOD" 2>"$err"); then
+    rm -f "$err"
     printf '%s' "$out"
     return 0
   fi
-  if [[ -d "$PROTO_DIR" ]]; then
-    if out=$(grpcurl -plaintext -max-time 3 \
-      -import-path "$PROTO_DIR" \
-      -proto zndx/engine/v1/engine.proto \
-      "127.0.0.1:${port}" "$METHOD" 2>/dev/null); then
-      printf '%s' "$out"
-      return 0
-    fi
+  # Distinguish missing reflection from missing Status implementation
+  if grep -qi 'reflection' "$err" 2>/dev/null; then
+    rm -f "$err"
+    echo "__NO_REFLECTION__"
+    return 2
   fi
+  rm -f "$err"
   return 1
 }
 
@@ -160,8 +166,10 @@ for line in "${PEER_LINES[@]}"; do
   fi
 
   body=""
-  if body=$(probe_status "$port"); then
-    detail="Status OK"
+  rc=0
+  body=$(probe_status "$port") || rc=$?
+  if [[ "$rc" -eq 0 && -n "$body" && "$body" != "__NO_REFLECTION__" ]]; then
+    detail="Status OK (reflection)"
     if [[ -n "$proj" ]] && ! echo "$body" | grep -qi "$proj"; then
       detail="Status OK (project '$proj' not in body — soft)"
     fi
@@ -171,8 +179,12 @@ for line in "${PEER_LINES[@]}"; do
     RESULTS+=("${pid}|${port}|PASS|${detail}")
     PASSES=$((PASSES + 1))
     printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "PASS" "$detail"
+  elif [[ "$rc" -eq 2 || "$body" == "__NO_REFLECTION__" ]]; then
+    RESULTS+=("${pid}|${port}|FAIL|gRPC reflection required (enable grpcio-reflection / ServerReflection)")
+    FAILS=$((FAILS + 1))
+    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "reflection required"
   else
-    RESULTS+=("${pid}|${port}|FAIL|listening but Status RPC failed")
+    RESULTS+=("${pid}|${port}|FAIL|listening but Status RPC failed (method missing or error)")
     FAILS=$((FAILS + 1))
     printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "Status RPC failed"
   fi
