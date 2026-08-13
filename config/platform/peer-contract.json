@@ -88,9 +88,13 @@
     "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto",
     "server_reflection": {
       "required": true,
-      "accept": "grpcurl -plaintext host:port zndx.engine.v1.Engine/Status",
-      "spec": "components/signals-protocol/specification/protocol/engine_grpc.md#server-reflection-required",
-      "python": "grpcio-reflection enabled at engine server start"
+      "purpose": "External tooling (bare grpcurl) without local descriptors",
+      "accept_external": "grpcurl -plaintext host:port zndx.engine.v1.Engine/Status"
+    },
+    "first_party_clients": {
+      "preferred": "codegen from components/signals-protocol/proto",
+      "status_probe": "scripts/zndx_engine_status.py",
+      "regenerate": "just gen-zndx-engine-py"
     }
   },
   "cloud_events": {

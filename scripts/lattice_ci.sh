@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# lattice-ci — elevated CI gate: probe zndx.engine.v1.Engine/Status on the gRPC lattice.
+# lattice-ci — elevated CI gate for the gRPC lattice (signals-protocol).
 #
-# Accept path uses gRPC *server reflection* (signals-protocol requirement):
-#   grpcurl -plaintext host:port zndx.engine.v1.Engine/Status
-# Engines MUST enable reflection on the lattice port. Local -proto is not accept.
+# Two complementary checks per listening peer:
+#   1) Protocol implementation: generated-stub Status client (proto = specification)
+#   2) External-tool surface: server reflection so bare grpcurl works without flags
 #
-# Reads config/platform/peer-contract.json. Default: peers that are *listening*
-# or have an active systemd unit are required; others are SKIP (not FAIL).
+# Engines MUST enable reflection (install requirement). Our scripts implement the
+# contract via codegen from components/signals-protocol — not informal probes.
 #
 # Usage:
 #   just lattice-ci
@@ -26,6 +26,7 @@ CONTRACT="${SIGNALS_PEER_CONTRACT:-$ROOT/config/platform/peer-contract.json}"
 FORMAT=text
 REQUIRE_CSV="${SIGNALS_LATTICE_REQUIRE:-}"
 REQUIRE_ALL=0
+STATUS_PY="$ROOT/scripts/zndx_engine_status.py"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -108,21 +109,27 @@ FAILS=0
 PASSES=0
 SKIPS=0
 
-# Federation accept uses gRPC server reflection (signals-protocol requirement).
-# Bare grpcurl against the live port — no local -proto path for accept.
-probe_status() {
+# (1) Proper protocol client — generated stubs from signals-protocol
+probe_status_codegen() {
+  local port="$1" proj="${2:-}" cap="${3:-}"
+  local args=(--json --timeout 3)
+  [[ -n "$proj" ]] && args+=(--expect-project "$proj")
+  [[ -n "$cap" ]] && args+=(--expect-capability "$cap")
+  uv run python "$STATUS_PY" "${args[@]}" "127.0.0.1:${port}" 2>/dev/null
+}
+
+# (2) External tooling surface — bare grpcurl requires server reflection
+probe_reflection() {
   local port="$1"
-  local out err
+  local err
   err=$(mktemp)
-  if out=$(grpcurl -plaintext -max-time 3 "127.0.0.1:${port}" "$METHOD" 2>"$err"); then
+  if grpcurl -plaintext -max-time 3 "127.0.0.1:${port}" list 2>"$err" \
+    | grep -q 'zndx.engine.v1.Engine'; then
     rm -f "$err"
-    printf '%s' "$out"
     return 0
   fi
-  # Distinguish missing reflection from missing Status implementation
   if grep -qi 'reflection' "$err" 2>/dev/null; then
     rm -f "$err"
-    echo "__NO_REFLECTION__"
     return 2
   fi
   rm -f "$err"
@@ -166,27 +173,30 @@ for line in "${PEER_LINES[@]}"; do
   fi
 
   body=""
-  rc=0
-  body=$(probe_status "$port") || rc=$?
-  if [[ "$rc" -eq 0 && -n "$body" && "$body" != "__NO_REFLECTION__" ]]; then
-    detail="Status OK (reflection)"
-    if [[ -n "$proj" ]] && ! echo "$body" | grep -qi "$proj"; then
-      detail="Status OK (project '$proj' not in body — soft)"
-    fi
-    if [[ -n "$cap" ]] && ! echo "$body" | grep -qi "$cap"; then
-      detail="${detail}; capability '$cap' not in body — soft"
-    fi
+  rc_code=0
+  body=$(probe_status_codegen "$port" "$proj" "$cap") || rc_code=$?
+  if [[ "$rc_code" -ne 0 ]]; then
+    RESULTS+=("${pid}|${port}|FAIL|Status RPC failed (generated client / signals-protocol)")
+    FAILS=$((FAILS + 1))
+    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "codegen Status failed"
+    continue
+  fi
+
+  rc_ref=0
+  probe_reflection "$port" || rc_ref=$?
+  if [[ "$rc_ref" -eq 0 ]]; then
+    detail="Status OK (codegen + reflection)"
     RESULTS+=("${pid}|${port}|PASS|${detail}")
     PASSES=$((PASSES + 1))
     printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "PASS" "$detail"
-  elif [[ "$rc" -eq 2 || "$body" == "__NO_REFLECTION__" ]]; then
-    RESULTS+=("${pid}|${port}|FAIL|gRPC reflection required (enable grpcio-reflection / ServerReflection)")
+  elif [[ "$rc_ref" -eq 2 ]]; then
+    RESULTS+=("${pid}|${port}|FAIL|Status OK via codegen but reflection missing (install grpcio-reflection)")
     FAILS=$((FAILS + 1))
-    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "reflection required"
+    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "reflection required for external grpcurl"
   else
-    RESULTS+=("${pid}|${port}|FAIL|listening but Status RPC failed (method missing or error)")
+    RESULTS+=("${pid}|${port}|FAIL|Status OK via codegen but reflection list incomplete")
     FAILS=$((FAILS + 1))
-    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "Status RPC failed"
+    printf '%-12s %-6s %-6s %s\n' "$pid" "$port" "FAIL" "reflection incomplete"
   fi
 done
 

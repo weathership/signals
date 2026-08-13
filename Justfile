@@ -303,7 +303,11 @@ stack-ready:
 signals-ready *ARGS:
     bash scripts/signals_ready.sh {{ARGS}}
 
-# gRPC lattice CI: Engine/Status for peers in peer-contract (SKIP if down).
+# Regenerate Python stubs from components/signals-protocol (spec → codegen).
+gen-zndx-engine-py:
+    bash scripts/gen_zndx_engine_py.sh
+
+# gRPC lattice CI: generated Status client + reflection check (SKIP if down).
 # Require subset: just lattice-ci --require gaius,metabase
 lattice-ci *ARGS:
     bash scripts/lattice_ci.sh {{ARGS}}

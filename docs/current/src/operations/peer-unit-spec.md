@@ -44,7 +44,7 @@ Accept:
   [ ] systemctl start <id>.service → active (RemainAfterExit oneshot OK)
   [ ] grpcurl -plaintext 127.0.0.1:<port> list   # includes zndx.engine.v1.Engine
   [ ] grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require <id>   # reflection path only
+  [ ] just lattice-ci --require <id>   # codegen Status + reflection check
   [ ] (optional) product HTTP health
 
 Out of scope:

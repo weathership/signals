@@ -72,19 +72,25 @@ requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
 
-### Install / configuration increments we define
+### Spec vs tooling surfaces
 
-The contract is not only `.proto` files on disk — it includes **how engines
-present that contract on the wire**. One such increment:
+| Layer | Role |
+|-------|------|
+| **`.proto` + gRPC services** | The specification (OIP-aligned). Codegen is how we **implement** clients and servers. |
+| **Generated stubs** | First-party path for lattice-ci, unit probes, peer libraries (`scripts/zndx_engine_status.py`, peer `engine/generated/`, …). |
+| **gRPC server reflection** | Install requirement so **external** tools can use bare `grpcurl host:port Method` without cloning our tree. |
+
+Reflection is not a substitute for the proto. First-party scripts should not
+prefer “raw grpcurl -proto” as a substitute for codegen — they should call
+generated clients from `signals-protocol`.
 
 | Requirement | Why |
 |-------------|-----|
-| **gRPC server reflection** on every lattice `zndx.engine.v1.Engine` port | Operators and lattice-ci invoke the **same** gRPC methods with standard tools (`grpcurl host:port Service/Method`) without a second descriptor channel. Aligns with OIP-style “spec is the proto/gRPC service.” |
+| **Codegen from `proto/`** | Proper protocol implementation for engines and our automation |
+| **Server reflection on lattice ports** | External/operator grpcurl without extra steps |
 
-Python engines: depend on `grpcio-reflection` (or equivalent) and enable
-reflection at server start so `grpcurl -plaintext <host>:<port> list` shows
-`zndx.engine.v1.Engine`. Lattice accept **fails** engines that omit it — this is
-intentional, not a gap.
+Python engines: `grpcio-reflection` + enable at server start. Lattice-ci runs
+**both** a generated Status client and a reflection check.
 
 ## Layers
 
