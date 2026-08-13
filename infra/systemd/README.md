@@ -145,8 +145,9 @@ Foundation `ExecStart` uses repo wrappers so Postgres lattice stop is correct
 **Peer pattern (required before enable):** each peer tree owns
 `scripts/systemd_start.sh` / `systemd_stop.sh` that block until
 `Engine/Status` on the contract port (Metabase is the reference implementation).
-Sample units for gaius/aegir/atelier still point at temporary `just up` shells
-until those peer sessions land — then update units to absolute wrapper paths.
+Sample units for aegir/atelier still point at temporary `just up` shells
+until those peer sessions land. **Gaius wrappers landed** — `gaius.service`
+ExecStart/Stop point at `~/local/src/zndx/gaius/scripts/systemd_{start,stop}.sh`.
 
 Full ops for every peer:
 [docs/current/src/operations/peer-integration.md](../../docs/current/src/operations/peer-integration.md).

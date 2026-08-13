@@ -62,7 +62,8 @@ sudo systemctl start signals.target   # not bare "signals"
 
 ## Filled: gaius
 
-**Ops:** [Peer integration — Gaius](./peer-integration.md#gaius)
+**Ops:** [Peer integration — Gaius](./peer-integration.md#gaius)  
+**Product SoR (in Gaius tree):** `docs/current/src/operations/peer-unit.md`
 
 ```text
 Title: peer-unit@gaius lattice join
@@ -71,30 +72,57 @@ Peer id: gaius
 Repo path: ~/local/src/zndx/gaius
 Unit: gaius.service  (sample: signals infra/systemd/gaius.service)
 gRPC port: 50051
-Postgres lattice: 5444
+Postgres lattice: 5444   (db zndx_gaius)
 Capability (Status): cognition  (capability_hint)
 License: project-specific · external=false
 
 Must:
-  [ ] scripts/systemd_start.sh + systemd_stop.sh (Metabase pattern)
-  [ ] Unit Exec* → those scripts; After=signals-ready.service
-  [ ] Wait until zndx.engine.v1.Engine/Status on :50051
-  [ ] Status.project ~ gaius; capability advertised
-  [ ] PG only on :5444 — never :5455
-  [ ] Platform Metaflow URL when joining federation (not Tilt as SoR)
+  [x] WorkingDirectory = ~/local/src/zndx/gaius
+  [x] scripts/systemd_start.sh + systemd_stop.sh (Metabase pattern)
+  [x] Unit Exec* → those scripts; After=signals-ready.service
+  [x] Wait until zndx.engine.v1.Engine/Status on :50051
+      (native GaiusService + OIP already share this port — TCP listen ≠ Status)
+  [x] Status.project ~ gaius; capability cognition advertised
+  [x] PG only on :5444 — never :5455
+  [x] Platform Metaflow URL when joining federation (not Tilt as SoR)
+  [x] systemd_stop / just down = devenv processes down only
+      (never just teardown / gpu-deep-cleanup — those kill sibling GPU leases)
 
 Accept:
-  [ ] systemctl start gaius.service → active
+  [ ] Recycle running gaius-engine so the lattice servicer is bound
+  [ ] systemctl start gaius.service → active (oneshot; skip-up if Status already OK)
   [ ] grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require gaius
+      (lattice-ci proto fallback is fine — grpc reflection often absent)
+  [ ] just lattice-ci --require gaius     # elevated CI gate, not a smoke
 
 Out of scope:
   - Metabase AGPL product, Ægir/Atelier internals
   - signals critical plane
+  - Gaius-local Metabase :3100 as federation dashboard
+  - Implementing Remediate on this face (Aegir :50151)
+  - GPU-mesh write-up in src/gaius/engine/FEDERATION.md (not the accept gate)
 ```
 
-**Peer session focus:** wrappers + federation Status on `:50051`; health/FMEA
-stays Gaius-local. Reference: `src/gaius/engine/FEDERATION.md`.
+**Peer session focus (done):** wrappers + **third servicer**
+`zndx.engine.v1.Engine` on the existing `:50051` server (beside `GaiusService`
++ OIP). Health/FMEA stays Gaius-local (`/health fix engine`). Product notes:
+Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
+(older KServe mesh).
+
+**Gaius-specific (lab):**
+
+- Status is live at gRPC bind (engine init phase GRPC, ~1s). Do not wait for
+  vLLM/endpoint load (~240s) to declare lattice ready.
+- `just up` / `just down` exist for the wrappers; `restart-clean` is a full
+  product recycle, not the unit start path.
+- Two devenv process-compose daemons can both hold `:50051` — `devenv
+  processes restart` may no-op. Accept needs *this* checkout's engine process
+  recycled, not a second stack.
+- Gaius-local Metabase `:3100` is not capability `dashboard` (AGPL peer
+  `:3200` / `:50451`).
+- Unit already `install-systemd --peers gaius --enable`; **Accept still open**
+  until the live engine recycle above (lattice-ci currently FAILs Status RPC
+  on the pre-change process).
 
 ---
 

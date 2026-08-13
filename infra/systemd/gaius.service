@@ -1,8 +1,7 @@
 [Unit]
 Description=Gaius federated engine (signals peer)
 Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md
-# Peer session: replace Exec* with gaius scripts/systemd_{start,stop}.sh
-# that wait for Engine/Status on :50051 (Metabase pattern).
+Documentation=file:///home/rch/local/src/zndx/gaius/docs/current/src/operations/peer-unit.md
 PartOf=signals.target
 After=signals-ready.service network-online.target
 Wants=signals-ready.service network-online.target
@@ -14,10 +13,10 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/gaius
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
-# Temporary until peer wrappers land:
-ExecStart=/bin/bash -lc 'just up 2>/dev/null || devenv up -d'
-ExecStop=/bin/bash -lc 'just down 2>/dev/null || devenv processes down || true'
-TimeoutStartSec=900
+# Wrappers live in the Gaius tree; they block until Engine/Status on :50051.
+ExecStart=/home/rch/local/src/zndx/gaius/scripts/systemd_start.sh
+ExecStop=/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh
+TimeoutStartSec=1200
 TimeoutStopSec=300
 
 [Install]

@@ -202,8 +202,14 @@ Acceptance templates: [peer-unit-spec](./peer-unit-spec.md).
 
 These sections are the **operations reference** for peer-repo integration
 sessions and for Signals operators who enable the peer after that work lands.
-Status: **Metabase complete**; Gaius / Ægir / Atelier **pattern ready — implement
-in peer tree**, then tick accept in [peer-unit-spec](./peer-unit-spec.md).
+
+| Peer | Status |
+|------|--------|
+| **Metabase** | Complete (AGPL optional) |
+| **Gaius** | Wrappers + unit + `zndx.engine.v1.Engine` face **landed**; **accept open** until live engine recycle binds Status on `:50051` |
+| **Ægir / Atelier** | Pattern ready — implement in peer tree |
+
+Tick accept in [peer-unit-spec](./peer-unit-spec.md).
 
 ### Gaius
 
@@ -211,40 +217,50 @@ in peer tree**, then tick accept in [peer-unit-spec](./peer-unit-spec.md).
 |------|--------|
 | Role | Cognition / product engine; federation mesh participant |
 | Checkout (lab) | `~/local/src/zndx/gaius` |
-| Unit sample | [`infra/systemd/gaius.service`](../../../infra/systemd/gaius.service) |
-| gRPC lattice | **`:50051`** — `zndx.engine.v1.Engine` (+ native Gaius service) |
+| Unit sample | [`infra/systemd/gaius.service`](../../../infra/systemd/gaius.service) → Gaius `scripts/systemd_{start,stop}.sh` |
+| gRPC lattice | **`:50051`** — `zndx.engine.v1.Engine` **beside** native `GaiusService` + OIP |
 | Postgres lattice | **`:5444`** (`zndx_gaius`) — never `:5455` |
-| Capability hint | `cognition` |
-| Product lifecycle | `just up` / devenv processes (`gaius-engine`, …) |
-| Platform Metaflow | Prefer `METAFLOW_SERVICE_URL=http://127.0.0.1:30180` + platform profile when joining Signals; avoid treating local Tilt Metaflow as SoR |
-| Events | e.g. `dev.gaius.article.curate.requested` → platform Broker (mapped in contract) |
-| Peer session focus | [peer-unit-spec — gaius](./peer-unit-spec.md#filled-gaius) |
-| Product notes | `src/gaius/engine/FEDERATION.md`, `just` / devenv process graph |
+| Capability | `cognition` (`Status.project=gaius`) |
+| Product lifecycle | `just up` / `just down` (wrappers); process `gaius-engine` |
+| Platform Metaflow | `METAFLOW_SERVICE_URL=http://127.0.0.1:30180` + platform profile when federated |
+| Events | e.g. `dev.gaius.article.curate.requested` → platform Broker |
+| Signals checklist | [peer-unit-spec — gaius](./peer-unit-spec.md#filled-gaius) |
+| Product ops (SoR for unit) | Gaius tree `docs/current/src/operations/peer-unit.md` |
+| Not the accept gate | `src/gaius/engine/FEDERATION.md` (older KServe/GPU mesh) |
 
-**Peer session deliverables (in Gaius tree):**
+**Landed in Gaius tree (peer session):**
 
-1. `scripts/systemd_start.sh` / `systemd_stop.sh` (Metabase pattern): start stack,
-   wait until `Engine/Status` on **:50051** (and any product ready you define).
-2. Align sample unit `ExecStart`/`ExecStop` with those scripts; `TimeoutStartSec`
-   large enough for engine + GPU cold start if applicable.
-3. Confirm `Status.project` / capability advertising for lattice soft checks.
-4. Document platform Metaflow/CE usage for production flows.
+1. `scripts/systemd_start.sh` / `systemd_stop.sh` — wait for **Status** (not only TCP).
+2. `GaiusZndxEngineServicer` on the existing gRPC server (`project=gaius`, capability `cognition`).
+3. Product doc `docs/current/src/operations/peer-unit.md`.
+4. Unit installed: `just install-systemd --peers gaius --enable` (lab host).
 
-**Operator (after peer accept):**
+**Lessons for other peers (from Gaius):**
+
+| Lesson | Detail |
+|--------|--------|
+| **TCP ≠ Status** | Native service already on `:50051` did not imply `zndx.engine.v1.Engine/Status` |
+| **Third servicer** | Register lattice face **beside** native (+ OIP); do not replace product gRPC |
+| **Status early** | Status is live at gRPC bind (~phase GRPC); do **not** wait for vLLM/endpoint load |
+| **Stop is soft** | `just down` / processes down only — never teardown / GPU-deep-cleanup in the unit stop path |
+| **One engine process** | Two devenv daemons can both claim `:50051`; recycle *this* checkout’s engine for accept |
+| **FEDERATION.md vs peer-unit.md** | Mesh write-up ≠ lattice accept gate |
+| **lattice-ci** | Elevated CI gate; reflection optional (proto fallback OK) |
+
+**Operator — finish accept (after engine recycle):**
 
 ```bash
+# In Gaius: restart gaius-engine so the lattice servicer is bound
+# e.g. devenv processes restart gaius-engine   (from this checkout only)
+
 cd ~/local/src/wxs/signals
-just install-systemd --peers gaius --enable
-# fix paths in /etc/systemd/system/gaius.service if needed
-sudo systemctl start signals.target
+sudo systemctl start signals.target    # or: sudo systemctl start gaius
 grpcurl -plaintext 127.0.0.1:50051 zndx.engine.v1.Engine/Status
 just lattice-ci --require gaius
 ```
 
-**Caution:** Gaius historically co-hosts other lab surfaces (e.g. local Metabase
-on `:3100`). Platform dashboard is the **AGPL Metabase peer** on `:3200` /
-`:50451` — do not re-bind Signals ports or treat Gaius-local Metabase as the
-federation dashboard capability.
+**Caution:** Gaius-local Metabase on `:3100` is **not** federation `dashboard`.
+That is the optional AGPL Metabase peer (`:3200` / `:50451`).
 
 ---
 
