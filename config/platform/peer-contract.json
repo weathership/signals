@@ -143,10 +143,11 @@
         "signals-ready.service"
       ],
       "notes": [
-        "In-org peer \u2014 lattice :50251 (capability); native servicer may be :50071 on co-tenant hosts",
-        "Lattice accept: Engine/Status on :50251",
-        "Operator: just install-systemd --peers atelier --enable; systemctl start signals.target",
-        "Ops guide: docs/current/src/operations/peer-integration.md#atelier"
+        "Complete under signals.target (2026-08-13)",
+        "Unit starts python -m atelier.engine.server on :50251 only \u2014 not product :50071",
+        "codegen Status + reflection; soft stop; dual-bind guard",
+        "Product SoR: atelier docs/current/src/operations/peer-unit.md",
+        "Ops: docs/current/src/operations/peer-integration.md#atelier"
       ],
       "architecture_class": "core_federated_engine"
     },

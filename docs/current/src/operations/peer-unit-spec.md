@@ -202,7 +202,8 @@ Out of scope:
 
 ## Filled: atelier
 
-**Ops:** [Peer integration — Atelier](./peer-integration.md#atelier)
+**Ops:** [Peer integration — Atelier](./peer-integration.md#atelier)  
+**Accept closed 2026-08-13** (engine-only unit, mirror Ægir).
 
 ```text
 Title: peer-unit@atelier lattice join
@@ -216,25 +217,31 @@ Postgres lattice: 5533
 Capability (Status): referee  (capability_hint)
 License: project-specific · external=false
 
-Must:
-  [ ] scripts/systemd_start.sh + systemd_stop.sh
-  [ ] Wait on Engine/Status at :50251 (not only :50071 servicer ready)
-  [ ] After=signals-ready.service · WantedBy=signals.target
-  [ ] Document dual-port layout for operators
-  [ ] PG only on :5533
+Must (landed 2026-08-13):
+  [x] scripts/systemd_start.sh + systemd_stop.sh (engine-only, mirror Ægir)
+  [x] Enable gRPC server reflection on :50251
+  [x] Wait on codegen Status project=atelier (not product :50071)
+  [x] Status advertises referee (+ configured caps) at gRPC bind
+  [x] Soft stop — TERM engine only; no product stack / GPU wipe
+  [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
+  [x] docs/current/src/operations/peer-unit.md
+  [x] PG only on :5533; never :5455 / :9010
 
 Accept:
-  [ ] systemctl start atelier.service → active
-  [ ] grpcurl -plaintext 127.0.0.1:50251 zndx.engine.v1.Engine/Status
-  [ ] just lattice-ci --require atelier
+  [x] systemctl start/enable atelier.service → active under signals.target
+  [x] grpcurl -plaintext 127.0.0.1:50251 list / Engine/Status
+  [x] just lattice-ci --require atelier   # codegen + reflection
+  [ ] (optional) product just up / servicer :50071 for workbench UX
 
 Out of scope:
   - CAI single-tenant :50051 defaults on co-tenant hosts
   - signals critical plane
+  - requiring vLLM cold-load for unit active
 ```
 
-**Peer session focus:** lattice port **50251** is the accept gate; native
-servicer **50071** is product API on multi-engine labs.
+**Implementation notes:** same engine-only model as Ægir (`python -m
+atelier.engine.server`, setsid + `/tmp/atelier-engine/`). Product servicer
+`:50071` stays off the lattice unit path.
 
 ---
 

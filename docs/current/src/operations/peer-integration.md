@@ -230,7 +230,7 @@ sessions and for Signals operators who enable the peer after that work lands.
 | **Metabase** | Complete (license-external AGPL; isolated engine) |
 | **Gaius** | Complete under `signals.target` (codegen Status + reflection + lattice-ci) |
 | **Ægir** | Complete under `signals.target` (codegen Status + reflection + lattice-ci) |
-| **Atelier** | Pattern ready after Ægir |
+| **Atelier** | Complete under `signals.target` (engine-only `:50251`, product `:50071` separate) |
 
 Tick accept in [peer-unit-spec](./peer-unit-spec.md).
 
@@ -335,27 +335,26 @@ session** after Gaius.
 
 **Landed in Ægir tree (peer session):**
 
-1. gRPC server reflection on `:50151` (advertises `zndx.engine.v1.Engine`).
-2. `scripts/systemd_start.sh` / `systemd_stop.sh` — start capability engine,
-   wait on codegen Status (`project=aegir`); soft stop (no teardown / GPU wipe).
+1. gRPC server reflection on `:50151`.
+2. Unit wrappers start **only** `python -m aegir.engine.server` (setsid +
+   `/tmp/aegir-engine/unit_server.{pid,log}`); codegen Status wait; soft stop;
+   dual-bind guard. **Not** `just up` / **not** `engine-supervise`.
 3. Product `docs/current/src/operations/peer-unit.md`.
-4. Sample unit Exec* → those scripts.
+4. Signals `aegir.service` Exec* → wrappers; enabled under `signals.target`.
+5. Live: `lattice-ci --require gaius,aegir,metabase` → OK.
 
-**Operator (after peer accept):**
+**Operator:**
 
 ```bash
 just install-systemd --peers aegir --enable
-# edit /etc/systemd/system/aegir.service paths if needed
 sudo systemctl start signals.target   # or: sudo systemctl start aegir
 grpcurl -plaintext 127.0.0.1:50151 list
 grpcurl -plaintext 127.0.0.1:50151 zndx.engine.v1.Engine/Status
 just lattice-ci --require gaius,aegir,metabase
 ```
 
-**Caution:** A unit that only runs `just up` can go `active` while lattice-ci
-still FAILs on `:50151`. Status-at-gRPC-bind is enough for lattice ready; do not
-block unit success on full vLLM cold-load unless product requires it (Gaius:
-Status early, models later).
+**Lesson for Atelier:** product servicer (`:50071`) and lattice engine (`:50251`)
+stay separate start paths; unit accept is engine Status only (mirror this unit).
 
 ---
 
@@ -364,37 +363,33 @@ Status early, models later).
 | Fact | Value |
 |------|--------|
 | Role | Referee / CAI; capability engine on lattice |
+| Architecture class | **core_federated_engine** |
 | Checkout (lab) | `~/local/src/zndx/atelier` |
-| Unit sample | [`infra/systemd/atelier.service`](../../../infra/systemd/atelier.service) |
-| gRPC lattice | **`:50251`** — capability / `zndx.engine.v1.Engine` |
-| Native servicer (devenv co-tenant) | **`:50071`** (`ATELIER_GRPC_PORT`) — product API; **not** the lattice accept port |
+| Unit sample | [`infra/systemd/atelier.service`](../../../infra/systemd/atelier.service) → wrappers |
+| gRPC lattice | **`:50251`** — native `AtelierEngine` + **`zndx.engine.v1.Engine`** + reflection |
+| Product servicer | **`:50071`** (devenv) — **not** lattice accept |
 | Postgres lattice | **`:5533`** |
-| Capability hint | `referee` |
-| Product lifecycle | `just up` / devenv (grpc-server, gateway, qdrant, …) |
-| Engine face | Capability engine recipes in `justfile` (`:50251`; vLLM children on foreign CUDA env) |
-| Peer session focus | [peer-unit-spec — atelier](./peer-unit-spec.md#filled-atelier) |
+| Capability / Status | `project=atelier`; advertises **referee** (+ configured instruct/referee models) |
+| Engine process (unit) | **`python -m atelier.engine.server` only** — not `just up` |
+| Product SoR | Atelier `docs/current/src/operations/peer-unit.md` |
+| Session checklist | [peer-unit-spec — atelier](./peer-unit-spec.md#filled-atelier) (**accept closed**) |
 
-**Peer session deliverables (in Atelier tree):**
+**Landed (2026-08-13):**
 
-1. Wrappers that wait on **`Engine/Status` at :50251** (lattice), not only
-   native `:50071` readiness.
-2. Document dual-port layout clearly for operators (servicer vs federation).
-3. Align `infra/systemd/atelier.service` sample paths; long `TimeoutStartSec` if
-   models load at start.
-4. Platform Metaflow/Airflow only when joining federated production paths.
+- Reflection + Status placeholders at gRPC bind (Status early, models later).
+- Engine-only unit (Ægir pattern): setsid + `/tmp/atelier-engine/unit_server.{pid,log}`.
+- Codegen Status wait; soft stop; dual-bind guard on `:50251`.
+- Live: `lattice-ci --require gaius,aegir,atelier,metabase` → OK.
 
-**Operator (after peer accept):**
+**Operator:**
 
 ```bash
 just install-systemd --peers atelier --enable
 sudo systemctl start signals.target
+grpcurl -plaintext 127.0.0.1:50251 list
 grpcurl -plaintext 127.0.0.1:50251 zndx.engine.v1.Engine/Status
-just lattice-ci --require atelier
+just lattice-ci --require gaius,aegir,atelier,metabase
 ```
-
-**Caution:** README defaults sometimes mention gRPC `:50051` (CAI / single-tenant).
-On a host co-tenant with Gaius, devenv uses **`:50071`** for the servicer and
-**`:50251`** for the capability engine. Lattice CI only cares about **`:50251`**.
 
 ---
 
