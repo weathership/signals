@@ -3,6 +3,13 @@
 How sibling engines and **license-external** services attach to the Signals
 foundation without re-hosting the critical plane.
 
+**Hub model:** Signals is **late and thin on gRPC engine depth** by design —
+Gaius / Ægir / Atelier hold that foundation. This tree centralizes **control**
+(critical plane, `signals.target`, peer-contract, lattice-ci, platform
+Metaflow/CE/YK/Atlas) so iterative cycles from here can surface and converge
+engine depth in the peer repos. See
+[Signals as hub, peers as engine depth](../architecture/signals-protocol-core.md#signals-as-hub-peers-as-engine-depth).
+
 **End state (lab):** after each peer finishes its local unit work and is
 **enabled** under the group:
 

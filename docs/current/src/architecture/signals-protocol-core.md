@@ -72,6 +72,29 @@ requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
 
+### Signals as hub, peers as engine depth
+
+This product **comes in late on the gRPC engine axis**: Gaius, Ægir, and Atelier
+already carry the thick capability-engine implementations (multi-face gRPC,
+vLLM managers, co-tenancy, Remediate, product services). Signals is
+intentionally **thin** there because the job is to **build on that foundation**
+— not re-implement engines in this tree.
+
+What Signals *does* centralize (and what accelerates the overall initiative):
+
+| Hub control | Role |
+|-------------|------|
+| Critical plane + `signals-ready` | One foundation readiness gate |
+| `signals.target` + peer units | One group lifecycle for co-tenant engines |
+| `peer-contract` + lattice-ci | One accept surface (codegen Status + reflection) |
+| Platform Metaflow / Airflow / Eventing / YK / Atlas | Shared production path without re-hosting |
+| `signals-protocol` pin | One wire contract to promote peer-proven shapes into |
+
+**Iterative cycles from this repo** are the intended mode: drive from hub
+control and protocol gaps, then land depth in gaius / aegir / atelier (and
+future core peers) where the engines already live. Peer sessions stay product-
+local; convergence is measured here (`lattice-ci`, unit graph, protocol bumps).
+
 ### Spec vs tooling surfaces
 
 | Layer | Role |
