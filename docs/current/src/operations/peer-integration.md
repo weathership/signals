@@ -167,7 +167,8 @@ Gaius/Ægir/Atelier — Metabase is
 
 3. **Wrappers in the peer tree** (not signals, not multiline shell in the unit):
    - `scripts/systemd_start.sh` — idempotent up; **block until accept probes pass**
-   - `scripts/systemd_stop.sh` — lattice-safe / product-safe down  
+   - `scripts/systemd_stop.sh` — **peer-scoped full stop** of *this* unit’s
+     engine (and its vLLM children), not a half-hearted pause  
    Unit `ExecStart=` / `ExecStop=` point at those absolute paths under the peer
    checkout. systemd rejects fragile multiline shell; Metabase hit this first.
 
@@ -196,6 +197,27 @@ Gaius/Ægir/Atelier — Metabase is
 9. **Product doc** in the peer tree (Gaius pattern):
    `docs/current/src/operations/peer-unit.md` — unit SoR for that project;
    not mesh/`FEDERATION.md` history.
+
+### Unit stop: peer-scoped, not “soft”
+
+**Avoid the phrase “peer-scoped unit stop” in peer docs going forward.** It sounds like
+incomplete shutdown. The real requirement is:
+
+| Must | Must not |
+|------|----------|
+| **Fully stop this peer’s lattice unit** — engine process, process group, and vLLM/worker children it owns | Leave the lattice port listening “for convenience” |
+| TERM → grace → KILL if needed; call engine `mgr.shutdown()` / process-group teardown | Host-wide `just teardown`, `gpu-deep-cleanup`, or kill-by-pattern that matches **sibling** peers |
+| Release **this** peer’s GPU leases / free **this** peer’s GPUs | Wipe `/tmp/zndx-gpu-leases` or nvidia processes owned by Gaius/Ægir/Atelier others |
+| Leave product-only surfaces alone when the unit is engine-only (e.g. Atelier `:50071`, Ægir gateway) | Pretend product stack stop is the lattice stop (or vice versa) |
+
+**Why the confusion:** early Gaius unit stop used `just down` / `devenv processes
+down` and explicitly avoided teardown recipes that historically killed
+co-tenant GPUs. That is **lease-safe / co-tenant-safe**, not “don’t really stop.”
+Engine-only units (Ægir, Atelier) should stop the **engine hard**; they should
+not run product teardown.
+
+**Preferred names in docs/scripts:** *peer-scoped stop*, *unit stop*, or
+*lease-safe stop* — not *peer-scoped unit stop*.
 
 ### Operator flow (any peer)
 
@@ -265,7 +287,7 @@ Tick accept in [peer-unit-spec](./peer-unit-spec.md).
 | **TCP ≠ Status** | Native service already on `:50051` did not imply `zndx.engine.v1.Engine/Status` |
 | **Third servicer** | Register lattice face **beside** native (+ OIP); do not replace product gRPC |
 | **Status early** | Status is live at gRPC bind (~phase GRPC); do **not** wait for vLLM/endpoint load |
-| **Stop is soft** | `just down` / processes down only — never teardown / GPU-deep-cleanup in the unit stop path |
+| **Stop is peer-scoped, not weak** | Fully stop *this* peer’s engine (+ children); **never** host-wide teardown / `gpu-deep-cleanup` that kills sibling leases (see [Unit stop](#unit-stop-peer-scoped-not-soft)) |
 | **One engine process** | Two devenv daemons can both claim `:50051`; recycle *this* checkout’s engine for accept |
 | **FEDERATION.md vs peer-unit.md** | Mesh write-up ≠ lattice accept gate |
 | **lattice-ci** | Elevated CI gate; **reflection required** on lattice port |
@@ -306,7 +328,7 @@ session** after Gaius.
 > `/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh`,  
 > `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
 > Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
-> on codegen Status (not gateway stack-health), soft stop, product peer-unit.md.  
+> on codegen Status (not gateway stack-health), peer-scoped unit stop, product peer-unit.md.  
 > Do not re-architect the multi-face engine.
 
 | Fact | Value |
@@ -337,7 +359,7 @@ session** after Gaius.
 
 1. gRPC server reflection on `:50151`.
 2. Unit wrappers start **only** `python -m aegir.engine.server` (setsid +
-   `/tmp/aegir-engine/unit_server.{pid,log}`); codegen Status wait; soft stop;
+   `/tmp/aegir-engine/unit_server.{pid,log}`); codegen Status wait; peer-scoped unit stop;
    dual-bind guard. **Not** `just up` / **not** `engine-supervise`.
 3. Product `docs/current/src/operations/peer-unit.md`.
 4. Signals `aegir.service` Exec* → wrappers; enabled under `signals.target`.
@@ -399,7 +421,7 @@ stay separate start paths; unit accept is engine Status only (mirror this unit).
 
 - Reflection + Status placeholders at gRPC bind (Status early, models later).
 - Engine-only unit (Ægir pattern): setsid + `/tmp/atelier-engine/unit_server.{pid,log}`.
-- Codegen Status wait; soft stop; dual-bind guard on `:50251`.
+- Codegen Status wait; peer-scoped unit stop; dual-bind guard on `:50251`.
 - Live: `lattice-ci --require gaius,aegir,atelier,metabase` → OK.
 
 **Operator:**

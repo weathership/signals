@@ -37,6 +37,8 @@ Must:
   [ ] gRPC **server reflection** enabled (`grpcio-reflection` or equivalent)
   [ ] Status.project matches contract (or project_status)
   [ ] Status advertises capability
+  [ ] **Peer-scoped unit stop**: fully stop this engine + its workers; do NOT
+      host-wide teardown / gpu-deep-cleanup that kills siblings (not "peer-scoped unit stop")
   [ ] No bind on signals :5455 or RustFS :9010
   [ ] If external/AGPL: no source/jar vendored into weathership/signals
 
@@ -145,7 +147,7 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
 > `/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh`,  
 > `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
 > Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
-> on codegen Status (not gateway stack-health), soft stop, product  
+> on codegen Status (not gateway stack-health), peer-scoped unit stop, product  
 > `docs/current/src/operations/peer-unit.md`. Do not re-architect the multi-face engine.
 
 ```text
@@ -170,7 +172,7 @@ Must (this session):
   [x] Start brings capability engine on :50151 via `python -m aegir.engine.server`
       (NOT just up stack-health; NOT engine-supervise / SERVING wait)
   [x] Start waits on codegen Status project=aegir (scripts/zndx_status_ok.py)
-  [x] Soft stop — TERM engine only; no teardown / GPU wipe of siblings
+  [x] Peer-scoped unit stop — TERM engine only; no teardown / GPU wipe of siblings
   [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
   [x] docs/current/src/operations/peer-unit.md (product SoR for the unit)
   [x] PG only on :5555; never :5455 / :9010
@@ -234,7 +236,7 @@ Out of scope:
 > `pyproject.toml` grpcio-reflection,  
 > `docs/current/src/operations/peer-unit.md`); add SUMMARY link if missing;  
 > add a small Status/reflection test if useful; verify dual-port docs  
-> (lattice `:50251` vs product `:50071`); confirm soft stop does not touch  
+> (lattice `:50251` vs product `:50071`); confirm peer-scoped unit stop does not touch  
 > Gaius/Ægir leases; re-run  
 > `cd /home/rch/local/src/wxs/signals && just lattice-ci --require atelier`  
 > and bare  
@@ -259,7 +261,7 @@ Must (landed 2026-08-13):
   [x] Enable gRPC server reflection on :50251
   [x] Wait on codegen Status project=atelier (not product :50071)
   [x] Status advertises referee (+ configured caps) at gRPC bind
-  [x] Soft stop — TERM engine only; no product stack / GPU wipe
+  [x] Peer-scoped unit stop — TERM engine only; no product stack / GPU wipe
   [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
   [x] docs/current/src/operations/peer-unit.md
   [x] PG only on :5533; never :5455 / :9010
