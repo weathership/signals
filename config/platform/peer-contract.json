@@ -95,7 +95,8 @@
       "preferred": "codegen from components/signals-protocol/proto",
       "status_probe": "scripts/zndx_engine_status.py",
       "regenerate": "just gen-zndx-engine-py"
-    }
+    },
+    "signals": 50551
   },
   "cloud_events": {
     "primary": {
@@ -112,6 +113,25 @@
   },
   "peers": [
     {
+      "id": "signals",
+      "capability_hint": "scheduler",
+      "grpc_port": 50551,
+      "pg_port": 5455,
+      "license": "Apache-2.0",
+      "path_hint": "~/local/src/wxs/signals",
+      "unit": "signals-engine.service",
+      "after": [
+        "signals-ready.service"
+      ],
+      "architecture_class": "platform_engine",
+      "notes": [
+        "Signals platform engine: multi-service gRPC Engine + zndx.scheduler.v1.Scheduler",
+        "Lab backend model=yunikorn; clients use engine gRPC only \u2014 never vendor REST as product path",
+        "Projection: build/dev/{current,scratch,archive}",
+        "Lattice :50551; YK REST private at SIGNALS_YK_API_URL"
+      ]
+    },
+    {
       "id": "aegir",
       "capability_hint": "instruct",
       "grpc_port": 50151,
@@ -123,9 +143,9 @@
         "signals-ready.service"
       ],
       "notes": [
-        "Complete under signals.target (2026-08-13)",
-        "Unit starts python -m aegir.engine.server only \u2014 not just up / not engine-supervise",
-        "codegen Status + reflection; soft stop; dual-bind guard on :50151",
+        "Full-stack under signals.target (2026-08-13 remediation): just up / devenv up",
+        "Unit starts full product stack \u2014 capability-engine :50151 + gateway :8091 + vite :5173",
+        "codegen Status + reflection + product UI health; peer-scoped full-stack stop",
         "Product SoR: aegir docs/current/src/operations/peer-unit.md",
         "Ops: docs/current/src/operations/peer-integration.md#aegir"
       ],
@@ -143,9 +163,9 @@
         "signals-ready.service"
       ],
       "notes": [
-        "Complete under signals.target (2026-08-13)",
-        "Unit starts python -m atelier.engine.server on :50251 only \u2014 not product :50071",
-        "codegen Status + reflection; soft stop; dual-bind guard",
+        "Full-stack under signals.target (2026-08-13 remediation): just up / devenv up",
+        "Unit starts full product stack \u2014 capability-engine :50251 + product :50071 + gateway :8090 + vite :3000",
+        "codegen Status + reflection + product UI health; peer-scoped full-stack stop",
         "Product SoR: atelier docs/current/src/operations/peer-unit.md",
         "Ops: docs/current/src/operations/peer-integration.md#atelier"
       ],

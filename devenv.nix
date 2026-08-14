@@ -310,6 +310,9 @@ in
     k3d
     podman
 
+    # Headless browser for signals-ui verification (Playwright prefers PATH chromium)
+    chromium
+
     # Infrastructure / Deployment
     awscli2
     opentofu

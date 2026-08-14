@@ -13,6 +13,7 @@
     - [Visualization Pipeline](./architecture/visualization.md)
 - [Identity and access](./architecture/identity-and-access.md)
 - [Signals protocol core](./architecture/signals-protocol-core.md)
+- [YuniKorn queue management](./architecture/yunikorn-queue-management.md)
 - [OpenLineage + Atlas](./architecture/openlineage-atlas.md)
 - [Signals Control Plane UI](./architecture/signals-control-plane-ui.md)
 - [Platform Metaflow](./architecture/metaflow-platform.md)
@@ -79,6 +80,7 @@
     - [Secrets](./operations/secrets.md)
     - [Services](./operations/services.md)
     - [Kerberos](./operations/kerberos.md)
+    - [Headless browser (UI verify)](./operations/ui-browser.md)
 
 # Reference
 

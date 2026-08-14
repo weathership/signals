@@ -7,7 +7,12 @@ and lattice CI; peers own engine process + gRPC face + systemd wrappers.
 **Contract pin:** `config/platform/peer-contract.json` (`schema_version`, commit).  
 **Ops narrative (all peers):** [Peer integration](./peer-integration.md).  
 **Group control:** `infra/systemd/`.  
-**Lattice CI:** `just lattice-ci` / `scripts/lattice_ci.sh`.
+**Lattice CI:** `just lattice-ci` / `scripts/lattice_ci.sh`.  
+**Doctrine:** [Total commitment as a federation peer](../architecture/signals-protocol-core.md#doctrine-total-commitment-as-a-federation-peer)
+— full engine capacity + honest start/stop/restart; lattice Status is not a
+quasi-engine substitute. Signals is **early** on its own engine axis (not
+“permanently thin”); peerhood still means total commitment to *that* project’s
+real engine and ops transitions.
 
 **Pattern source:** Metabase landed first — peer wrappers wait for product
 health **and** `Engine/Status`; unit files call those scripts (no multiline
@@ -36,18 +41,29 @@ Must:
   [ ] Start waits until Engine/Status on contract gRPC port
   [ ] gRPC **server reflection** enabled (`grpcio-reflection` or equivalent)
   [ ] Status.project matches contract (or project_status)
-  [ ] Status advertises capability
-  [ ] **Peer-scoped unit stop**: fully stop this engine + its workers; do NOT
-      host-wide teardown / gpu-deep-cleanup that kills siblings (not a weak stop)
+  [ ] Status advertises capability **honestly** (no synthetic always-healthy
+      rows when backends are down — full-capacity doctrine)
+  [ ] Unit starts the **full devenv stack** (`just up` / `devenv up`) for this
+      project — capability engine **and** product UI/gateway/DB as applicable
+      (not engine-only / lattice-only)
+  [ ] Lattice engine is part of that stack (process-compose or equivalent)
+  [ ] **Peer-scoped unit stop**: fully stop this project's stack; free lattice
+      + product ports; do NOT host-wide teardown / gpu-deep-cleanup that kills
+      siblings (not a weak stop)
+  [ ] **Restart = full stop then full start** (orphans / multi-listener =
+      error → remediate)
   [ ] No bind on signals :5455 or RustFS :9010
   [ ] If external/AGPL: no source/jar vendored into weathership/signals
 
 Accept:
   [ ] systemctl start <id>.service → active (RemainAfterExit oneshot OK)
+  [ ] systemctl stop <id>.service → lattice + product ports free; no leftovers
+  [ ] systemctl restart <id>.service → single lattice listener; full stack; Status OK
   [ ] grpcurl -plaintext 127.0.0.1:<port> list   # includes zndx.engine.v1.Engine
   [ ] grpcurl -plaintext 127.0.0.1:<port> zndx.engine.v1.Engine/Status
   [ ] just lattice-ci --require <id>   # codegen Status + reflection check
-  [ ] (optional) product HTTP health
+  [ ] product UI/gateway health as documented for this peer
+  [ ] peer remediation path on transition fail
 
 Out of scope:
   - signals critical-plane changes
@@ -97,6 +113,11 @@ Accept:
   [x] systemctl start/restart gaius.service → active (oneshot; Status body project=gaius)
   [x] grpcurl -plaintext 127.0.0.1:50051 list / Engine/Status (reflection)
   [x] just lattice-ci --require gaius     # elevated CI; reflection required
+  [x] Group lifecycle (`systemctl` alone, 2026-08-13): stop reaps every
+      Gaius-cwd devenv compose + frees :50051; start brings one listener in
+      `system.slice/gaius.service` with reflection. `just lattice-ci --require
+      gaius` PASS. Pin `XDG_RUNTIME_DIR` + reap-by-cwd (do not attach to a
+      leftover login-shell compose).
 
 Out of scope:
   - Metabase AGPL product, Ægir/Atelier internals
@@ -118,13 +139,17 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
   vLLM/endpoint load (~240s) to declare lattice ready.
 - `just up` / `just down` exist for the wrappers; `restart-clean` is a full
   product recycle, not the unit start path.
-- Two devenv process-compose daemons can both hold `:50051` — `devenv
-  processes restart` may no-op. Accept needs *this* checkout's engine process
-  recycled, not a second stack.
+- Two devenv process-compose daemons can both hold `:50051` because gRPC
+  defaults to **SO_REUSEPORT** (kernel load-balances Status). Engine now sets
+  `grpc.so_reuseport=0` and `gaius-engine.sh` refuses start if the port is
+  taken (`#EN.00000014.DUALBIND`). `devenv processes restart` may no-op or
+  spawn a *second* daemon (`/tmp/devenv-<hash>` vs `$XDG_RUNTIME_DIR`).
 - Gaius-local Metabase `:3100` is not capability `dashboard` (AGPL peer
   `:3200` / `:50451`).
-- Unit enabled; **accept closed** after full `signals.target` restart validation
-  (2026-08-13): dual :50051 orphans fixed; reflection + lattice-ci green.
+- Live 2026-08-13: one listener on `:50051`. `grpcurl list` shows
+  `zndx.engine.v1.Engine`. `just lattice-ci --require gaius` PASS (codegen +
+  reflection). Pin `grpcio-reflection<1.82` — 1.83+ needs protobuf 7, which
+  `xai-sdk` forbids.
 
 ---
 
@@ -146,9 +171,8 @@ Gaius `docs/current/src/operations/peer-unit.md` — **not** `FEDERATION.md`
 > `/home/rch/local/src/zndx/gaius/scripts/systemd_start.sh`,  
 > `/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh`,  
 > `/home/rch/local/src/zndx/gaius/scripts/zndx_status_ok.py`.  
-> Engine faces already exist on `:50151` — add reflection, unit wrappers that wait  
-> on codegen Status (not gateway stack-health), peer-scoped unit stop, product  
-> `docs/current/src/operations/peer-unit.md`. Do not re-architect the multi-service engine.
+> Full-stack under `signals.target` (doctrine): unit = `just up` / devenv full
+> graph including capability-engine + gateway + vite — not engine-only.
 
 ```text
 Title: peer-unit@aegir lattice join
@@ -157,92 +181,50 @@ Peer id: aegir
 Repo path: ~/local/src/zndx/aegir
 Unit: aegir.service  (sample: signals infra/systemd/aegir.service)
 gRPC port: 50151
+Product UI: gateway :8091 · vite :5173
 Postgres lattice: 5555
 Capability (Status): instruct  (project=aegir)
 License: project-specific · external=false · architecture_class=core_federated_engine
 
-Already present (do not rebuild engine architecture):
+Already present:
   [x] Multi-service on :50151 — native AegirEngine + zndx.engine.v1 + OIP
   [x] ZndxEngineServicer Status / Complete / Remediate
-  [x] grpcio-reflection in lockfile (Linux) — must still ENABLE in serve()
+  [x] gRPC server reflection enabled
 
-Must (this session):
-  [x] Enable gRPC server reflection on engine port (advertise zndx.engine.v1.Engine)
-  [x] scripts/systemd_start.sh + systemd_stop.sh in aegir tree
-  [x] Start brings capability engine on :50151 via `python -m aegir.engine.server`
-      (NOT just up stack-health; NOT engine-supervise / SERVING wait)
-  [x] Start waits on codegen Status project=aegir (scripts/zndx_status_ok.py)
-  [x] Peer-scoped unit stop — TERM engine only; no teardown / GPU wipe of siblings
+Must (full-stack remediation 2026-08-13):
+  [x] scripts/systemd_start.sh + systemd_stop.sh — **just up / devenv full stack**
+  [x] devenv process `capability-engine` on :50151 (not unit-only setsid)
+  [x] Start waits on Status + gateway :8091 + vite :5173
+  [x] Peer-scoped **full-stack** stop; no GPU wipe of siblings
   [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
-  [x] docs/current/src/operations/peer-unit.md (product SoR for the unit)
+  [x] docs/current/src/operations/peer-unit.md
   [x] PG only on :5555; never :5455 / :9010
 
 Accept:
   [x] systemctl start/enable aegir.service → active under signals.target
-  [x] grpcurl -plaintext 127.0.0.1:50151 list / Engine/Status
-  [x] just lattice-ci --require aegir   # codegen + reflection (live w/ gaius+metabase)
-  [ ] (optional) gateway http://127.0.0.1:8091/api/health — product UX only
+  [ ] systemctl restart → full stack (UI + lattice); re-validate after remediation
+  [x] grpcurl / lattice-ci --require aegir
+  [ ] gateway :8091 + vite :5173 after unit start
 
 Out of scope:
   - signals critical plane
-  - redesigning multi-service engine (already correct)
   - requiring full vLLM cold-load for unit active (Status at gRPC bind is enough)
 ```
 
-**Implementation notes (2026-08-13):**
+**Implementation notes:**
 
-- **Cleaner than Gaius process model for lattice:** unit starts only the capability
-  engine (`setsid` + pid/log under `/tmp/aegir-engine/`), not the whole devenv
-  graph. Accept is pure lattice face.
-- **Explicitly not `engine-supervise`:** supervise waits SERVING (vLLM load);
-  lattice ready is Status at bind. Models load on first Complete/Remediate.
-- Dual-bind guard on `:50151` (Gaius orphan lesson).
-- Commit Ægir-tree peer files if still untracked (`scripts/systemd_*`,
-  `zndx_status_ok.py`, `peer-unit.md`, reflection in `server.py`).
+- **2026-08-13 (earlier):** engine-only unit — **incorrect under total-commitment /
+  full-stack doctrine**; product UI stayed dark under `signals.target`.
+- **2026-08-13 (remediation):** wrappers = Gaius/Metabase pattern (`just up`);
+  `capability-engine` in `devenv.nix`; accept = Status + gateway + vite.
+- Dual-bind guard still required on `:50151`.
 
 ---
 
 ## Filled: atelier
 
 **Ops:** [Peer integration — Atelier](./peer-integration.md#atelier)  
-**Accept closed 2026-08-13** (engine-only unit, mirror Ægir). Lattice green live.
-
-**Agent one-liner (full paths) — lock-in / converge session:**
-
-> Lock in `peer-unit@atelier` under `signals.target`. Coordination (read fully):  
-> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-unit-spec.md`  
-> (section **Filled: atelier**),  
-> `/home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md`  
-> (section **Atelier** / `#atelier`),  
-> `/home/rch/local/src/wxs/signals/config/platform/peer-contract.json`,  
-> `/home/rch/local/src/wxs/signals/docs/scratch/2026-08-13/025900_atelier-peer-unit.md`.  
-> Reference units:  
-> `/home/rch/local/src/zndx/aegir/docs/current/src/operations/peer-unit.md`,  
-> `/home/rch/local/src/zndx/aegir/scripts/systemd_start.sh`,  
-> `/home/rch/local/src/zndx/aegir/scripts/systemd_stop.sh`,  
-> `/home/rch/local/src/zndx/aegir/scripts/zndx_status_ok.py`  
-> (and Gaius  
-> `/home/rch/local/src/zndx/gaius/docs/current/src/operations/peer-unit.md`  
-> for co-tenancy/soft-stop).  
-> **Already landed on this host (do not re-architect):** engine-only unit on  
-> `:50251` (`python -m atelier.engine.server`), reflection, codegen Status  
-> (`project=atelier`), product servicer `:50071` off the unit path;  
-> `atelier.service` active;  
-> `just lattice-ci --require gaius,aegir,atelier,metabase` green from  
-> `/home/rch/local/src/wxs/signals`.  
-> **This session:** commit untracked Atelier peer files  
-> (`scripts/systemd_{start,stop}.sh`, `scripts/zndx_status_ok.py`,  
-> `src/atelier/engine/server.py` reflection + Status placeholders,  
-> `pyproject.toml` grpcio-reflection,  
-> `docs/current/src/operations/peer-unit.md`); add SUMMARY link if missing;  
-> add a small Status/reflection test if useful; verify dual-port docs  
-> (lattice `:50251` vs product `:50071`); confirm peer-scoped unit stop does not touch  
-> Gaius/Ægir leases; re-run  
-> `cd /home/rch/local/src/wxs/signals && just lattice-ci --require atelier`  
-> and bare  
-> `grpcurl -plaintext 127.0.0.1:50251 list` / `Engine/Status`.  
-> Do not start product `just up` as the lattice accept path; do not wait  
-> vLLM SERVING for unit active.
+**Lattice green (engine-only) 2026-08-13; full-stack remediation required same day.**
 
 ```text
 Title: peer-unit@atelier lattice join
@@ -250,27 +232,26 @@ Contract: signals peer-contract.json schema_version=1.0.0
 Peer id: atelier
 Repo path: ~/local/src/zndx/atelier
 Unit: atelier.service  (sample: signals infra/systemd/atelier.service)
-gRPC port: 50251          # lattice / capability engine
-Native servicer (co-tenant): 50071   # not lattice accept port
+gRPC lattice: 50251
+Product servicer: 50071 · gateway :8090 · vite :3000
 Postgres lattice: 5533
 Capability (Status): referee  (capability_hint)
 License: project-specific · external=false
 
-Must (landed 2026-08-13):
-  [x] scripts/systemd_start.sh + systemd_stop.sh (engine-only, mirror Ægir)
-  [x] Enable gRPC server reflection on :50251
-  [x] Wait on codegen Status project=atelier (not product :50071)
-  [x] Status advertises referee (+ configured caps) at gRPC bind
-  [x] Peer-scoped unit stop — TERM engine only; no product stack / GPU wipe
+Must (full-stack remediation 2026-08-13):
+  [x] scripts/systemd_start.sh + systemd_stop.sh — **just up / devenv full stack**
+  [x] devenv process `capability-engine` on :50251 (+ existing grpc-server :50071)
+  [x] Start waits on Status + :50071 + gateway :8090 + vite :3000
+  [x] Peer-scoped **full-stack** stop; no GPU wipe of siblings
   [x] Unit Exec* → wrappers; After=signals-ready · WantedBy=signals.target
   [x] docs/current/src/operations/peer-unit.md
   [x] PG only on :5533; never :5455 / :9010
 
 Accept:
   [x] systemctl start/enable atelier.service → active under signals.target
-  [x] grpcurl -plaintext 127.0.0.1:50251 list / Engine/Status
-  [x] just lattice-ci --require atelier   # codegen + reflection
-  [ ] (optional) product just up / servicer :50071 for workbench UX
+  [ ] systemctl restart → full stack; re-validate after remediation
+  [x] grpcurl / lattice-ci --require atelier
+  [ ] product :50071 + gateway :8090 + vite :3000 after unit start
 
 Out of scope:
   - CAI single-tenant :50051 defaults on co-tenant hosts
@@ -278,9 +259,9 @@ Out of scope:
   - requiring vLLM cold-load for unit active
 ```
 
-**Implementation notes:** same engine-only model as Ægir (`python -m
-atelier.engine.server`, setsid + `/tmp/atelier-engine/`). Product servicer
-`:50071` stays off the lattice unit path.
+**Implementation notes:** engine-only unit was an oversight under full-stack
+doctrine. Both lattice (`:50251`) and product (`:50071` + UI) belong under the
+unit via devenv.
 
 ---
 

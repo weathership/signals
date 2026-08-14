@@ -16,6 +16,10 @@ dependencies = [
     "openai>=2.29.0",
     "cython>=3.2.4",
     "ripser>=0.6.14",
+    "grpcio>=1.59.0",
+    "grpcio-reflection>=1.59.0",
+    "requests>=2.31",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -43,9 +47,19 @@ sage = [
     "sage-importance>=0.0.6",
     "numpy>=1.26.0",
 ]
+# Headless browser for signals-ui verification (Playwright).
+# Prefer devenv `chromium` on PATH; else: just browser-install
+browser = [
+    "playwright>=1.49.0",
+]
 
 [project.scripts]
 sigint = "sigint.cli:main"
+signals-engine = "signals.engine.server:main"
+signals-yk = "signals.cli.yk:main"
+signals-sched = "signals.cli.yk:main"
+signals-yk-mcp = "signals.mcp.yk:main"
+signals-sched-mcp = "signals.mcp.yk:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sigint", "src/signals"]
@@ -60,6 +74,7 @@ dev = [
     "kerberos>=1.3.1",  # GSSAPI for Impala HS2 (impyla/puresasl); just backup
     "numpy>=2.4.3",
     "owlready2>=0.50",
+    "playwright>=1.49.0",  # headless UI (signals-ui lineup); just browser-install
     "psycopg[binary]>=3.1",
     "pyarrow>=18.0.0",
     "pytest>=8.0",

@@ -190,8 +190,44 @@ stack-build:
 #   features/  — Gherkin BDD (behave); @tier-0 hermetic, @tier-1 needs stack
 
 # Unit tests (pytest under tests/; preflight via conftest)
+# Exclude browser e2e by default (needs live signals-ui); use: just ui-test
 test *args:
-    uv run pytest tests/ -v {{args}}
+    uv run pytest tests/ -v --ignore=tests/ui {{args}}
+
+# ── Headless browser (Playwright + Chromium) ──────────────────────
+# Prefer devenv `chromium` on PATH. Otherwise install Playwright's browser:
+#   just browser-install
+# Env: SIGNALS_UI_BASE (default http://127.0.0.1:9889), SIGNALS_CHROMIUM_PATH,
+#      SIGNALS_BROWSER_HEADED=1, SIGNALS_UI_BROWSER_SKIP=1
+
+# Install Playwright Chromium when system chromium is unavailable
+browser-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; then
+      echo "system chromium on PATH — Playwright will use it (no download needed)"
+      command -v chromium || command -v chromium-browser
+    elif [ -n "${SIGNALS_CHROMIUM_PATH:-}" ] && [ -x "${SIGNALS_CHROMIUM_PATH}" ]; then
+      echo "SIGNALS_CHROMIUM_PATH=$SIGNALS_CHROMIUM_PATH"
+    else
+      echo "no system chromium — installing Playwright Chromium…"
+      # avoid nix libstdc++ breaking the installer's node
+      env -u LD_LIBRARY_PATH -u LD_PRELOAD uv run playwright install chromium
+    fi
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD uv run python -c \
+      "from signals.browser import chromium_executable, prepare_playwright_env; prepare_playwright_env(); print('chromium:', chromium_executable() or 'playwright-bundled'); print('node:', __import__('os').environ.get('PLAYWRIGHT_NODEJS_PATH'))"
+
+# Browser e2e pytest (live UI required). Clears LD_LIBRARY_PATH for Playwright driver.
+ui-test *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD uv run pytest tests/ui/ -v -m browser {{args}}
+
+# One-shot lineup verify (screenshots → build/ui-verify/)
+ui-verify *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD uv run python scripts/ui_browser_verify.py {{args}}
 
 # BDD (default: tier-0 only). For stack scenarios: SIGNALS_BDD_TIER1=1 just behave
 behave *args:

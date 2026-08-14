@@ -60,7 +60,7 @@ lattice-ci, Metaflow/CE) meets a gap, prefer extending **signals-protocol**
 |-------|-------------------|----------------|
 | Native product gRPC | Mature in each **core** peer | Gaius / Ægir / Atelier / … trees |
 | Multi-service + capability engines | In production use; still converging | **Core** peer `engine/` packages |
-| `zndx.engine.v1` shared face | **v1 landed; incomplete relative to real peer needs** | `signals-protocol` + per-peer bindings |
+| `zndx.engine.v1` shared service | **v1 landed; incomplete relative to real peer needs** | `signals-protocol` + per-peer bindings |
 | OIP dual-registration / mapping | Partial (stronger in some engines than others) | Protocol spec + peer OIP servicers |
 | License-external engines | Isolated adapters (e.g. mbengine) | Separate trees (e.g. AGPL Metabase) |
 | Platform process attachment | Lab-usable (ready gate, units, lattice-ci) | This repo (`peer-contract`, systemd) |
@@ -72,28 +72,73 @@ requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
 
-### Signals as hub, peers as engine depth
+### Signals as hub — early on the engine axis, not “thin forever”
 
-This product **comes in late on the gRPC engine axis**: Gaius, Ægir, and Atelier
-already carry the thick capability-engine implementations (multi-service gRPC,
-vLLM managers, co-tenancy, Remediate, product services). Signals is
-intentionally **thin** there because the job is to **build on that foundation**
-— not re-implement engines in this tree.
+Gaius, Ægir, and Atelier already carry substantial capability-engine
+implementations (multi-service gRPC, vLLM managers, co-tenancy, Remediate,
+product services). Signals is **early** on that same axis: federation
+architecture (protocol, peer units, lattice gates, group lifecycle) is still
+being nailed down, so this tree has not yet grown a large engine surface — not
+because engine work is forbidden here, but because it is **too early** to have
+implemented much of it *yet*.
 
-What Signals *does* centralize (and what accelerates the overall initiative):
+What is already useful to centralize (and what accelerates the initiative
+while the architecture settles):
 
-| Hub control | Role |
-|-------------|------|
+| Hub control (today) | Role |
+|---------------------|------|
 | Critical plane + `signals-ready` | One foundation readiness gate |
 | `signals.target` + peer units | One group lifecycle for co-tenant engines |
 | `peer-contract` + lattice-ci | One accept surface (codegen Status + reflection) |
 | Platform Metaflow / Airflow / Eventing / YK / Atlas | Shared production path without re-hosting |
 | `signals-protocol` pin | One wire contract to promote peer-proven shapes into |
 
-**Iterative cycles from this repo** are the intended mode: drive from hub
-control and protocol gaps, then land depth in gaius / aegir / atelier (and
-future core peers) where the engines already live. Peer sessions stay product-
-local; convergence is measured here (`lattice-ci`, unit graph, protocol bumps).
+**Working mode while early:** drive from hub control and protocol gaps; land
+proven depth in peers that already have engines (and promote stable shapes into
+signals-protocol). Peer sessions stay product-local; convergence is measured
+here (`lattice-ci`, unit graph, protocol bumps). Engine functionality in
+Signals itself can grow when the federated architecture is solid enough to
+host it honestly — maturity, not a permanent “thin product” identity.
+
+### Doctrine: total commitment as a federation peer
+
+Adopting **signals-protocol** as a federation peer is **total commitment**, not
+a decorative Status endpoint on a half-running stack. That applies whether the
+peer is a mature product engine (Gaius today) or a younger tree: peerhood means
+full capacity **as that project defines it**, honest ops, and remediation —
+not a lattice-only shell built only to pass accept.
+
+| Obligation | Meaning |
+|------------|---------|
+| **Full project stack** | Under `signals.target`, unit start brings the peer’s **full devenv stack** as that project defines production-local operation (`just up` / `devenv up`): capability engine **and** product UI/gateway/DB/supporting processes — not an engine-only or Status-only subset. |
+| **Full engine capacity** | The peer runs its **real** capability engine (product multi-service gRPC, models, co-tenancy, native surfaces as designed for that project) — not a quasi-engine or Status-only process. |
+| **Honest operational state** | `start` / `stop` / `restart` (unit and group) must take the **full stack** through real transitions: processes up with intended capacity, ports freed and workers down on stop, restart = full stop then full start. Partial “already READY — skip” or orphan listeners that survive stop are **error conditions**, not success modes. |
+| **Remediation on failure** | When capacity or a transition fails, that is a fault requiring remediation (peer-local health/FMEA/fix paths — e.g. Gaius `/health fix engine` and related recovery). Optimistic Status that advertises healthy capabilities while backends are down is not accept. |
+| **Hub vs peer (while architecture is early)** | Peers own full-stack depth and lifecycle honesty for their lattice + product ports. Signals currently owns group control, contract, and lattice-ci; it does not yet re-home peer engines into this tree. That is sequencing, not a ban on future Signals engine work. |
+
+**Anti-patterns (not federation):**
+
+- Engine-only unit start that leaves product UI/gateway dark while claiming peer ready
+- Synthetic always-healthy Status rows so lattice-ci passes without resident capacity
+- Unit start that no-ops because an orphan still answers Status
+- Unit stop that leaves lattice ports, UIs, or engine process groups alive
+- Interactive `devenv up` stacks fighting the systemd unit for the same lattice port
+- Treating “Signals is thin/early” as doctrine that excuses half-committed peers or freezes engine growth here forever
+
+**Accept implication:** `lattice-ci` / `Engine/Status` are necessary gates, not a
+substitute for full capacity. Peer-unit accept should include clean
+start/stop/restart of *this* peer’s engine under `signals.target` (single
+listener ownership, honest health). Detail: [Peer unit acceptance
+spec](../operations/peer-unit-spec.md) and [Peer integration](../operations/peer-integration.md).
+
+### Platform capability: Scheduler (`zndx.scheduler.v1`)
+
+Signals’ first thick engine capability is **federated scheduling**
+(`capability=scheduler`; lab `model=yunikorn`, later PBS/SLURM).
+Thin clients call `zndx.scheduler.v1.Scheduler` on the Signals lattice
+(`:50551`); the engine privately talks to the backend and owns
+archive/current/scratch projection. See
+[YuniKorn queue management](./yunikorn-queue-management.md) (lab adapter).
 
 ### Spec vs tooling surfaces
 
@@ -115,6 +160,37 @@ generated clients from `signals-protocol`.
 Python engines: `grpcio-reflection` + enable at server start. Lattice-ci runs
 **both** a generated Status client and a reflection check.
 
+### Language: brass-tacks naming
+
+Name platform, wire, and **foundational theory** by the terms a practitioner
+(or inventor) already uses — not by product metaphor, softened ops slang, or
+in-house glosses that drift from the definition.
+
+**Two tests** (fail either → rename until both pass, then document once):
+
+1. **Systems:** Can someone who only knows the underlying tech (gRPC, systemd,
+   CI) map the phrase to a concrete artifact — port, unit, service registration,
+   gate — without a project glossary?
+2. **Theory:** Would the people who invented (or standardly formalized) the
+   concept recognize our names, types, and invariants as *their* object — not a
+   vague cousin? Example: persistent homology should read cleanly to Gunnar
+   Carlsson (or any TDA practitioner): Vietoris–Rips filtration, homology
+   dimension, birth/death pairs, essential classes (`death = +∞`), not
+   rebranded “shape scores.” Same bar for Dempster–Shafer (Bel/Pl/K), SAGE,
+   TreeSHAP, Ollivier–Ricci, and future topology / belief / geometry work.
+
+| Prefer | Avoid | Why |
+|--------|-------|-----|
+| **multi-service gRPC** | multi-face gRPC | One listen port, several services on one server — gRPC’s own model |
+| **lattice-ci** / `*-ci` | smoke (for elevated gates) | Repeatable accept gates are CI; smoke is one-off first-run feedback |
+| **protocol / codegen path** | proto fallback | `.proto` is the specification, not a backup |
+| **peer-scoped stop** | soft stop | Full unit stop, scoped to one peer — not a partial or vague halt |
+| **Domain terms + faithful APIs** | Metaphor wrappers for math | Implementations stay inspectable against papers and reference libraries (e.g. Ripser `dgms`) |
+
+Product metaphors are fine in UI copy when they map 1:1 to a brass-tacks term
+documented here. Do not invent a second vocabulary for the same process shape
+or the same mathematical object.
+
 ## Layers
 
 ```text
@@ -124,7 +200,7 @@ Python engines: `grpcio-reflection` + enable at server start. Lattice-ci runs
   │ Metabase*    │                │ :50151  │ :50251   │ :50051  │
   │ Atlas UI     │                └────┬────┴────┬─────┴────┬────┘
   └──────┬───────┘                     │         │          │
-         │  HTTP                       │  gRPC federation face
+         │  HTTP                       │  multi-service gRPC
          │  /api/v1  /api/atlas        │  + OIP ModelInfer (horizon → now)
          ▼                             ▼
   ┌────────────────────────────────────────────────────────────┐
