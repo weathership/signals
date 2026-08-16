@@ -18,6 +18,7 @@ PROBES=(
   "postgres:127.0.0.1:5455:tcp"
   "kdc:127.0.0.1:8848:udp"
   "rustfs:127.0.0.1:9010:tcp"
+  "polaris:127.0.0.1:8182:http"
   "atlas:127.0.0.1:21010:http"
   "marquez-web:127.0.0.1:21011:http"
   "ranger-admin:127.0.0.1:6080:tcp"
@@ -41,6 +42,7 @@ udp_ok() {
   ss -uln 2>/dev/null | grep -qE ":${2}\\s"
 }
 http_ok() { curl -sf -m 3 "http://${1}:${2}/" >/dev/null 2>&1 \
+  || curl -sf -m 3 "http://${1}:${2}/q/health/ready" >/dev/null 2>&1 \
   || curl -sf -m 3 "http://${1}:${2}/api/atlas/admin/status" >/dev/null 2>&1 \
   || curl -sf -m 3 "http://${1}:${2}/readyz" >/dev/null 2>&1 \
   || curl -sf -m 3 "http://${1}:${2}/healthcheck" >/dev/null 2>&1; }

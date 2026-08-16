@@ -15,6 +15,9 @@ class EngineConfig:
 
     bind_host: str = "0.0.0.0"
     bind_port: int = 50551
+    # Loopback control HTTP for lab attach (not the lattice, not C2).
+    control_host: str = "127.0.0.1"
+    control_port: int = 50552
     project: str = "signals"
     yk_rest_url: str = "http://127.0.0.1:30080"
     projection_root: Path = Path("build/dev")
@@ -41,6 +44,8 @@ class EngineConfig:
         return cls(
             bind_host=os.environ.get("SIGNALS_ENGINE_BIND_HOST", "0.0.0.0"),
             bind_port=int(os.environ.get("SIGNALS_ENGINE_GRPC_PORT", "50551")),
+            control_host=os.environ.get("SIGNALS_ENGINE_CONTROL_HOST", "127.0.0.1"),
+            control_port=int(os.environ.get("SIGNALS_ENGINE_CONTROL_PORT", "50552")),
             project=os.environ.get("SIGNALS_ENGINE_PROJECT", "signals"),
             yk_rest_url=os.environ.get(
                 "SIGNALS_YK_API_URL", "http://127.0.0.1:30080"
@@ -55,3 +60,7 @@ class EngineConfig:
     @property
     def listen_addr(self) -> str:
         return f"{self.bind_host}:{self.bind_port}"
+
+    @property
+    def control_addr(self) -> str:
+        return f"{self.control_host}:{self.control_port}"

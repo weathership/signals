@@ -31,8 +31,9 @@ the default control-plane entry (not stock yk-web, not Marquez-web).
    with Atelier/Aegir; dark + light.
 4. **Federation overwatch** — MiNiFi sentinels, OTel, Atlas OL lineage, and
    engine discovery sit beside YK views in one process.
-5. **YuniKorn required** — `SIGNALS_YK_API_URL` is the steady-state config;
-   `/readyz` fails without it unless `SIGNALS_UI_ALLOW_NO_YK=1` (lab chrome only).
+5. **Engine required** — `/readyz` is `zndx.engine.v1.Engine/Status` with
+   `capability=scheduler` healthy. `SIGNALS_UI_ALLOW_NO_YK=1` is chrome-only
+   lab (skip Status). YuniKorn REST is private to the engine.
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -123,7 +124,8 @@ every field the Angular models used (see `src/app/models/*` in yk-web).
 | App ↔ sentinel ↔ engine | MiNiFi C2, Knative, tags | Overwatch |
 | App ↔ OTel duration/stages | Collector / Tempo-compatible API | Uniform process proxy |
 | App ↔ OpenLineage run | Atlas `/api/v1` | Semantic I/O lineage |
-| Lineage browse (table/column) | Atlas OL | Closes Marquez-native gaps when backplane ready |
+| History (data products) | Catalog + `dev.signals.dataproduct.updated` | Agent-facing quality / lineage / delta |
+| Lineage browse (table/column) | Atlas OL | Facet inside a product, not the top-line menu |
 | Sources / schema / versions | Atlas-enriched OL | Same |
 | Federated engine board | Discovery + `zndx.engine.v1` | Peers |
 | OTel routing views | Collector config + traces | S04 RCA entry |
@@ -171,7 +173,7 @@ signals-ui/                     # weathership/signals-ui
 | YK proxy/client | Typed client; optional reverse-proxy path for raw `/ws/v1/*` |
 | BFF merge API | e.g. `GET /api/signals/v1/processes/{id}` → YK + OTel + OL |
 | Config | env + optional HOCON/YAML; `SIGNALS_YK_API_URL`, `SIGNALS_ATLAS_HTTP_*`, OTel, C2 |
-| Health | `/healthz`, `/readyz` (YK reachable optional for ready) |
+| Health | `/healthz` (liveness), `/readyz` (Engine/Status scheduler healthy) |
 | Metrics | Prometheus `/metrics` (idiomatic for control plane) |
 
 ### 2.3 Presentation options (choose in Phase 0 spike)

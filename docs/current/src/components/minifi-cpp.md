@@ -9,9 +9,9 @@ Submodule: `components/minifi-cpp` →
 **Sentinel substrate** for signals-protocol process coordination:
 
 - Thin agents that represent host gRPC engines / agents to a control plane  
-- **C2** (command and control) for discrete inventory and reconfiguration  
-- **Metrics / OTel** for activity truth and scale-to-zero of **claims**  
-- Overwatch-oriented ops surface (with NiFi/MiNiFi C2 UIs)
+- **C2** — agent HTTP to the Signals C2 server; C2 calls `Engine/Yield`  
+- **YK Application** — the sentinel **is** the admitted workload  
+- **Metrics / OTel** for activity truth (NiFi canvas later, not in signals-ui)
 
 Host engines remain the execution plane. **Product target is K8s-first**
 (system-wide **RKE2**)—not a host-only MiNiFi deployment:

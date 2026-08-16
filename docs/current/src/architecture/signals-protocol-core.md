@@ -252,7 +252,7 @@ not make Metabase “another Atelier.”
 | Agent memory + compaction | **Weathership** plugins on Hermes | `MemoryProvider` + context engine ([plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)) |
 | Engine-to-engine inference | **`zndx.engine.v1`** | `Complete` / `Status` / `Remediate` |
 | Heterogeneous model serving | **KServe OIP** + signals-protocol mapping | `ModelInfer` / readiness; authz + provenance on the wire |
-| GPU co-tenancy | Advisory leases + `Status.gpu_ids` | `/tmp/zndx-gpu-leases` + protocol |
+| GPU co-tenancy | YK Application claim (`federation.zndx.org/gpu`) + `Status.gpu_ids` | Queue occupancy SoR; `/tmp/zndx-gpu-leases` is intra-node refuse only |
 
 Hard rules (unchanged):
 

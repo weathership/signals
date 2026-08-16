@@ -27,6 +27,8 @@ just up                 # devenv up -d — full stack; validates + bootstraps
 devenv processes list   # Expect 12: kudu-*, impala-*, atlas, marquez-web, rustfs, signals-ui, …
 just down               # processes down + stop *our* Postgres only (lattice-safe)
 just stack-reset        # down + free our orphans + up -d
+just rebuild            # Polarisfork assemble + devenv restart + wait :8182
+just redeploy           # K8s product refresh (Metaflow, Airflow, Eventing → YK queues)
 just kinit              # Refresh user ticket if needed
 just kerberos-status    # Expect: impala HS2 GSSAPI OK
 ```
@@ -97,6 +99,7 @@ devenv processes down     # stop full graph (or: just down)
 | `marquez-web` | OL UI → Atlas `/api/v1` | **21011** |
 | `ranger-admin` | Authz | 6080 |
 | `rustfs` | S3 objects (**critical** object plane) | 9010 |
+| `polaris` | Iceberg REST catalog (warehouse on RustFS) | **8181** / admin **8182** |
 | `signals-ui` | Control plane UI (requires stack-ready) | **9889** |
 | RKE2 **YuniKorn** | Federation scheduler | REST **30080** |
 | RKE2 **Knative** | Serving (+ Eventing M3) | Serving ns |

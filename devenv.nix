@@ -14,6 +14,7 @@ let
     "signals-lineage"
     "weathership-memory"
     "signals-backup"
+    "signals-dataproducts"
     "metaflow"
   ];
 
@@ -416,11 +417,13 @@ in
     SIGNALS_FLINK_DATA_DIR = signalsDataRoot + "/flink";
     SIGNALS_BACKUP_DIR = signalsDataRoot + "/backups";
     # ── Federation / signals-ui (RKE2 YuniKorn + Knative) ───────────────
-    # Hard requirement: signals-ui will not start without live YK REST.
+    # Product path is the Signals engine (:50551). YK REST is engine-private.
     # Lab default: NodePort from signals-federation package (30080).
-    # `devenv up` runs signals:federation-ready before signals-ui.
+    # `devenv up` starts signals-engine; signals-ui /readyz is Engine/Status.
     # Override in .env for non-local clusters only.
     SIGNALS_YK_API_URL = "http://127.0.0.1:30080";
+    SIGNALS_ENGINE_GRPC_PORT = "50551";
+    SIGNALS_ENGINE_TARGET = "127.0.0.1:50551";
     SIGNALS_UI_BIND = "0.0.0.0:9889";
     SIGNALS_UI_CONFIG = "build/config/signals-ui.json";
     SIGNALS_FEDERATION_PACKAGE =
@@ -496,7 +499,7 @@ in
   # ── Full process stack (always-on) ───────────────────────────────────────
   # Required together under `devenv up` / `devenv processes down`:
   #   postgres, kdc, kudu-master, kudu-tserver, impala-*, atlas, marquez-web,
-  #   signals-ui, ranger-admin, rustfs.
+  #   signals-ui, ranger-admin, rustfs, polaris.
   # Atlas+AGE (governance/OL SoR) + Kudu/Impala (scale plane) + Marquez UI
   # (:21011 = Atlas HTTP + 1, OL validation only) + signals-ui (:9889, PRIMARY
   # backplane; YK required once scheduler is in the stack).
@@ -649,17 +652,92 @@ in
     };
   };
 
+  # ── signals-engine (platform gRPC: Engine + Scheduler on :50551) ─────────
+  # Product path for scheduler ops. YuniKorn REST is private to this process.
+  # systemd counterpart: infra/systemd/signals-engine.service
+  processes.signals-engine = {
+    ready = {
+      exec = "uv run python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
+      initial_delay = 1;
+      period = 2;
+      probe_timeout = 5;
+      failure_threshold = 30;
+    };
+    exec = ''
+      set -euo pipefail
+      export SIGNALS_ENGINE_GRPC_PORT="''${SIGNALS_ENGINE_GRPC_PORT:-50551}"
+      export SIGNALS_ENGINE_TARGET="''${SIGNALS_ENGINE_TARGET:-127.0.0.1:50551}"
+      export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
+      export SIGNALS_REPO_ROOT="$PWD"
+      export SIGNALS_YK_PROJECTION_ROOT="''${SIGNALS_YK_PROJECTION_ROOT:-$PWD/build/dev}"
+      export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
+      echo "signals-engine: Engine + Scheduler on :$SIGNALS_ENGINE_GRPC_PORT (YK REST private)"
+      if command -v uv >/dev/null 2>&1; then
+        exec uv run python -m signals.engine
+      fi
+      exec python -m signals.engine
+    '';
+    process-compose = {
+      readiness_probe = {
+        exec.command = "uv run python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
+        initial_delay_seconds = 1;
+        period_seconds = 2;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 30;
+      };
+    };
+  };
+
+  # ── signals-c2 (MiNiFi C2 HTTP → Engine/Yield gRPC) ─────────────────────
+  # Not NiFi. Sentinels heartbeat here; this process is a gRPC client of Engine.
+  processes.signals-c2 = {
+    after = [ "devenv:processes:signals-engine" ];
+    ready = {
+      exec = "curl -sf -o /dev/null http://127.0.0.1:50561/healthz";
+      initial_delay = 1;
+      period = 2;
+      probe_timeout = 3;
+      failure_threshold = 15;
+    };
+    exec = ''
+      set -euo pipefail
+      export SIGNALS_C2_HTTP_PORT="''${SIGNALS_C2_HTTP_PORT:-50561}"
+      export SIGNALS_PEER_CONTRACT="''${SIGNALS_PEER_CONTRACT:-$PWD/config/platform/peer-contract.json}"
+      export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
+      echo "signals-c2: C2 HTTP on :$SIGNALS_C2_HTTP_PORT (Yield via engine gRPC)"
+      if command -v uv >/dev/null 2>&1; then
+        exec uv run python -m signals.c2
+      fi
+      exec python -m signals.c2
+    '';
+    process-compose = {
+      depends_on = {
+        signals-engine = { condition = "process_started"; };
+      };
+      readiness_probe = {
+        exec.command = "curl -sf -o /dev/null http://127.0.0.1:50561/healthz";
+        initial_delay_seconds = 1;
+        period_seconds = 2;
+        timeout_seconds = 3;
+        success_threshold = 1;
+        failure_threshold = 15;
+      };
+    };
+  };
+
   # ── signals-ui (primary backplane UI — yk-web superset, Rust/Axum) ───────
-  # YuniKorn is **required** — no chrome-only mode in the stack path.
-  # Preflight: task signals:federation-ready (YK + Knative on local RKE2).
+  # Engine is **required** — /readyz is Engine/Status (capability=scheduler).
+  # No chrome-only mode in the stack path. YK REST stays engine-private.
   # Port 9889. Keiretsu + logo packs. See signals-control-plane-ui.md
   processes.signals-ui = {
     # After Atlas so governance is up; stack-ready (before this process) waits
-    # for Kudu/Impala ports + RKE2 critical plane. Do not after-chain impalad:
-    # a failed first stack-ready attempt can strand the UI under native manager.
-    after = [ "devenv:processes:atlas" ];
+    # for Kudu/Impala ports + RKE2 critical plane. After engine so /readyz can
+    # see Status. Do not after-chain impalad: a failed first stack-ready
+    # attempt can strand the UI under native manager.
+    after = [ "devenv:processes:atlas" "devenv:processes:signals-engine" ];
     ready = {
-      # /readyz requires YK configured (and process env); not mere /healthz
+      # /readyz = Engine/Status scheduler healthy; not mere /healthz
       exec = "curl -sf -o /dev/null http://127.0.0.1:9889/readyz";
       initial_delay = 3;
       period = 5;
@@ -693,10 +771,7 @@ in
       export SIGNALS_UI_CONFIG="''${SIGNALS_UI_CONFIG:-$PWD/build/config/signals-ui.json}"
       export SIGNALS_UI_ASSETS="$UI_DIR/assets"
       export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
-      if ! curl -sf -m 5 "''${SIGNALS_YK_API_URL%/}/ws/v1/clusters" >/dev/null; then
-        echo "ERROR: YuniKorn REST not reachable at $SIGNALS_YK_API_URL"
-        exit 1
-      fi
+      export SIGNALS_ENGINE_TARGET="''${SIGNALS_ENGINE_TARGET:-127.0.0.1:50551}"
       mkdir -p "$(dirname "$SIGNALS_UI_CONFIG")"
       cd "$UI_DIR"
       BIN="$UI_DIR/target/release/signals-ui"
@@ -705,13 +780,15 @@ in
         cargo build --release -p signals-ui
       fi
       echo "Starting signals-ui (primary backplane) on $SIGNALS_UI_BIND"
-      echo "  YK=$SIGNALS_YK_API_URL  Atlas=$SIGNALS_ATLAS_HTTP_URL"
+      echo "  engine=$SIGNALS_ENGINE_TARGET  Atlas=$SIGNALS_ATLAS_HTTP_URL"
+      echo "  YK REST private to engine ($SIGNALS_YK_API_URL)"
       echo "  config=$SIGNALS_UI_CONFIG"
       exec "$BIN"
     '';
     process-compose = {
       depends_on = {
         atlas = { condition = "process_healthy"; };
+        signals-engine = { condition = "process_started"; };
       };
       readiness_probe = {
         exec.command = "curl -sf -o /dev/null http://127.0.0.1:9889/readyz";
@@ -761,6 +838,98 @@ in
         timeout_seconds = 3;
         success_threshold = 1;
         failure_threshold = 12;
+      };
+    };
+  };
+
+  # ── Polaris (Iceberg REST catalog :8181; admin :8182) ───────────────────
+  # Source: components/polaris (rch/asf-polaris, pin 1.3.0-incubating).
+  # Persistence JDBC is administrative catalog metadata on pglite `polaris`.
+  # Table data lives on RustFS (s3://signals-dataproducts/iceberg) only.
+  processes.polaris = {
+    after = [ "devenv:processes:postgres" "devenv:processes:rustfs" ];
+    ready = {
+      exec = "curl -sf http://127.0.0.1:8182/q/health/ready";
+      initial_delay = 10;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 24;
+    };
+    exec = ''
+      set -euo pipefail
+      POLARIS_HOME="''${POLARIS_HOME:-$PWD/.devenv/polaris}"
+      if [ ! -f "$POLARIS_HOME/polaris-quarkus-server.jar" ] && [ ! -f "$POLARIS_HOME/server/quarkus-run.jar" ]; then
+        echo "Polaris not installed at $POLARIS_HOME"
+        echo "Run: devenv tasks run polaris:install"
+        exit 1
+      fi
+      "$PWD/scripts/setup_polaris_bin.sh" "$POLARIS_HOME"
+
+      echo "⏳ Waiting for PostgreSQL :5455 (Polaris admin JDBC)..."
+      for i in $(seq 1 60); do
+        pg_isready -h 127.0.0.1 -p 5455 -q && break
+        sleep 1
+      done
+      psql -h 127.0.0.1 -p 5455 -d polaris -v ON_ERROR_STOP=1 -c \
+        "CREATE SCHEMA IF NOT EXISTS polaris_schema;" 2>/dev/null || true
+
+      export QUARKUS_DATASOURCE_DB_KIND=postgresql
+      export QUARKUS_DATASOURCE_JDBC_URL="jdbc:postgresql://127.0.0.1:5455/polaris?currentSchema=polaris_schema"
+      export QUARKUS_DATASOURCE_USERNAME="''${QUARKUS_DATASOURCE_USERNAME:-signals}"
+      export QUARKUS_DATASOURCE_PASSWORD="''${QUARKUS_DATASOURCE_PASSWORD:-signals}"
+      export POLARIS_PERSISTENCE_TYPE=relational-jdbc
+      export AWS_ENDPOINT_URL="http://127.0.0.1:9010"
+      export AWS_REGION=us-east-1
+      export AWS_ACCESS_KEY_ID="''${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+      export AWS_SECRET_ACCESS_KEY="''${RUSTFS_SECRET_KEY:-rustfsadmin}"
+      export JAVA_TOOL_OPTIONS="''${JAVA_TOOL_OPTIONS:-} -Daws.endpointUrl=http://127.0.0.1:9010 -Daws.region=us-east-1 -Daws.s3.pathStyleAccessEnabled=true -Dquarkus.http.host=127.0.0.1 -Dquarkus.config.locations=$PWD/config/polaris/application.properties"
+
+      if [ -x "$POLARIS_HOME/bin/admin" ]; then
+        echo "🔧 Bootstrapping Polaris realm (idempotent)..."
+        "$POLARIS_HOME/bin/admin" bootstrap -v=3 -r=POLARIS -c=POLARIS,admin,admin -p \
+          >/tmp/signals-polaris-bootstrap.log 2>&1 \
+          || echo "Polaris bootstrap note (see /tmp/signals-polaris-bootstrap.log)"
+      fi
+
+      echo "Starting Apache Polaris REST catalog"
+      echo "  REST  http://127.0.0.1:8181"
+      echo "  admin http://127.0.0.1:8182"
+      echo "  warehouse s3://signals-dataproducts/iceberg (RustFS)"
+      exec "$POLARIS_HOME/bin/server"
+    '';
+    process-compose = {
+      depends_on = {
+        postgres = { condition = "process_healthy"; };
+        rustfs = { condition = "process_healthy"; };
+      };
+      readiness_probe = {
+        exec.command = "curl -sf http://127.0.0.1:8182/q/health/ready";
+        initial_delay_seconds = 10;
+        period_seconds = 5;
+        timeout_seconds = 5;
+        success_threshold = 1;
+        failure_threshold = 24;
+      };
+    };
+  };
+
+  processes.polaris-init = {
+    after = [ "devenv:processes:polaris" ];
+    exec = ''
+      set -euo pipefail
+      export POLARIS_CATALOG_NAME="''${POLARIS_CATALOG_NAME:-signals}"
+      export S3_ENDPOINT="''${S3_ENDPOINT:-http://127.0.0.1:9010}"
+      export S3_BUCKET="''${S3_BUCKET:-signals-dataproducts}"
+      export S3_ACCESS_KEY="''${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+      export S3_SECRET_KEY="''${RUSTFS_SECRET_KEY:-rustfsadmin}"
+      export POLARIS_WAREHOUSE="''${POLARIS_WAREHOUSE:-s3://signals-dataproducts/iceberg}"
+      exec "$PWD/scripts/setup_polaris_catalog.sh"
+    '';
+    process-compose = {
+      availability = { restart = "no"; };
+      depends_on = {
+        polaris = { condition = "process_healthy"; };
+        rustfs = { condition = "process_healthy"; };
       };
     };
   };
@@ -1563,6 +1732,7 @@ SQL
         for db in signals signals_catalog ranger polaris; do
           psql -p 5455 -d postgres -c "ALTER DATABASE $db OWNER TO signals;" 2>/dev/null || true
         done
+        psql -p 5455 -d polaris -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS polaris_schema;" || true
         psql -p 5455 -d signals_catalog -f config/impala/catalog_schema.sql
       '';
       description = "Initialize the signals catalog registry schema in PostgreSQL";
@@ -2361,34 +2531,45 @@ SQL
 
     "polaris:install" = {
       exec = ''
+        set -euo pipefail
         POLARIS_HOME="$PWD/.devenv/polaris"
+        POLARIS_SRC="$PWD/components/polaris"
 
-        if [ -f "$POLARIS_HOME/polaris-quarkus-server.jar" ] || [ -d "$POLARIS_HOME/lib" ]; then
+        if [ -f "$POLARIS_HOME/polaris-quarkus-server.jar" ] || [ -f "$POLARIS_HOME/server/quarkus-run.jar" ]; then
           echo "Polaris already installed at $POLARIS_HOME"
+          "$PWD/scripts/setup_polaris_bin.sh" "$POLARIS_HOME"
           exit 0
         fi
 
-        echo "Building Apache Polaris from source..."
-        POLARIS_SRC="$PWD/.devenv/polaris-src"
-
-        if [ ! -d "$POLARIS_SRC" ]; then
-          git clone --depth 1 https://github.com/apache/polaris.git "$POLARIS_SRC"
+        if [ ! -x "$POLARIS_SRC/gradlew" ]; then
+          echo "ERROR: components/polaris missing (git submodule update --init components/polaris)"
+          exit 1
         fi
 
+        echo "Building Apache Polaris from $POLARIS_SRC (1.3.0-incubating pin)..."
         cd "$POLARIS_SRC"
-        ./gradlew :polaris-quarkus-server:build -x test -x intTest --no-daemon
+        ./gradlew :polaris-distribution:assemble -x test -x integrationTest --no-daemon \
+          || ./gradlew :polaris-quarkus-server:build -x test -x intTest --no-daemon
 
         mkdir -p "$POLARIS_HOME"
-        cp quarkus/server/build/quarkus-app/quarkus-run.jar "$POLARIS_HOME/polaris-quarkus-server.jar" 2>/dev/null || true
-        if [ -d quarkus/server/build/quarkus-app/lib ]; then
-          cp -r quarkus/server/build/quarkus-app/lib "$POLARIS_HOME/"
-          cp -r quarkus/server/build/quarkus-app/app "$POLARIS_HOME/" 2>/dev/null || true
-          cp -r quarkus/server/build/quarkus-app/quarkus "$POLARIS_HOME/" 2>/dev/null || true
+        DIST_TGZ="runtime/distribution/build/distributions/polaris-bin-1.3.0-incubating.tgz"
+        if [ -f "$DIST_TGZ" ]; then
+          tar -xzf "$DIST_TGZ" -C "$POLARIS_HOME" --strip-components=1
+        else
+          APP="runtime/server/build/quarkus-app"
+          [ -d "$APP" ] || APP="quarkus/server/build/quarkus-app"
+          cp "$APP/quarkus-run.jar" "$POLARIS_HOME/polaris-quarkus-server.jar"
+          [ -d "$APP/lib" ] && cp -r "$APP/lib" "$POLARIS_HOME/"
+          [ -d "$APP/app" ] && cp -r "$APP/app" "$POLARIS_HOME/"
+          [ -d "$APP/quarkus" ] && cp -r "$APP/quarkus" "$POLARIS_HOME/"
         fi
 
+        cd "$OLDPWD"
+        "$PWD/scripts/setup_polaris_bin.sh" "$POLARIS_HOME"
         echo "Polaris installed at $POLARIS_HOME"
       '';
-      description = "Build and install Apache Polaris (Iceberg REST catalog)";
+      before = [ "devenv:processes:polaris" ];
+      description = "Build Polaris from components/polaris into .devenv/polaris";
     };
   };
 
@@ -2489,9 +2670,12 @@ SQL
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
     echo "  Marquez Web       — http://localhost:21011 (OL validation only; Atlas + 1)"
-    echo "  signals-ui        — http://localhost:9889 (PRIMARY; requires YK via signals:federation-ready)"
+    echo "  signals-engine    — grpc://127.0.0.1:50551 (Engine + Scheduler; YK REST private)"
+    echo "  signals-c2        — http://127.0.0.1:50561 (C2 HTTP → Engine/Yield gRPC)"
+    echo "  signals-ui        — http://localhost:9889 (PRIMARY; /readyz = Engine/Status)"
     echo "  Ranger Admin      — http://localhost:6080 (when configured)"
     echo "  RustFS (S3)       — http://127.0.0.1:9010 (data: \$SIGNALS_RUSTFS_DATA_DIR; mc local)"
+    echo "  Polaris           — http://127.0.0.1:8181 (Iceberg REST; warehouse on RustFS)"
     echo "  Kudu Master       — localhost:7051 (web UI: 8051)"
     echo "  Kudu TServer      — localhost:7050 (web UI: 8050)"
     echo "  Kerberos          — required (just bootstrap / just kinit); Impala+Kudu FQDN SPNs"
@@ -2532,7 +2716,7 @@ SQL
     echo "  devenv tasks run signals:airflow-platform — Airflow 3 LocalExecutor (M2, NodePort 30800)"
     echo "  devenv tasks run hms:install          — Download Hive Standalone Metastore"
     echo "  devenv tasks run hms:init-schema      — Initialize HMS schema in PostgreSQL"
-    echo "  devenv tasks run polaris:install       — Build and install Polaris"
+    echo "  devenv tasks run polaris:install       — Build components/polaris → .devenv/polaris"
     echo "  devenv tasks run docs:build           — Build documentation"
     echo "  devenv tasks run docs:serve           — Serve docs with live reload"
   '';

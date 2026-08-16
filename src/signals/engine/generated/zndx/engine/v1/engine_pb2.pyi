@@ -14,6 +14,7 @@ class SignalKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     UNSATISFIABLE: _ClassVar[SignalKind]
     UNGROUNDED: _ClassVar[SignalKind]
     VERSION_DRIFT: _ClassVar[SignalKind]
+    TX_ID_NOT_UUIDV7: _ClassVar[SignalKind]
 
 class Disposition(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -21,15 +22,29 @@ class Disposition(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CORRECTED: _ClassVar[Disposition]
     COINED_LOCAL: _ClassVar[Disposition]
     UNRESOLVABLE: _ClassVar[Disposition]
+
+class YieldReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    YIELD_REASON_UNSPECIFIED: _ClassVar[YieldReason]
+    YIELD_REASON_PREEMPTED: _ClassVar[YieldReason]
+    YIELD_REASON_COMPLETED: _ClassVar[YieldReason]
+    YIELD_REASON_ORPHAN: _ClassVar[YieldReason]
+    YIELD_REASON_UNIT_STOP: _ClassVar[YieldReason]
 SIGNAL_KIND_UNSPECIFIED: SignalKind
 EXTERNAL_NAMESPACE_VIOLATION: SignalKind
 UNSATISFIABLE: SignalKind
 UNGROUNDED: SignalKind
 VERSION_DRIFT: SignalKind
+TX_ID_NOT_UUIDV7: SignalKind
 DISPOSITION_UNSPECIFIED: Disposition
 CORRECTED: Disposition
 COINED_LOCAL: Disposition
 UNRESOLVABLE: Disposition
+YIELD_REASON_UNSPECIFIED: YieldReason
+YIELD_REASON_PREEMPTED: YieldReason
+YIELD_REASON_COMPLETED: YieldReason
+YIELD_REASON_ORPHAN: YieldReason
+YIELD_REASON_UNIT_STOP: YieldReason
 
 class Candidate(_message.Message):
     __slots__ = ("iri", "label", "kind", "score")
@@ -162,3 +177,27 @@ class StatusResponse(_message.Message):
     endpoints: _containers.RepeatedCompositeFieldContainer[Endpoint]
     total_gpus: int
     def __init__(self, project: _Optional[str] = ..., endpoints: _Optional[_Iterable[_Union[Endpoint, _Mapping]]] = ..., total_gpus: _Optional[int] = ...) -> None: ...
+
+class YieldRequest(_message.Message):
+    __slots__ = ("workload_id", "reason", "sentinel_id", "detail")
+    WORKLOAD_ID_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    SENTINEL_ID_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    workload_id: str
+    reason: YieldReason
+    sentinel_id: str
+    detail: str
+    def __init__(self, workload_id: _Optional[str] = ..., reason: _Optional[_Union[YieldReason, str]] = ..., sentinel_id: _Optional[str] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class YieldResponse(_message.Message):
+    __slots__ = ("ok", "process_ended", "restore_started", "message")
+    OK_FIELD_NUMBER: _ClassVar[int]
+    PROCESS_ENDED_FIELD_NUMBER: _ClassVar[int]
+    RESTORE_STARTED_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    ok: bool
+    process_ended: bool
+    restore_started: bool
+    message: str
+    def __init__(self, ok: _Optional[bool] = ..., process_ended: _Optional[bool] = ..., restore_started: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...

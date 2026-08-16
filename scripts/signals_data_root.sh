@@ -21,7 +21,7 @@ signals_resolve_data_root() {
     elif [ -n "${PWD:-}" ]; then
       fallback="$PWD/.devenv/signals-data"
     else
-      fallback="/tmp/signals-data"
+      fallback="${HOME}/.local/signals-data"
     fi
   fi
 
@@ -57,5 +57,7 @@ signals_ensure_data_layout() {
     "$SIGNALS_KUDU_HOME/tserver/logs" \
     "$SIGNALS_RUSTFS_DATA_DIR" \
     "$SIGNALS_FLINK_DATA_DIR" \
-    "$SIGNALS_BACKUP_DIR"
+    "$SIGNALS_BACKUP_DIR" \
+    "$SIGNALS_DATA_ROOT/impala/s3a-buffer" \
+    "$SIGNALS_DATA_ROOT/impala/hadoop-tmp"
 }

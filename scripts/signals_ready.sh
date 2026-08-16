@@ -7,7 +7,7 @@
 # Critical set (all required for peer dependence / signals.target ready):
 #   postgres, kdc, rustfs, atlas, kudu-master, kudu-tserver,
 #   impala-* (Linux), yunikorn, metaflow, airflow, knative-eventing broker
-# Soft (WARN only by default): marquez-web, ranger, signals-ui, knative-serving
+# Soft (WARN only by default): marquez-web, ranger, polaris, signals-ui, knative-serving
 #
 # Usage:
 #   just signals-ready
@@ -125,6 +125,13 @@ RUSTFS_HOST="${RUSTFS_URL%%:*}"
 RUSTFS_PORT="${RUSTFS_URL##*:}"
 check_tcp "rustfs" "$RUSTFS_HOST" "$RUSTFS_PORT" 1
 
+if curl -sf -m 3 http://127.0.0.1:8182/q/health/ready >/dev/null 2>&1 \
+  || tcp_ok 127.0.0.1 8181; then
+  record "polaris" PASS 0 "Iceberg REST :8181 (admin JDBC on pglite; data on RustFS)"
+else
+  record "polaris" WARN 0 "not ready on :8181/:8182 (warehouse catalog)"
+fi
+
 check_http "atlas" "${ATLAS_URL%/}/api/atlas/admin/status" 1
 
 # ── Data plane: Kudu + Impala (always critical on Linux) ──────────
@@ -160,6 +167,25 @@ if http_ok "${YK_URL%/}/ws/v1/clusters"; then
   record "yunikorn" PASS 1 "$YK_URL"
 else
   record "yunikorn" FAIL 1 "YK REST missing at $YK_URL"
+fi
+
+# Platform engine — WARN here: unit starts After=signals-ready, so this
+# oneshot must not require :50551. lattice-ci + UI /readyz gate Status.
+ENGINE_TARGET="${SIGNALS_ENGINE_TARGET:-127.0.0.1:50551}"
+if python3 "$ROOT/scripts/zndx_engine_status.py" \
+    --expect-project signals --expect-capability scheduler \
+    "$ENGINE_TARGET" >/dev/null 2>&1; then
+  record "signals-engine" PASS 0 "$ENGINE_TARGET Engine/Status"
+else
+  record "signals-engine" WARN 0 "Engine/Status not up at $ENGINE_TARGET (starts after ready)"
+fi
+
+# C2 — WARN: starts After=signals-engine, so ready must not require :50561.
+C2_URL="${SIGNALS_C2_URL:-http://127.0.0.1:50561}"
+if http_ok "${C2_URL%/}/healthz"; then
+  record "signals-c2" PASS 0 "$C2_URL/healthz"
+else
+  record "signals-c2" WARN 0 "C2 not up at $C2_URL (starts after engine)"
 fi
 
 # Metaflow — critical for peer Metaflow platform dependence

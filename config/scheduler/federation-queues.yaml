@@ -1,0 +1,192 @@
+# Resource-class federation queues (YuniKorn lab backend).
+# SoR for live policy. Promote via engine:
+#   uv run python -m signals.cli.yk write-scratch config/scheduler/federation-queues.yaml
+#   uv run python -m signals.cli.yk promote --dry-run
+#   uv run python -m signals.cli.yk promote
+#
+# Queue path = scarcity / resource class. Project is identity
+# (federation.project label, C2 routing, Engine/Yield), not a parent.
+# GPU occupancy key is federation.zndx.org/gpu (claim token). Do not put
+# nvidia.com/gpu on host-engine sentinels — that binds the card into the
+# empty pod. In-cluster CUDA pods request both keys.
+#
+# Lab GPU pool: 6 × RTX 4090 on tinybox. Tune integers after occupancy data.
+# Catalog for peers: each leaf's properties.federation.* (MCP later).
+partitions:
+  - name: default
+    preemption:
+      enabled: true
+    placementrules:
+      - name: provided
+        create: false
+      - name: fixed
+        value: root.default
+        create: false
+    queues:
+      - name: root
+        parent: true
+        submitacl: '*'
+        queues:
+          - name: default
+            submitacl: '*'
+            properties:
+              federation.class: default
+              federation.yk_enforces: memory,vcore,maxapplications
+              federation.peer_meters: ""
+              federation.examples: unannotated;autogen;leftover
+            resources:
+              max:
+                memory: 64G
+                vcore: 16
+                federation.zndx.org/gpu: "0"
+            maxapplications: 64
+
+          - name: platform
+            submitacl: '*'
+            properties:
+              federation.class: platform
+              federation.yk_enforces: memory,vcore,maxapplications
+              federation.peer_meters: ""
+              federation.examples: metaflow-service;airflow;eventing;signals-c2-adjacent
+            resources:
+              max:
+                memory: 64G
+                vcore: 16
+                federation.zndx.org/gpu: "0"
+            maxapplications: 32
+
+          - name: internal
+            parent: true
+            submitacl: '*'
+            resources:
+              max:
+                memory: 512G
+                vcore: 96
+                federation.zndx.org/gpu: "6"
+            queues:
+              - name: compute
+                submitacl: '*'
+                properties:
+                  federation.class: internal.compute
+                  federation.yk_enforces: memory,vcore,maxapplications
+                  federation.peer_meters: ""
+                  federation.examples: cpu-burst;yield-proof;minifi-idle
+                resources:
+                  max:
+                    memory: 128G
+                    vcore: 32
+                    federation.zndx.org/gpu: "0"
+                maxapplications: 32
+
+              - name: inference
+                parent: true
+                submitacl: '*'
+                properties:
+                  federation.class: internal.inference
+                  federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                  federation.peer_meters: ""
+                  federation.examples: parent-share;do-not-submit-here
+                resources:
+                  max:
+                    memory: 400G
+                    vcore: 64
+                    federation.zndx.org/gpu: "6"
+                queues:
+                  - name: reasoning
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.reasoning
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.reasoning;chat-cot
+                    maxapplications: 4
+
+                  - name: coding
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.coding
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.coding;code-model
+                    maxapplications: 4
+
+                  - name: orchestration
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.orchestration
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.orchestration;planner;tool-router
+                    maxapplications: 8
+
+                  - name: instruct
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.instruct
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.instruct;aegir.instruct;short-chat
+                    maxapplications: 8
+
+                  - name: embedding
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.embedding
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.text_embedding;atelier.embed
+                    maxapplications: 8
+
+                  - name: extract
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.extract
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.extract;atelier.ocr;docling
+                    maxapplications: 16
+
+          - name: external
+            parent: true
+            submitacl: '*'
+            resources:
+              max:
+                memory: 32G
+                vcore: 16
+                federation.zndx.org/gpu: "0"
+            queues:
+              - name: token-metered
+                submitacl: '*'
+                properties:
+                  federation.class: external.token-metered
+                  federation.yk_enforces: memory,vcore,maxapplications
+                  federation.peer_meters: tokens
+                  federation.examples: openai-class;pay-per-token
+                maxapplications: 16
+
+              - name: rate-metered
+                submitacl: '*'
+                properties:
+                  federation.class: external.rate-metered
+                  federation.yk_enforces: memory,vcore,maxapplications
+                  federation.peer_meters: rpm
+                  federation.examples: rpm-tpm-limited-api
+                maxapplications: 16
+
+              - name: subscription
+                parent: true
+                submitacl: '*'
+                resources:
+                  max:
+                    memory: 16G
+                    vcore: 8
+                    federation.zndx.org/gpu: "0"
+                queues:
+                  - name: rate-limited
+                    submitacl: '*'
+                    properties:
+                      federation.class: external.subscription.rate-limited
+                      federation.yk_enforces: memory,vcore,maxapplications
+                      federation.peer_meters: subscription
+                      federation.examples: grok-acp;xai-subscription
+                    maxapplications: 8

@@ -19,12 +19,16 @@ spec:
         app.kubernetes.io/part-of: signals-platform
         # Do not rewrite image to local Zarf registry until packaged (M2+).
         zarf.dev/agent: ignore
-        # YuniKorn application id (platform control-plane workload)
+        # YuniKorn application id (platform control-plane, not inference)
         applicationId: yunikorn-metaflow-platform
         yunikorn.apache.org/app-id: yunikorn-metaflow-platform
-        yunikorn.apache.org/queue: root.signals
+        yunikorn.apache.org/queue: root.platform
+        federation.project: signals
+        federation.resource_class: platform
       annotations:
         zarf.dev/agent: ignore
+        yunikorn.apache.org/app-id: yunikorn-metaflow-platform
+        yunikorn.apache.org/queue: root.platform
     spec:
       # Lab: devenv Postgres listens on 127.0.0.1 only — hostNetwork reaches
       # host PG :5455 / RustFS :9010 without opening listen_addresses.

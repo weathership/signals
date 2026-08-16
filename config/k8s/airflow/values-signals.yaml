@@ -7,7 +7,7 @@
 #   - External Postgres via host bridge Service signals-postgres
 #   - API server NodePort 30800 (Airflow 3 UI + REST)
 #   - allowPodLaunching for Metaflow KubernetesPodOperator (M2+)
-#   - YuniKorn-friendly labels; ns placement → root.default until queue map extended
+#   - YuniKorn provided placement → root.platform (one Application)
 ---
 fullnameOverride: ""
 nameOverride: ""
@@ -30,9 +30,22 @@ labels:
   signals.zndx.org/component: airflow
   # Skip Zarf registry rewrite until airflow is packaged in signals-federation
   zarf.dev/agent: ignore
+  applicationId: yunikorn-airflow-platform
+  yunikorn.apache.org/app-id: yunikorn-airflow-platform
+  yunikorn.apache.org/queue: root.platform
+  federation.project: signals
+  federation.resource_class: platform
+  queue: root.platform
 
-# Shared pod annotations (each component also sets podAnnotations below)
-# zarf.dev/agent: ignore — pull apache/airflow:3.1.7 from Docker Hub, not 127.0.0.1:31999
+# Shared pod annotations (merged onto every Airflow pod)
+airflowPodAnnotations:
+  yunikorn.apache.org/app-id: yunikorn-airflow-platform
+  yunikorn.apache.org/queue: root.platform
+  zarf.dev/agent: ignore
+
+# Per-component podAnnotations still set zarf.dev/agent: ignore
+# (pull apache/airflow:3.1.7 from Docker Hub, not 127.0.0.1:31999)
+
 
 # ── Images ────────────────────────────────────────────────────────
 images:

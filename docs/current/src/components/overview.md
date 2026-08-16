@@ -11,6 +11,7 @@ shared devenv/Nix-build line for any host product; signals pins SHAs from it.
 | [Atlas](./atlas.md) | Metadata catalog + AI-driven classification | **Running** — AGE backend on `:21010` |
 | [Impala FDW](./impala_fdw.md) | Postgres → Impala HS2 → **Kudu only**; **FDW-only / no-JDBC** access default | Scaffold — HS2 scans not yet implemented |
 | [Iceberg](./iceberg.md) | Table format via Polaris REST catalog (warm tier) | Near-term — REST API implemented |
+| [Polaris](./polaris.md) | Iceberg REST catalog; warehouse on RustFS | Submodule `components/polaris` (`rch/asf-polaris` 1.3.0-incubating) |
 | [Ranger](./ranger.md) | Tag-based access control via Atlas classifications | Near-term — config scaffold in place |
 | [Marquez](./marquez.md) | OL **UI** only (oss-marquez); proxies Atlas `/api/v1` — no Marquez DB | **Default stack** process |
 | [signals-protocol](./signals-protocol.md) | Shared federation protos (`zndx.engine.v1`, discovery, OIP mapping) | Submodule pin `trunk` |

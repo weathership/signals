@@ -21,7 +21,7 @@ standards rather than the reverse.
 ## Ships
 
 1. Knative Serving (CRDs → controllers, Kourier, KPA `enable-scale-to-zero`)  
-2. YuniKorn 1.9.0 (queues `root.{project}`)  
+2. YuniKorn 1.9.0 (resource-class queues; policy promoted from `config/scheduler/federation-queues.yaml`)  
 3. MiNiFi C++ sentinel Knative Service (`federation-signals/minifi-sentinel`)  
 
 **Does not ship:** host gRPC engines, Dask, Jupyter, Panel-Viz.

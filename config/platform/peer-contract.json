@@ -34,6 +34,12 @@
       "url": "http://127.0.0.1:9010",
       "owner": "signals"
     },
+    "polaris": {
+      "url": "http://127.0.0.1:8181",
+      "admin": "http://127.0.0.1:8182",
+      "warehouse": "s3://signals-dataproducts/iceberg",
+      "note": "Iceberg REST catalog. JDBC on pglite/polaris is admin metadata only; table data on RustFS."
+    },
     "atlas_http": {
       "url": "http://127.0.0.1:21010"
     },
@@ -61,6 +67,12 @@
     },
     "signals_ui": {
       "url": "http://127.0.0.1:9889"
+    },
+    "signals_c2": {
+      "url": "http://127.0.0.1:50561",
+      "heartbeat": "http://127.0.0.1:50561/c2-protocol/heartbeat",
+      "last_gasp": "http://127.0.0.1:50561/c2-protocol/last-gasp",
+      "note": "MiNiFi C2 HTTP; C2 calls Engine/Yield over gRPC. Not NiFi."
     },
     "eventing_broker": {
       "namespace": "signals-events",
@@ -128,7 +140,8 @@
         "Signals platform engine: multi-service gRPC Engine + zndx.scheduler.v1.Scheduler",
         "Lab backend model=yunikorn; clients use engine gRPC only \u2014 never vendor REST as product path",
         "Projection: build/dev/{current,scratch,archive}",
-        "Lattice :50551; YK REST private at SIGNALS_YK_API_URL"
+        "Lattice :50551; YK REST private at SIGNALS_YK_API_URL",
+        "C2 HTTP :50561 last-gasp \u2192 Engine/Yield gRPC; sentinel is the YK Application"
       ]
     },
     {

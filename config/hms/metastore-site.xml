@@ -49,7 +49,7 @@
   <!-- Warehouse location (local filesystem, no HDFS) -->
   <property>
     <name>metastore.warehouse.dir</name>
-    <value>file:///tmp/signals-warehouse</value>
+    <value>s3a://signals-dataproducts/iceberg</value>
   </property>
 
   <!-- Schema tool auto-init -->

@@ -3,7 +3,7 @@
 <configuration>
   <property>
     <name>hive.metastore.warehouse.dir</name>
-    <value>file:///tmp/signals-warehouse</value>
+    <value>s3a://signals-dataproducts/iceberg</value>
   </property>
   <!-- Dummy URI so HiveMetaStoreClient instantiates without falling into the
        embedded-metastore code path (which requires hive-exec JARs).

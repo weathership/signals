@@ -14,7 +14,8 @@ they do **not** each re-host thrashing control-plane copies of these services.
 |--------|---------|------|-------------|
 | Identity | Kerberos KDC | Data-plane authn | `just bootstrap` |
 | Data SoR | PostgreSQL 16 | Catalog, AGE, Ranger, Metaflow DB | `:5455` |
-| Object store | **RustFS** | S3 for artifacts, Metaflow datastore | `:9010` |
+| Object store | **RustFS** | S3 for artifacts, Metaflow datastore, Iceberg warehouse | `:9010` |
+| Iceberg catalog | **Polaris** | REST catalog; table data on RustFS | `:8181` / `:8182` |
 | Governance | **Atlas** (+ Marquez-web validator) | Metadata + OL SoR | `:21010` / `:21011` |
 | Authz | **Ranger** | Tag/resource policies | `:6080` |
 | Storage / SQL | **Kudu** + **Impala** | Analytic tables | Kudu / HS2 `:21050` |
@@ -51,6 +52,7 @@ tests may still mock subsystems; the **live stack** does not.
 | `signals:kerberos-bootstrap` | Wait for KDC → keytabs + kinit before Kudu/Impala |
 | `signals:federation-ready` | YK + Knative (subset) |
 | `signals:metaflow-platform` / `airflow-platform` | Platform RKE2 services |
+| `just redeploy` | Refresh those product Deployments (complete YK apps, re-place) |
 
 ```bash
 devenv up -d                        # preferred — full validate + bootstrap

@@ -1,0 +1,49 @@
+# CPU Application on root.internal.compute: preStop last-gasp to Signals C2.
+# HostPath not used — last-gasp is HTTP to the node/lab C2.
+# Apply after C2 + engine are up. Queue annotation is the YK provided path.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: signals-yield-proof
+  namespace: federation-signals
+  labels:
+    app.kubernetes.io/component: minifi-sentinel
+    federation.project: signals
+    federation.workload_id: signals-yield-proof
+    federation.resource_class: internal.compute
+    applicationId: signals-yield-proof
+    queue: root.internal.compute
+  annotations:
+    yunikorn.apache.org/app-id: signals-yield-proof
+    yunikorn.apache.org/queue: root.internal.compute
+spec:
+  restartPolicy: Never
+  hostNetwork: true
+  containers:
+    - name: sentinel
+      image: python:3.12-slim
+      imagePullPolicy: IfNotPresent
+      command: ["python3", "-c", "import time; time.sleep(3600)"]
+      env:
+        - name: FEDERATION_PROJECT
+          value: signals
+        - name: C2_URL
+          value: "http://127.0.0.1:50561"
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - sh
+              - -c
+              - |
+                wget -q -O- --post-data='{"workload_id":"signals-yield-proof","project":"signals","phase":"preempted","sentinel_id":"signals-yield-proof"}' \
+                  --header='Content-Type: application/json' \
+                  "${C2_URL}/c2-protocol/last-gasp" || true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+      # Host of the lab engine/C2. Override via kustomize / env when not tinybox.
+---
+# Note: C2_URL default assumes a host alias. Lab script uses HTTP last-gasp
+# on the host without this pod when SIGNALS_YIELD_K8S is unset.

@@ -1,0 +1,25 @@
+[Unit]
+Description=Signals Polaris Iceberg REST catalog (:8181)
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/components/polaris.md
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architecture/data-product-history.md
+PartOf=signals.target
+After=signals.service network-online.target
+Wants=signals.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+KillMode=control-group
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/wxs/signals
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+# Prefer devenv polaris; start .devenv/polaris if the catalog is not up yet.
+ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_polaris_start.sh
+ExecStop=/home/rch/local/src/wxs/signals/scripts/systemd_polaris_stop.sh
+TimeoutStartSec=240
+TimeoutStopSec=60
+
+[Install]
+WantedBy=signals.target

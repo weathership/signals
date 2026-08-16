@@ -1,0 +1,27 @@
+[Unit]
+Description=Signals platform engine (Engine + Scheduler on :50551)
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architecture/yunikorn-queue-management.md
+Documentation=file:///home/rch/local/src/wxs/signals/config/platform/peer-contract.json
+PartOf=signals.target
+After=signals-ready.service network-online.target
+Wants=signals-ready.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+KillMode=control-group
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/wxs/signals
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=SIGNALS_ENGINE_GRPC_PORT=50551
+Environment=SIGNALS_YK_API_URL=http://127.0.0.1:30080
+# Wrappers block until Engine/Status answers on the lattice port.
+ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_engine_start.sh
+ExecStop=/home/rch/local/src/wxs/signals/scripts/systemd_engine_stop.sh
+TimeoutStartSec=180
+TimeoutStopSec=60
+
+[Install]
+WantedBy=signals.target

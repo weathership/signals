@@ -61,3 +61,8 @@
 	path = components/metaflow
 	url = git@github.com:weathership/oss-metaflow.git
 	branch = rch/devenv
+[submodule "components/polaris"]
+	path = components/polaris
+	url = git@github.com:rch/asf-polaris.git
+	# Pin: apache-polaris-1.3.0-incubating (c940ded0) — same as
+	# cldr/cybersec/thirdparty/polaris. rch/devenv line not on the fork yet.

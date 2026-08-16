@@ -13,31 +13,22 @@ enableWebService: true
 # YuniKorn 1.9: runtime config is `yunikornDefaults` → ConfigMap yunikorn-defaults.
 # (Not the older nested `configuration:` blob.)
 # yunikorn-configs (if present) overrides defaults at runtime.
+# Full resource-class tree lives in config/scheduler/federation-queues.yaml
+# and is promoted via the engine. Chart default is bootstrap only.
 yunikornDefaults:
   admissionController.filtering.enable: "true"
   queues.yaml: |
     partitions:
       - name: default
         placementrules:
-          - name: tag
-            value: namespace
+          - name: provided
             create: false
           - name: fixed
             value: root.default
-            create: true
+            create: false
         queues:
           - name: root
             submitacl: '*'
             queues:
               - name: default
-                submitacl: '*'
-              - name: aegir
-                submitacl: '*'
-              - name: atelier
-                submitacl: '*'
-              - name: gaius
-                submitacl: '*'
-              - name: signals
-                submitacl: '*'
-              - name: hermes
                 submitacl: '*'

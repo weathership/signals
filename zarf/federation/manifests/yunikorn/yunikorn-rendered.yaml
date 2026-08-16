@@ -59,27 +59,16 @@ data:
     partitions:
       - name: default
         placementrules:
-          - name: tag
-            value: namespace
+          - name: provided
             create: false
           - name: fixed
             value: root.default
-            create: true
+            create: false
         queues:
           - name: root
             submitacl: '*'
             queues:
               - name: default
-                submitacl: '*'
-              - name: aegir
-                submitacl: '*'
-              - name: atelier
-                submitacl: '*'
-              - name: gaius
-                submitacl: '*'
-              - name: signals
-                submitacl: '*'
-              - name: hermes
                 submitacl: '*'
 ---
 # Source: yunikorn/templates/admission-controller-service.yaml

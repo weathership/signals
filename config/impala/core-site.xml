@@ -1,8 +1,46 @@
 <?xml version="1.0"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
+  <!-- Federated object store: RustFS on $SIGNALS_DATA_ROOT/rustfs (lab /raid/signals).
+       No file:///tmp warehouse. Iceberg table data lives under this bucket. -->
   <property>
     <name>fs.defaultFS</name>
-    <value>file:///tmp/signals-warehouse</value>
+    <value>s3a://signals-dataproducts/</value>
+  </property>
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://127.0.0.1:9010</value>
+  </property>
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+  </property>
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>rustfsadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>rustfsadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+  </property>
+  <property>
+    <name>fs.s3a.buffer.dir</name>
+    <value>/raid/signals/impala/s3a-buffer</value>
+  </property>
+  <property>
+    <name>hadoop.tmp.dir</name>
+    <value>/raid/signals/impala/hadoop-tmp</value>
   </property>
 </configuration>

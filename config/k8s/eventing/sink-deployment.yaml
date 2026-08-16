@@ -42,8 +42,16 @@ spec:
         app.kubernetes.io/name: airflow-dag-trigger
         app.kubernetes.io/part-of: signals-platform
         zarf.dev/agent: ignore
+        applicationId: yunikorn-eventing-platform
+        yunikorn.apache.org/app-id: yunikorn-eventing-platform
+        yunikorn.apache.org/queue: root.platform
+        federation.project: signals
+        federation.resource_class: platform
+        queue: root.platform
       annotations:
         zarf.dev/agent: ignore
+        yunikorn.apache.org/app-id: yunikorn-eventing-platform
+        yunikorn.apache.org/queue: root.platform
     spec:
       serviceAccountName: airflow-dag-trigger
       containers:

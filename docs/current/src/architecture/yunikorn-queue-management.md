@@ -42,7 +42,7 @@ Under `build/dev/` (or `SIGNALS_YK_PROJECTION_ROOT`):
 |--------|--------|
 | CLI | `signals-yk` / `uv run python -m signals.cli.yk` |
 | MCP | `signals-yk-mcp` / `uv run python -m signals.mcp.yk` (stdio JSON-RPC) |
-| Web | `/` Scheduler band + `/queues` lineup → engine gRPC (`SIGNALS_ENGINE_TARGET`) via `/api/engine/v1/*` |
+| Web | `/` Scheduler band + `/queues` lineup + `/applications` → engine gRPC (`SIGNALS_ENGINE_TARGET`) via `/api/engine/v1/*` |
 
 ### Queues lineup (Aegir geometry)
 
@@ -110,3 +110,61 @@ Lab/RKE2: `yunikorn-configs` overrides `yunikorn-defaults` at runtime (zarf valu
 Apply preserves other CM keys (e.g. admission controller flags).
 
 On apply failure, projection is **not** mutated (`applied=false`).
+
+## Resource-class tree
+
+Queue path is **scarcity**, not project. Project stays identity (`federation.project`,
+C2, `Engine/Yield`). Aegir / Atelier / Gaius / Signals share the same
+`internal.inference.*` leaves.
+
+Canonical policy: [`config/scheduler/federation-queues.yaml`](../../../config/scheduler/federation-queues.yaml).
+Catalog prose: [`config/scheduler/resource-classes.md`](../../../config/scheduler/resource-classes.md).
+
+```text
+root.default                         leftover / unannotated (no GPU)
+root.platform                        Metaflow, Airflow, Eventing
+root.internal.compute                CPU burst / idle sentinels
+root.internal.inference.{reasoning,coding,orchestration,instruct,embedding,extract}
+root.external.token-metered          peer meters tokens
+root.external.rate-metered           peer meters RPM
+root.external.subscription.rate-limited   Grok ACP / xAI subscription
+```
+
+Placement (without `provided`, annotations are ignored and everything lands on
+`root.default`):
+
+```yaml
+placementrules:
+  - name: provided          # yunikorn.apache.org/queue
+    create: false
+  - name: fixed
+    value: root.default
+    create: false
+```
+
+GPU occupancy is the Application claim key `federation.zndx.org/gpu`. Advertise
+node capacity with `scripts/advertise_federation_gpu.sh`. Host-engine sentinels
+request that token only — never `nvidia.com/gpu` on a CPU-only pod (that binds
+the card into the empty container). In-cluster CUDA pods request both.
+
+Each leaf carries `properties.federation.*` (`class`, `yk_enforces`,
+`peer_meters`, `examples`) so `GetQueueTree` is the discovery SoR. MCP catalog
+tools come after this tree is live; protocol `SuggestQueue` later still.
+
+An Application is placed **once**, when its `app-id` is first submitted.
+Re-annotating a later pod with the same id does not move it; use a new id or
+let the old Application complete. `root.default` holds unannotated leftovers
+(including earlier autogen).
+
+Turnkey refresh: `just redeploy` walks the `k8s.product-redeploy` FSM
+([IT-ops FSM](./ops-fsm.md)). Probes are Brier-scored forecasts. Completing
+still owns the `app-id`; timeout fails the procedure.
+YK and Knative substrate apply only when missing or those manifests changed.
+Not `signals.target` (host engines).
+Not Metabase (host peer). Not a scorched-earth rebuild.
+
+```bash
+uv run python -m signals.cli.yk write-scratch config/scheduler/federation-queues.yaml
+uv run python -m signals.cli.yk promote --dry-run
+uv run python -m signals.cli.yk promote
+```

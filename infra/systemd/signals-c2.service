@@ -1,0 +1,26 @@
+[Unit]
+Description=Signals C2 server (MiNiFi HTTP :50561 → Engine/Yield gRPC)
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architecture/sentinel-yield.md
+Documentation=file:///home/rch/local/src/wxs/signals/config/platform/peer-contract.json
+PartOf=signals.target
+After=signals-engine.service signals-ready.service network-online.target
+Wants=signals-engine.service signals-ready.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+KillMode=control-group
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/wxs/signals
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=SIGNALS_C2_HTTP_PORT=50561
+# Wrappers block until /healthz answers.
+ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_c2_start.sh
+ExecStop=/home/rch/local/src/wxs/signals/scripts/systemd_c2_stop.sh
+TimeoutStartSec=90
+TimeoutStopSec=30
+
+[Install]
+WantedBy=signals.target

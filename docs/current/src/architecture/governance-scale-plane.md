@@ -32,7 +32,7 @@ This is a **prerequisite** for multi-engine operation and for
 | **Postgres (pglite)** | Thin **SoR** for AGE graph + Ranger admin; **FDW client** for scale reads |
 | **impala_fdw** | How pglite **leverages Kudu** without relocating Cypher or policy admin |
 | **Kudu projections** | High-volume **derived** entity/tag/edge/audit tables |
-| **RustFS** | Object/blob store (not relational keys) |
+| **RustFS** | Object/blob store **and** Iceberg warehouse for data products + `hx` (sole SoR) |
 
 **Hard rule:** Do **not** host AGE openCypher topology on Kudu. Do **not** make
 engines bypass Postgres for Atlas/Ranger identity — they use Atlas/Ranger APIs
@@ -66,6 +66,7 @@ openCypher over the whole estate.
 | **Policy admin SoR** | Postgres `ranger` | `x_policy*`, defs, admin UI | High-QPS tag membership heap scans |
 | **Scale projections** | **Kudu**, exposed as **PG foreign tables** | entity_flat, by_qn, edges, classifications; Ranger tag denorm | openCypher graph |
 | **Object / blob** | **RustFS** | artifacts, lineage packages, Weathership memory, backup objects | Relational SoR |
+| **Data products + `hx`** | **Kudu tier0 + RustFS Iceberg tier1** (`details`/`tx`/`hx` views) | fact log, tx, hx | **pglite / any Postgres copy** |
 | **Logical packages** | DataFusion (`signals-df`) | portable Parquet backup/verify | Live multi-writer SoR |
 
 ## Atlas → Kudu (via pglite FDW)
@@ -108,7 +109,7 @@ TagSync / outbox → UPSERT is near-term wiring.
 | Console | `http://127.0.0.1:9011` |
 | Lab creds | `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY` (secretspec in shared envs) |
 | Client | `mc` → alias `local` |
-| Buckets | `signals-artifacts`, `signals-lineage`, `weathership-memory`, `signals-backup` |
+| Buckets | `signals-artifacts`, `signals-lineage`, `weathership-memory`, `signals-backup`, `signals-dataproducts` |
 | Process | `processes.rustfs` (default stack) |
 
 ## Implications for signals-protocol

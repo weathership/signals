@@ -1,0 +1,38 @@
+# GPU-token Application on root.internal.inference.extract.
+# Requests federation.zndx.org/gpu (claim). Does not request nvidia.com/gpu
+# (would bind the card into this empty pod). Advertise node capacity first:
+#   scripts/advertise_federation_gpu.sh
+# Apply after promote of config/scheduler/federation-queues.yaml.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: signals-gpu-token-proof
+  namespace: federation-signals
+  labels:
+    app.kubernetes.io/component: minifi-sentinel
+    federation.project: signals
+    federation.workload_id: signals-gpu-token-proof
+    federation.resource_class: internal.inference.extract
+    applicationId: signals-gpu-token-proof
+    queue: root.internal.inference.extract
+  annotations:
+    yunikorn.apache.org/app-id: signals-gpu-token-proof
+    yunikorn.apache.org/queue: root.internal.inference.extract
+spec:
+  restartPolicy: Never
+  containers:
+    - name: sentinel
+      image: rancher/mirrored-pause:3.6
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: FEDERATION_PROJECT
+          value: signals
+        - name: FEDERATION_RESOURCE_CLASS
+          value: internal.inference.extract
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+          federation.zndx.org/gpu: "1"
+        limits:
+          federation.zndx.org/gpu: "1"

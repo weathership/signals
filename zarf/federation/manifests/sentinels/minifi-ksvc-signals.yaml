@@ -19,11 +19,14 @@ spec:
         autoscaling.knative.dev/max-scale: "2"
         autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
         autoscaling.knative.dev/target: "1"
+        yunikorn.apache.org/app-id: minifi-sentinel-signals
+        yunikorn.apache.org/queue: root.internal.compute
       labels:
         app.kubernetes.io/component: minifi-sentinel
         federation.project: signals
+        federation.resource_class: internal.compute
         applicationId: minifi-sentinel-signals
-        queue: root.signals
+        queue: root.internal.compute
     spec:
       containerConcurrency: 1
       timeoutSeconds: 600

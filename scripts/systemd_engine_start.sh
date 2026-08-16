@@ -39,26 +39,20 @@ if status_ok; then
 fi
 
 info "starting python -m signals.engine on :${SIGNALS_ENGINE_GRPC_PORT}"
-# Use uv when available for project env
-if command -v uv >/dev/null 2>&1; then
-  setsid env \
-    SIGNALS_ENGINE_GRPC_PORT="$SIGNALS_ENGINE_GRPC_PORT" \
-    SIGNALS_YK_API_URL="$SIGNALS_YK_API_URL" \
-    SIGNALS_REPO_ROOT="$ROOT" \
-    SIGNALS_YK_PROJECTION_ROOT="$SIGNALS_YK_PROJECTION_ROOT" \
-    PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
-    uv run python -m signals.engine \
-    >>"$LOG_FILE" 2>&1 < /dev/null &
-else
-  setsid env \
-    SIGNALS_ENGINE_GRPC_PORT="$SIGNALS_ENGINE_GRPC_PORT" \
-    SIGNALS_YK_API_URL="$SIGNALS_YK_API_URL" \
-    SIGNALS_REPO_ROOT="$ROOT" \
-    SIGNALS_YK_PROJECTION_ROOT="$SIGNALS_YK_PROJECTION_ROOT" \
-    PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
-    python -m signals.engine \
-    >>"$LOG_FILE" 2>&1 < /dev/null &
+# Prefer the project venv. Bare `uv run` under systemd re-resolves the lock
+# and can stall on native wheels (kerberos) with no devenv compilers.
+PY="$ROOT/.devenv/state/venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+  PY=python3
 fi
+setsid env \
+  SIGNALS_ENGINE_GRPC_PORT="$SIGNALS_ENGINE_GRPC_PORT" \
+  SIGNALS_YK_API_URL="$SIGNALS_YK_API_URL" \
+  SIGNALS_REPO_ROOT="$ROOT" \
+  SIGNALS_YK_PROJECTION_ROOT="$SIGNALS_YK_PROJECTION_ROOT" \
+  PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+  "$PY" -m signals.engine \
+  >>"$LOG_FILE" 2>&1 < /dev/null &
 echo $! > "$PID_FILE"
 
 for i in $(seq 1 60); do

@@ -25,7 +25,7 @@ The `IcebergRESTCatalog` class in the Impala fork implements `createTable`, `dro
 ```properties
 connector.name=iceberg
 iceberg.catalog.type=rest
-iceberg.rest.uri=http://localhost:8181/api/catalog
+uri=http://localhost:8181/api/catalog
 iceberg.rest.warehouse=signals
 ```
 

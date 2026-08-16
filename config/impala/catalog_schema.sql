@@ -19,5 +19,5 @@ CREATE TABLE IF NOT EXISTS catalog_tables (
     PRIMARY KEY (db_name, table_name)
 );
 
-INSERT INTO catalog_databases VALUES ('default', 'Default database', 'file:///tmp/signals-warehouse', NULL, '{}')
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO catalog_databases VALUES ('default', 'Default database', 's3a://signals-dataproducts/iceberg', NULL, '{}')
+ON CONFLICT (name) DO UPDATE SET location = EXCLUDED.location;

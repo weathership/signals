@@ -46,6 +46,9 @@ multi-user.target
   └── signals.target
         ├── signals.service          # just up / just down  (foundation)
         ├── signals-ready.service    # oneshot: just signals-ready until exit 0
+        ├── signals-engine.service   # platform engine :50551 (After=ready)
+        ├── signals-c2.service       # C2 HTTP :50561 → Engine/Yield (After=engine)
+        ├── signals-polaris.service  # Iceberg REST :8181 (After=signals.service)
         ├── aegir.service            # After=signals-ready.service
         ├── atelier.service
         ├── gaius.service
@@ -134,6 +137,9 @@ Manual equivalent (foundation):
 sudo install -m 644 infra/systemd/signals.target \
   infra/systemd/signals.service \
   infra/systemd/signals-ready.service \
+  infra/systemd/signals-engine.service \
+  infra/systemd/signals-c2.service \
+  infra/systemd/signals-polaris.service \
   /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now signals.target
