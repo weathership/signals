@@ -343,6 +343,10 @@ signals-ready *ARGS:
 gen-zndx-engine-py:
     bash scripts/gen_zndx_engine_py.sh
 
+# Lab oneshot: attach proof process → C2 last-gasp → Engine/Yield (not a CI gate).
+sentinel-yield-lab *ARGS:
+    bash scripts/sentinel_yield_lab.sh {{ARGS}}
+
 # gRPC lattice CI: generated Status client + reflection check (SKIP if down).
 # Require subset: just lattice-ci --require gaius,metabase
 lattice-ci *ARGS:
@@ -371,6 +375,28 @@ data-plane-smoke:
 # Clean stop of *this* stack only (never kill foreign devenv Postgres) + up -d.
 stack-reset:
     bash scripts/devenv_stack_reset.sh
+
+# Host Polarisfork rebuild (Metabase-style): assemble + restart polaris + wait :8182.
+# SKIP_POLARIS_BUILD=1 skips gradle (restart only). Not K8s redeploy; not Metabase rebuild.
+rebuild:
+    bash scripts/signals_rebuild.sh
+
+# Build Polarisfork from components/polaris into .devenv/polaris.
+polaris-install:
+    devenv tasks run polaris:install
+
+# Refresh Signals-owned K8s product (Metaflow, Airflow, Eventing) onto YK queues.
+# Walks k8s.product-redeploy (FSM + Brier ledger). Not signals.target / rebuild.
+redeploy:
+    uv run python -m signals.ops redeploy
+
+# Plan data-product.tier-upkeep (ADD week / 4-week settle). Metaflow+Airflow run it.
+tier-upkeep:
+    uv run python -m signals.ops tier-upkeep
+
+# Map one Metaflow run onto signals.metaflow.snapshots (fails closed unless RustFS).
+record-snapshot FLOW RUN_ID *ARGS:
+    uv run python -m signals.ops record-snapshot --flow {{FLOW}} --run-id {{RUN_ID}} {{ARGS}}
 
 # M3: Knative Eventing + platform Broker + Airflow DAG-run sink (no Argo).
 knative-eventing:

@@ -260,6 +260,7 @@ All tracked on **`rch/devenv`** branch from `rch` GitHub forks (shared devenv/Ni
 | `impala_fdw` | PostgreSQL FDW → Impala HS2 → **Kudu only** (`weathership/impala_fdw`) |
 | `marquez` | OpenLineage **reference UI** (`zndx/oss-marquez`); SoR is Atlas OL extension — **no Marquez DB** |
 | `iceberg` | Table format for analytic datasets |
+| `polaris` | Iceberg REST catalog (`rch/asf-polaris` 1.3.0-incubating; warehouse on RustFS) |
 | `airflow` | Workflow orchestration (Metaflow production DAGs on RKE2/YK) |
 | `metaflow` | Platform Metaflow (`weathership/oss-metaflow` **`rch/devenv`**) — not Gaius/Marquez |
 | `nifi` | Data flow routing |
@@ -273,13 +274,14 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 
 | Service | Endpoint / notes |
 |---------|------------------|
-| PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry); extensions Apache AGE (graph), pg_cron, pg_trgm |
+| PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry, `polaris` admin JDBC); extensions Apache AGE (graph), pg_cron, pg_trgm |
 | Kerberos KDC | realm `DEV.VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
 | Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` (OL SoR target) |
 | Marquez Web | port **21011** (= Atlas HTTP + 1; default stack; `marquez:build-web` before process + `languages.javascript.npm.install`) |
 | Ranger | port **6080** (admin; when configured) |
 | Kudu | master webserver 8051, tserver 8050; data under `$SIGNALS_DATA_ROOT/kudu` (default `/raid/signals/kudu`) |
 | Impala | HS2 **21050**, beeswax 21001, statestore 24000, catalogd 26000 (HMS-free, config from `config/impala/catalog_config_dir/`), webservers 25000/25010/25020 |
+| Polaris | Iceberg REST **:8181**, admin **:8182**; warehouse `s3://signals-dataproducts/iceberg` on RustFS (`just rebuild`) |
 | **RKE2 critical** | **YuniKorn** REST `:30080`, **Knative** Serving, **Metaflow** metadata `:30180`, **Airflow** (M2) — see `architecture/stack-critical-plane.md` |
 | signals-ui | `:9889` primary backplane (requires stack-ready) |
 

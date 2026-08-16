@@ -153,6 +153,22 @@ Metaflow’s Argo-only path.
 
 ### Component notes
 
+#### Artifact store — RustFS only
+
+Metaflow's product property is that **every run retains an immutable
+snapshot of code, data, and dependencies**. That snapshot **is** the first
+Signals data product (`signals.metaflow.snapshots`). Mapping and ACP brief:
+[Data Products History](./data-product-history.md#first-product-metaflow-run-snapshots).
+
+| Setting | Lab value | Law |
+|---------|-----------|-----|
+| `METAFLOW_DEFAULT_DATASTORE` | `s3` | `local` is refused |
+| `METAFLOW_DATASTORE_SYSROOT_S3` | `s3://metaflow/metaflow` | Signals RustFS bucket only |
+| `METAFLOW_S3_ENDPOINT_URL` | `http://127.0.0.1:9010` | RustFS; in-cluster `signals-rustfs:9010` |
+
+`signals.ops.metaflow_store.require_rustfs` fails closed if any of those
+drift. Do not point SYSROOT at `/tmp`, `~/.metaflow`, or a foreign S3.
+
 #### Metaflow metadata service
 
 - Deploy as **platform** Deployment/Service (not engine Tilt thrash).
@@ -176,8 +192,8 @@ Metaflow’s Argo-only path.
 
 #### Airflow
 
-- Run on RKE2 under YK (queue `root.signals` or `root.hermes` for control
-  plane DAGs).
+- Run on RKE2 under YK (queue `root.platform` for control-plane services;
+  inference steps use `root.internal.inference.*`, not a project parent).
 - Lab/platform pin: Airflow **3.1.7** (`components/airflow` chart); `cncf.kubernetes` provider for KPO.
 - Metaflow steps → `KubernetesPodOperator` only (`@kubernetes`, not `@batch`).
 - Deploy path: `python flow.py --with retry airflow create flow_dag.py` then

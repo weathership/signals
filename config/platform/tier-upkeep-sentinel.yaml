@@ -1,0 +1,47 @@
+# Flow-level proxy sentinel for data-product.tier-upkeep.
+# Surfaces the Metaflow/Airflow run on YK root.platform when steps are not
+# themselves Applications. If a @kubernetes step lands, reuse this app-id
+# (YK places an identity once). federation.project is identity / C2 / Yield.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: signals-dataproduct-tier-upkeep
+  namespace: metaflow
+  labels:
+    app.kubernetes.io/part-of: signals-federation
+    app.kubernetes.io/component: proxy-sentinel
+    federation.project: signals
+    federation.workload_id: signals-dataproduct-tier-upkeep
+    federation.resource_class: platform
+    federation.sentinel_kind: proxy-flow
+    applicationId: signals-dataproduct-tier-upkeep
+    queue: root.platform
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        federation.project: signals
+        federation.workload_id: signals-dataproduct-tier-upkeep
+        federation.resource_class: platform
+        federation.sentinel_kind: proxy-flow
+        applicationId: signals-dataproduct-tier-upkeep
+        queue: root.platform
+      annotations:
+        yunikorn.apache.org/app-id: signals-dataproduct-tier-upkeep
+        yunikorn.apache.org/queue: root.platform
+    spec:
+      restartPolicy: Never
+      schedulerName: yunikorn
+      containers:
+        - name: proxy
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-c", "print('tier-upkeep proxy; work is Metaflow')"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

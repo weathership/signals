@@ -34,6 +34,7 @@ Bare `systemctl start signals` starts **only** the foundation unit — not peers
 | Artifact | Path |
 |----------|------|
 | Machine-readable contract | [`config/platform/peer-contract.json`](../../../config/platform/peer-contract.json) |
+| Resource-class queues | [`config/scheduler/resource-classes.md`](../../../config/scheduler/resource-classes.md) |
 | Unit samples | [`infra/systemd/`](../../../infra/systemd/) |
 | Peer-repo acceptance templates | [Peer unit acceptance spec](./peer-unit-spec.md) |
 | Group control README | [`infra/systemd/README.md`](../../../infra/systemd/README.md) |
@@ -46,14 +47,14 @@ Bare `systemctl start signals` starts **only** the foundation unit — not peers
                                   │
            ┌──────────────────────┼──────────────────────┐
            ▼                      ▼                      ▼
-   signals.service      signals-ready.service     (enabled peers)
-   just up / down       just signals-ready        After=ready
+   signals.service      signals-ready.service     signals-engine.service
+   just up / down       just signals-ready        :50551 After=ready
            │                      │                      │
            ▼                      ▼                      ▼
-   critical plane          PASS ⇒ exit 0           gaius · aegir
-   PG Kudu Impala          Kudu+Metaflow           atelier · synth
-   YK Metaflow AF          critical included       metabase (AGPL opt.)
-   Eventing Broker
+   critical plane          PASS ⇒ exit 0           Engine + Scheduler
+   PG Kudu Impala          Kudu+Metaflow           (enabled peers after ready)
+   YK Metaflow AF          critical included       gaius · aegir · atelier
+   Eventing Broker                                 synth · metabase (AGPL opt.)
 ```
 
 Peers are **peer-to-peer** with each other (no ordering edges among engines).
@@ -105,6 +106,11 @@ See [infra/systemd/README.md](../../../infra/systemd/README.md).
 | Lineage / governance | Atlas OL + tags (`:21010`) | Peer Marquez DB |
 | Analytic tables | Impala HS2 + Kudu (Kerberos) | Parallel warehouses on `:5455` |
 | Object store | RustFS `:9010` | Competing S3 on same ports |
+| Data product inventory | Signals warehouse (`details` / `tx` / `hx`) + RustFS URIs | Peer pglite / JSON catalog as SoR |
+
+A peer that **maintains its own product** (Gaius prospects, Ægir corpora, …)
+follows [Peer data products](./peer-data-products.md). Contract:
+[`data_products.md`](../../../components/signals-protocol/specification/protocol/data_products.md).
 
 **Postgres port lattice** (do not collide):
 
@@ -120,6 +126,47 @@ See [infra/systemd/README.md](../../../infra/systemd/README.md).
 | 5577 | Metabase engine DB (AGPL product) |
 
 ---
+
+## How to organize work on queues
+
+YuniKorn leaves are **resource classes**, not project names. There is no
+`root.gaius` (or `root.aegir`) GPU slice. Stamp identity on the Application and
+pick a leaf from
+[`resource-classes.md`](../../../config/scheduler/resource-classes.md).
+
+| Work | Queue |
+|------|--------|
+| Host GPU: reasoning / CoT chat | `root.internal.inference.reasoning` |
+| Host GPU: code model | `root.internal.inference.coding` |
+| Host GPU: planner / tool-router | `root.internal.inference.orchestration` |
+| Host GPU: instruct / short chat | `root.internal.inference.instruct` |
+| Host GPU: embeddings | `root.internal.inference.embedding` |
+| Host GPU: OCR / docling / extract | `root.internal.inference.extract` |
+| CPU-only burst / idle sentinel | `root.internal.compute` |
+| Metaflow UI / Airflow / Eventing | `root.platform` |
+| Pay-per-token API | `root.external.token-metered` |
+| RPM/TPM-limited API | `root.external.rate-metered` |
+| Grok ACP / xAI subscription | `root.external.subscription.rate-limited` |
+
+Required stamps:
+
+- `yunikorn.apache.org/queue` **annotation** (placement rule is `provided`)
+- `yunikorn.apache.org/app-id` = `federation.workload_id`
+- `federation.project` for C2 → Yield
+- Host GPU: request `federation.zndx.org/gpu` only (never `nvidia.com/gpu` on
+  a CPU-only sentinel). In-cluster CUDA: both keys.
+
+YK counts cpu/memory/GPU-token/`maxapplications`. Token, RPM, and subscription
+math stay in the peer engine.
+
+Platform services we deploy (Metaflow, Airflow, Eventing sink): `just redeploy`.
+That is the K8s refresh — not `systemctl restart signals.target`. Signals
+`just rebuild` is the **host Polarisfork** loop (assemble `components/polaris`,
+restart devenv `polaris`, wait `:8182`) — same shape as Metabase `just rebuild`,
+different tree. Metabase stays a host peer under `signals.target`.
+
+MCP catalog/suggest tools come after this tree is live. Assignment RPCs land in
+`signals-protocol` only after peers use that catalog.
 
 ## signals-protocol engines (gRPC lattice)
 

@@ -26,8 +26,14 @@ $SIGNALS_DATA_ROOT/          # default lab: /raid/signals  (user-chosen)
 Override once: `SIGNALS_DATA_ROOT=/raid/signals` in `.env`.
 
 **Scale:** Atlas/Ranger bulk paths use **Kudu projections** (`just gov-kudu-projections-seed`);
-objects use **RustFS** on `rustfs/` — not Postgres heap. Doctrine:
-[Governance scale plane](../architecture/governance-scale-plane.md).
+objects use **RustFS** on `rustfs/` — not Postgres heap. Metaflow run
+snapshots (first data product) land in the `metaflow` bucket
+(`s3://metaflow/metaflow`); local Metaflow datastores are refused.
+Data-product **details / tx / `hx`** land in Kudu `*_tier0`, settle to
+Iceberg `*_tier1` on that volume — no
+pglite copies. Doctrine:
+[Governance scale plane](../architecture/governance-scale-plane.md),
+[Data Products History](../architecture/data-product-history.md).
 
 ## What is portable
 

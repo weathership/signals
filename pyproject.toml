@@ -60,6 +60,8 @@ signals-yk = "signals.cli.yk:main"
 signals-sched = "signals.cli.yk:main"
 signals-yk-mcp = "signals.mcp.yk:main"
 signals-sched-mcp = "signals.mcp.yk:main"
+signals-c2 = "signals.c2.server:main"
+signals-ops = "signals.ops.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sigint", "src/signals"]

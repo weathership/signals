@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Bootstrap seed only. Warehouse is details/tx/hx views over tier0 Kudu + tier1 Iceberg on RustFS. pglite is administrative — no product/hx copies. First Signals-owned product is signals.metaflow.snapshots (immutable per-run code/data/deps on RustFS).",
+  "event_type": "dev.signals.dataproduct.updated",
+  "agent": {
+    "review": ["quality", "lineage", "delta", "nominal"],
+    "capabilities": {
+      "grok-subscription": ["thinking"],
+      "grok-local": ["thinking", "vision"]
+    },
+    "local_model": "Qwen3.8",
+    "queue": "root.external.subscription.rate-limited"
+  },
+  "products": [
+    {
+      "id": "signals.metaflow.snapshots",
+      "peer": "signals",
+      "title": "Metaflow run snapshots",
+      "kind": "snapshot",
+      "leaf": "root.platform",
+      "agent_focus": "Observe data-product.tier-upkeep and confirm it is proceeding nominally (legal FSM, ADD next week, settle ≥ 4 weeks, snapshot on RustFS). Quality / lineage / delta are that observation."
+    },
+    {
+      "id": "gaius.cognition.outputs",
+      "peer": "gaius",
+      "title": "Cognition outputs",
+      "kind": "cognition",
+      "leaf": "root.internal.inference.extract",
+      "agent_focus": "Quality of extracted cognition, OL run linkage, delta vs prior curate."
+    },
+    {
+      "id": "gaius.prospects.corpus",
+      "peer": "gaius",
+      "title": "Prospects corpus",
+      "kind": "corpus",
+      "leaf": "root.internal.inference.extract",
+      "agent_focus": "Quality of retained SEC/FMP compact and summary objects on RustFS; lineage of Metaflow pathspec, code sha, and YK extract claim; delta vs prior latest_run_id; nominal walk of prospects-update (holding is not failed and not done)."
+    },
+    {
+      "id": "aegir.usd-corpora",
+      "peer": "aegir",
+      "title": "USD corpora",
+      "kind": "corpus",
+      "leaf": "root.internal.inference.instruct",
+      "agent_focus": "Corpus coverage, lineage of source tables, delta vs last pin."
+    },
+    {
+      "id": "aegir.models.bespoke",
+      "peer": "aegir",
+      "title": "Fine-tuned and bespoke models",
+      "kind": "model",
+      "leaf": "root.internal.inference.instruct",
+      "agent_focus": "Eval quality, training-run lineage, weight/adapter delta."
+    },
+    {
+      "id": "atelier.classification.embeddings",
+      "peer": "atelier",
+      "title": "Classification embeddings parquet",
+      "kind": "embeddings",
+      "leaf": "root.internal.inference.embedding",
+      "agent_focus": "Embedding quality, parquet schema lineage, row/column delta."
+    }
+  ]
+}
