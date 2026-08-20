@@ -356,6 +356,11 @@ lattice-ci *ARGS:
 install-systemd *ARGS:
     bash scripts/install_signals_systemd.sh {{ARGS}}
 
+# Complete group recycle: stop then start signals.target; verify every member.
+# Certainty, not surgical start-only-failed. Requires sudo.
+signals-restart:
+    bash scripts/systemd_target_refresh.sh
+
 # Assert devenv process graph includes Kudu/Impala (not a partial up).
 process-assert:
     bash scripts/devenv_process_assert.sh

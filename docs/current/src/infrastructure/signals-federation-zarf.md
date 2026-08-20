@@ -23,8 +23,9 @@ standards rather than the reverse.
 1. Knative Serving (CRDs → controllers, Kourier, KPA `enable-scale-to-zero`)  
 2. YuniKorn 1.9.0 (resource-class queues; policy promoted from `config/scheduler/federation-queues.yaml`)  
 3. MiNiFi C++ sentinel Knative Service (`federation-signals/minifi-sentinel`)  
+4. DCGM exporter (`federation-system/dcgm-exporter`) — live GPU watts, **no TSDB**
 
-**Does not ship:** host gRPC engines, Dask, Jupyter, Panel-Viz.
+**Does not ship:** host gRPC engines, Dask, Jupyter, Panel-Viz, Prometheus/ELK.
 
 ## Images (linux/amd64 digests)
 
@@ -63,7 +64,7 @@ cd zarf/federation && python3 -m converge verify
 | T2 | Knative CRDs, controllers, scale-to-zero CM |
 | T3 | YuniKorn Ready, federation queues |
 | T4 | ksvc present, STZ posture |
-| T5 | C2 path packaged, OTel schema (collector TBD) |
+| T5 | C2 path packaged, DCGM exporter (pull-only OTel yield) |
 
 ```bash
 cd zarf/federation && python3 -m converge list

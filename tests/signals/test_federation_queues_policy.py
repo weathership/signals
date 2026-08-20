@@ -26,6 +26,9 @@ LEAF_CLASSES = {
     "root.internal.inference.instruct": "internal.inference.instruct",
     "root.internal.inference.embedding": "internal.inference.embedding",
     "root.internal.inference.extract": "internal.inference.extract",
+    "root.internal.inference.heavy": "internal.inference.heavy",
+    "root.internal.inference.medium": "internal.inference.medium",
+    "root.internal.inference.light": "internal.inference.light",
     "root.external.token-metered": "external.token-metered",
     "root.external.rate-metered": "external.rate-metered",
     "root.external.subscription.rate-limited": "external.subscription.rate-limited",
@@ -110,11 +113,15 @@ def test_zero_gpu_outside_inference() -> None:
             assert str(max_res[GPU]) == "0", f"{fqn} must not take GPU"
 
 
-def test_inference_leaves_share_parent_gpu() -> None:
+def test_inference_occupancy_leaves_sum_to_parent() -> None:
     root = _policy()["partitions"][0]["queues"][0]
     nodes = dict(_walk(root, ""))
-    for fqn in LEAF_CLASSES:
-        if not fqn.startswith("root.internal.inference."):
-            continue
-        max_res = (nodes[fqn].get("resources") or {}).get("max") or {}
-        assert GPU not in max_res, f"{fqn} should inherit parent GPU max"
+    g = 0
+    for fqn in (
+        "root.internal.inference.heavy",
+        "root.internal.inference.medium",
+        "root.internal.inference.light",
+    ):
+        g += int(nodes[fqn]["resources"]["guaranteed"][GPU])
+    assert g <= 6
+    assert int(nodes["root.internal.inference.extract"]["resources"]["max"][GPU]) == 2

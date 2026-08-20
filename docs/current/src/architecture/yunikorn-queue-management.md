@@ -142,6 +142,14 @@ placementrules:
     create: false
 ```
 
+**Idle occupancy.** Extended **inactivity** on a model (e.g. Qwen3.8) is
+Knative KPA scale-to-zero of the **proxy sentinel Application**, then
+MiNiFi C2 last-gasp → `Engine/Yield` on the **federated engine that owns
+that vLLM**. Tokens (`federation.zndx.org/gpu`) free only when the
+Application completes. Knative does not stop host CUDA. Serving /
+`loading` keeps `min-scale: 1`. See
+[MiNiFi sentinels](../../../components/signals-protocol/specification/operations/minifi_sentinels.md#43-what-drives-idle-for-a-sentinel-service).
+
 GPU occupancy is the Application claim key `federation.zndx.org/gpu`. Advertise
 node capacity with `scripts/advertise_federation_gpu.sh`. Host-engine sentinels
 request that token only — never `nvidia.com/gpu` on a CPU-only pod (that binds

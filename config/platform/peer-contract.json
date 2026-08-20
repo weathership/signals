@@ -34,6 +34,14 @@
       "url": "http://127.0.0.1:9010",
       "owner": "signals"
     },
+    "dcgm_prom": {
+      "url": "http://127.0.0.1:9400/metrics",
+      "note": "Live DCGM Prometheus. Pull only. No Signals TSDB."
+    },
+    "dcgm_otel": {
+      "url": "http://127.0.0.1:9410/v1/metrics",
+      "note": "On-demand OTLP JSON (gpu.power.draw). Gaius pulls. No retain."
+    },
     "polaris": {
       "url": "http://127.0.0.1:8181",
       "admin": "http://127.0.0.1:8182",

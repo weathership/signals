@@ -1,0 +1,159 @@
+# Stateless DCGM exporter. No GPU token. No TSDB. Gaius pulls; Signals does not retain.
+# Image pin: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04 (linux/amd64).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dcgm-exporter-metrics
+  namespace: federation-system
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+    app.kubernetes.io/part-of: signals-federation
+data:
+  default-counters.csv: |
+    DCGM_FI_DEV_SM_CLOCK, gauge, SM clock frequency (in MHz).
+    DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
+    DCGM_FI_DEV_MEMORY_TEMP, gauge, Memory temperature (in C).
+    DCGM_FI_DEV_GPU_TEMP, gauge, GPU temperature (in C).
+    DCGM_FI_DEV_POWER_USAGE, gauge, Power draw (in W).
+    DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumption since boot (in mJ).
+    DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).
+    DCGM_FI_DEV_MEM_COPY_UTIL, gauge, Memory utilization (in %).
+    DCGM_FI_DEV_ENC_UTIL, gauge, Encoder utilization (in %).
+    DCGM_FI_DEV_DEC_UTIL, gauge, Decoder utilization (in %).
+    DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+    DCGM_FI_DEV_FB_FREE, gauge, Framebuffer memory free (in MiB).
+    DCGM_FI_DEV_FB_USED, gauge, Framebuffer memory used (in MiB).
+    DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL, counter, Total NVLink bandwidth counters.
+    DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS, counter, Remapped rows (uncorrectable).
+    DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS, counter, Remapped rows (correctable).
+    DCGM_FI_DEV_ROW_REMAP_FAILURE, gauge, Whether remapping of rows has failed.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: federation-system
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+    app.kubernetes.io/part-of: signals-federation
+    federation.project: signals
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dcgm-exporter
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dcgm-exporter
+        app.kubernetes.io/part-of: signals-federation
+        federation.project: signals
+        # Live kubectl apply: skip Zarf rewrite until the image is in the init registry.
+        # `zarf package deploy` still injects the pin from zarf.yaml.
+        zarf.dev/agent: ignore
+    spec:
+      # Default scheduler — not YuniKorn. Not a GPU job. No nvidia RuntimeClass
+      # (RKE2 here has no nvidia containerd runtime; privileged + host /dev).
+      schedulerName: default-scheduler
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: exporter
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04@sha256:ef148650e3b06fbd0cec66169336febab13ce2c8aca0bba71aed415a0bf9c527
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DCGM_EXPORTER_LISTEN
+              value: ":9400"
+            - name: DCGM_EXPORTER_KUBERNETES
+              value: "false"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          ports:
+            - name: metrics
+              containerPort: 9400
+              hostPort: 9400
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+          volumeMounts:
+            - name: counters
+              mountPath: /etc/dcgm-exporter
+              readOnly: true
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: dev
+              mountPath: /dev
+            - name: libnvidia-ml
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+              readOnly: true
+            - name: libnvidia-ml-ver
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.570.148.08
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: counters
+          configMap:
+            name: dcgm-exporter-metrics
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: libnvidia-ml
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: libnvidia-ml-ver
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.570.148.08
+            type: File
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-exporter
+  namespace: federation-system
+  labels:
+    app.kubernetes.io/name: dcgm-exporter
+    app.kubernetes.io/part-of: signals-federation
+spec:
+  selector:
+    app.kubernetes.io/name: dcgm-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
+      protocol: TCP

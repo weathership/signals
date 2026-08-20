@@ -149,6 +149,79 @@ def cmd_diff(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect_queues(ns: argparse.Namespace) -> int:
+    """S2S: ServerQuery QUEUES on peers, merge into scratch, optional promote."""
+    import yaml
+
+    from signals.engine.queue_merge import merge_queue_hints
+    from zndx.engine.v1 import engine_pb2, engine_pb2_grpc
+
+    sched = _stub()
+    declared = sched.GetDeclaredConfig(
+        scheduler_pb2.GetDeclaredConfigRequest(), timeout=15
+    )
+    body = declared.document.body if declared.document else ""
+    if not body.strip():
+        fallback = Path(__file__).resolve().parents[3] / "config" / "scheduler" / "federation-queues.yaml"
+        if fallback.is_file():
+            body = fallback.read_text(encoding="utf-8")
+        else:
+            print("FAIL no declared config and no federation-queues.yaml", file=sys.stderr)
+            return 1
+    doc = yaml.safe_load(body)
+    added: list[str] = []
+    peers = ns.peer or ["127.0.0.1:50051"]
+    for target in peers:
+        ch = grpc.insecure_channel(target)
+        try:
+            estub = engine_pb2_grpc.EngineStub(ch)
+            resp = estub.ServerQuery(
+                engine_pb2.ServerQueryRequest(
+                    kind=engine_pb2.SERVER_QUERY_KIND_QUEUES,
+                    origin_project="signals",
+                ),
+                timeout=10,
+            )
+        except grpc.RpcError as e:
+            print(f"WARN {target}: {e.code()} {e.details()}", file=sys.stderr)
+            continue
+        finally:
+            ch.close()
+        hints = [
+            {
+                "path": q.path,
+                "resource_class": q.resource_class,
+                "gpu_guarantee": q.gpu_guarantee,
+                "gpu_max": q.gpu_max,
+                "max_applications": q.max_applications,
+                "preemption_policy": q.preemption_policy,
+                "preemption_delay": q.preemption_delay,
+                "examples": q.examples,
+            }
+            for q in resp.queues
+        ]
+        doc, more = merge_queue_hints(doc, hints)
+        added.extend(more)
+        print(f"{target} project={resp.project} hints={len(hints)} added={more}")
+    yaml_body = yaml.safe_dump(doc, sort_keys=False)
+    wr = sched.WriteScratchConfig(
+        scheduler_pb2.WriteScratchConfigRequest(
+            document=scheduler_pb2.PolicyDocument(
+                media_type="text/yaml", body=yaml_body
+            ),
+            rebuild_notes=True,
+        ),
+        timeout=30,
+    )
+    if not wr.ok:
+        print("FAIL write-scratch", wr.message)
+        return 1
+    print("scratch updated", "added=" + ",".join(added) if added else "added=(none)")
+    if ns.promote:
+        return cmd_promote(ns)
+    return 0
+
+
 def cmd_promote(ns: argparse.Namespace) -> int:
     stub = _stub()
     r = stub.PromoteScratch(
@@ -241,6 +314,25 @@ def main(argv: list[str] | None = None) -> int:
         help="skip rebuilding scratch queue notes from YAML",
     )
     ws.set_defaults(func=cmd_write_scratch)
+
+    cq = sub.add_parser(
+        "collect-queues",
+        help="S2S ServerQuery QUEUES on peers → merge scratch (optional --promote)",
+    )
+    cq.add_argument(
+        "--peer",
+        action="append",
+        default=[],
+        help="Engine target host:port (repeatable). Default 127.0.0.1:50051",
+    )
+    cq.add_argument(
+        "--promote",
+        action="store_true",
+        help="PromoteScratch after merge (YK SoR; dry-run unless you want live)",
+    )
+    cq.add_argument("--dry-run", action="store_true")
+    cq.add_argument("--stamp", default="")
+    cq.set_defaults(func=cmd_collect_queues)
 
     d = sub.add_parser("diff", help="Diff scratch vs current (optional vs live)")
     d.add_argument(

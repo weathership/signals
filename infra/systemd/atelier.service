@@ -14,6 +14,9 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/atelier
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+# Same runtime a login-shell `devenv processes` uses. Do not pin a
+# dedicated DEVENV_RUNTIME — that splits systemd from devenv.
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Wrappers live in the Atelier tree; block until Engine/Status on :50251.
 ExecStart=/home/rch/local/src/zndx/atelier/scripts/systemd_start.sh
 ExecStop=/home/rch/local/src/zndx/atelier/scripts/systemd_stop.sh

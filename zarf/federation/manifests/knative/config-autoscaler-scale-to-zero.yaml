@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/component: autoscaler
     app.kubernetes.io/part-of: signals-federation
 data:
+  # Inactivity of the sentinel Service (not “the cluster is busy”).
+  # GPU tokens free only after C2 last-gasp → Engine/Yield on the vLLM owner.
   enable-scale-to-zero: "true"
   scale-to-zero-grace-period: "30s"
   scale-to-zero-pod-retention-period: "0s"

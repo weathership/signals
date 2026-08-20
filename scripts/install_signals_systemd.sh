@@ -46,7 +46,7 @@ die() { echo "ERROR: install-systemd: $*" >&2; exit 1; }
 [[ -d "$UNIT_DIR" ]] || die "missing $UNIT_DIR"
 command -v sudo >/dev/null || die "sudo required"
 
-FOUNDATION=(signals.target signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service)
+FOUNDATION=(signals.target signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service signals-refresh.service)
 UNITS=("${FOUNDATION[@]}")
 
 if [[ "$DO_PEERS" == "1" ]]; then

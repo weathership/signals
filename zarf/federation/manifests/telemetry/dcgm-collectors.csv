@@ -1,0 +1,18 @@
+# Default DCGM fields minus DCGM_FI_PROF_* (GeForce 4090 / Ada — no datacenter prof).
+DCGM_FI_DEV_SM_CLOCK, gauge, SM clock frequency (in MHz).
+DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
+DCGM_FI_DEV_MEMORY_TEMP, gauge, Memory temperature (in C).
+DCGM_FI_DEV_GPU_TEMP, gauge, GPU temperature (in C).
+DCGM_FI_DEV_POWER_USAGE, gauge, Power draw (in W).
+DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumption since boot (in mJ).
+DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).
+DCGM_FI_DEV_MEM_COPY_UTIL, gauge, Memory utilization (in %).
+DCGM_FI_DEV_ENC_UTIL, gauge, Encoder utilization (in %).
+DCGM_FI_DEV_DEC_UTIL, gauge, Decoder utilization (in %).
+DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+DCGM_FI_DEV_FB_FREE, gauge, Framebuffer memory free (in MiB).
+DCGM_FI_DEV_FB_USED, gauge, Framebuffer memory used (in MiB).
+DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL, counter, Total NVLink bandwidth counters.
+DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS, counter, Remapped rows (uncorrectable).
+DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS, counter, Remapped rows (correctable).
+DCGM_FI_DEV_ROW_REMAP_FAILURE, gauge, Whether remapping of rows has failed.

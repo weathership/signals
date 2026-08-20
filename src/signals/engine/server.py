@@ -82,12 +82,27 @@ def _start_control_http(cfg: EngineConfig, table: WorkloadTable) -> ThreadingHTT
     return httpd
 
 
+def _start_telemetry_http() -> None:
+    """LAN pull of live DCGM as OTLP. No retain. 503 if exporter is down."""
+    import os
+
+    from signals.telemetry.dcgm_otel import serve as otel_serve
+
+    host = os.environ.get("SIGNALS_DCGM_OTEL_HOST", "0.0.0.0")
+    port = int(os.environ.get("SIGNALS_DCGM_OTEL_PORT", "9410"))
+    httpd = otel_serve(host, port)
+    threading.Thread(target=httpd.serve_forever, name="dcgm-otel", daemon=True).start()
+    log.info("dcgm otel pull on %s:%s GET /v1/metrics (no store)", host, port)
+    return httpd
+
+
 def serve(cfg: EngineConfig | None = None) -> None:
     cfg = cfg or EngineConfig.from_env()
     yk = YkRestClient(cfg.yk_rest_url, timeout_s=cfg.yk_request_timeout_s)
     store = ProjectionStore(cfg.projection_root)
     workloads = WorkloadTable()
     _start_control_http(cfg, workloads)
+    _start_telemetry_http()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
     engine_pb2_grpc.add_EngineServicer_to_server(

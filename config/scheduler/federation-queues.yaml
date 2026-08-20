@@ -86,12 +86,62 @@ partitions:
                   federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
                   federation.peer_meters: ""
                   federation.examples: parent-share;do-not-submit-here
+                  # Light must not walk out and preempt heavy (27B / TP=4).
+                  preemption.policy: fence
                 resources:
                   max:
                     memory: 400G
                     vcore: 64
                     federation.zndx.org/gpu: "6"
                 queues:
+                  - name: heavy
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.heavy
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.thinking;tp4-27b
+                      # Interactive light must not preempt this leaf.
+                      preemption.policy: fence
+                    resources:
+                      guaranteed:
+                        federation.zndx.org/gpu: "4"
+                      max:
+                        federation.zndx.org/gpu: "4"
+                    maxapplications: 2
+
+                  - name: light
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.light
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.ask-agent;1.7b
+                      preemption.delay: 5s
+                    resources:
+                      # Guarantee 0 so heavy(4)+medium(2) fill the parent max of 6.
+                      # Light borrows from extract (max 2).
+                      guaranteed:
+                        federation.zndx.org/gpu: "0"
+                      max:
+                        federation.zndx.org/gpu: "2"
+                    maxapplications: 2
+
+                  - name: medium
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.medium
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: gaius.ask-sae;9b-tp2
+                      preemption.delay: 5s
+                    resources:
+                      guaranteed:
+                        federation.zndx.org/gpu: "2"
+                      max:
+                        federation.zndx.org/gpu: "2"
+                    maxapplications: 1
+
                   - name: reasoning
                     submitacl: '*'
                     properties:
@@ -144,6 +194,13 @@ partitions:
                       federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
                       federation.peer_meters: ""
                       federation.examples: gaius.extract;atelier.ocr;docling
+                    # Offline / background. No GPU guarantee → legal victim
+                    # when light (Ask) is under its 2-GPU guarantee.
+                    resources:
+                      guaranteed:
+                        federation.zndx.org/gpu: "0"
+                      max:
+                        federation.zndx.org/gpu: "2"
                     maxapplications: 16
 
           - name: external

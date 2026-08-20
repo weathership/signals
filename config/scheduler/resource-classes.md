@@ -19,12 +19,19 @@ GPU occupancy key: `federation.zndx.org/gpu`. Advertise node capacity with
 | `root.internal.inference.orchestration` | Planner / tool-router | cpu/mem/gpu/apps | — |
 | `root.internal.inference.instruct` | Instruct / short chat | cpu/mem/gpu/apps | — |
 | `root.internal.inference.embedding` | Embeddings | cpu/mem/gpu/apps | — |
-| `root.internal.inference.extract` | OCR / docling / VLM extract | cpu/mem/gpu/apps | — |
+| `root.internal.inference.heavy` | Standing thinking / large TP (4 whole GPUs) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.medium` | Interactive Ask SAE / TP=2 (2 whole GPUs) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.light` | Interactive Ask 1.7B (1 whole GPU per app) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.extract` | Offline OCR / docling / VLM | cpu/mem/gpu/apps | — |
 | `root.external.token-metered` | Pay-per-token APIs | apps (no GPU) | tokens |
 | `root.external.rate-metered` | RPM/TPM APIs | apps (no GPU) | rpm |
 | `root.external.subscription.rate-limited` | Grok ACP / xAI subscription | apps (no GPU) | subscription |
 
 Do not submit to parent `root.internal.inference` (not a leaf).
+
+Idle vLLM (loaded, not serving) does not release GPUs until the **proxy
+sentinel** scale-to-zero last-gasp Yields the owning federated engine.
+YK still only sees the Application token.
 
 ## Application stamps
 

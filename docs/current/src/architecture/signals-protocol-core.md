@@ -250,7 +250,7 @@ not make Metabase “another Atelier.”
 | Authorization decisions | **Ranger** (Atlas tags as input) | Ranger REST / plugins; policy evaluate via discovery |
 | Human OL UI | **Marquez-web** | `:21011` (Atlas HTTP + 1) → proxies `/api/v1` only |
 | Agent memory + compaction | **Weathership** plugins on Hermes | `MemoryProvider` + context engine ([plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)) |
-| Engine-to-engine inference | **`zndx.engine.v1`** | `Complete` / `Status` / `Remediate` |
+| Engine-to-engine inference | **`zndx.engine.v1`** | `Complete` / `Status` / `Remediate` / `Yield` / `ServerQuery` |
 | Heterogeneous model serving | **KServe OIP** + signals-protocol mapping | `ModelInfer` / readiness; authz + provenance on the wire |
 | GPU co-tenancy | YK Application claim (`federation.zndx.org/gpu`) + `Status.gpu_ids` | Queue occupancy SoR; `/tmp/zndx-gpu-leases` is intra-node refuse only |
 
@@ -299,11 +299,19 @@ Discovery is **informative + capability-scoped**: advertising a URL does not
 grant access. Edge (CF Zero Trust / IdP), Kerberos (data plane), and Ranger
 policies still authorize. See [Identity and access](./identity-and-access.md).
 
-Proposed protocol package (lands in `signals-protocol` first):
-`zndx.discovery.v1` — `Discover` RPC and/or additive `StatusResponse.services[]`
-fields listing `{ kind, base_url, auth_hint, healthy, version }`. Prefer
-**additive fields on `Status`** for a minimal v1 step; split package if the
-surface grows.
+`StatusResponse.surfaces[]` (`kind`, `url`, `healthy`) is the v1 step.
+`kind=primary` is the product UI the waffle lists. Signals advertises
+`http://$SIGNALS_ADVERTISE_HOST:9889` (host from `SIGNALS_KRB_HOST` /
+LAN hostname — **never** loopback). Do not invent peer UI URLs — list
+only what that engine's Status returns.
+
+`Engine/ServerQuery` is pairwise S2S (not gossip): `REMOTES` (named git
+remotes + `head`), `PEERS` (lattice `host:port` from peer-contract),
+`SURFACES` (same list as Status), `QUEUES` (peer leaf hints for
+PromoteScratch). Empty is honest.
+
+A later `zndx.discovery.v1` package can grow auth hints if the surface
+expands.
 
 Engines **converge** by:
 

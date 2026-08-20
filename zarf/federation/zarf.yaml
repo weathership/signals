@@ -50,6 +50,8 @@ components:
       - docker.io/apache/yunikorn:admission-1.9.0@sha256:f3d04f501324c46f2cb5baea6eb2b7ddaddd49a4b8d0d4592625742b83f294cb
       # MiNiFi sentinel — linux/amd64
       - docker.io/apache/nifi-minifi-cpp:0.99.2@sha256:6dbee417fd7657524bb8e4571eb5e886367437a77b932df29e115c88c4d07874
+      # DCGM exporter — live GPU watts; no TSDB (linux/amd64)
+      - nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04@sha256:ef148650e3b06fbd0cec66169336febab13ce2c8aca0bba71aed415a0bf9c527
 
   # ---- Knative CRDs --------------------------------------------------------
   - name: knative-crds
@@ -168,3 +170,30 @@ components:
               exit 0
             description: Wait for minifi-sentinel Knative Service
             maxTotalSeconds: 360
+
+  - name: dcgm-exporter
+    required: true
+    description: Stateless NVIDIA DCGM exporter (watts). Pull-only. No TSDB. No GPU token.
+    manifests:
+      - name: dcgm-exporter
+        files:
+          - manifests/telemetry/dcgm-exporter.yaml
+    actions:
+      onDeploy:
+        after:
+          - cmd: |
+              set -e
+              for i in $(seq 1 36); do
+                ready=$(./zarf tools kubectl -n federation-system get ds dcgm-exporter \
+                  -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
+                if [ "${ready:-0}" -ge 1 ]; then
+                  echo "dcgm-exporter Ready=$ready"
+                  exit 0
+                fi
+                sleep 5
+              done
+              ./zarf tools kubectl -n federation-system get ds,pods -o wide || true
+              echo "WARN: dcgm-exporter not Ready (GPU node / runtimeClass nvidia)"
+              exit 0
+            description: Wait for dcgm-exporter DaemonSet
+            maxTotalSeconds: 180

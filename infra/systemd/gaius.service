@@ -16,13 +16,9 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/gaius
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
-# Login-shell devenv uses $XDG_RUNTIME_DIR/devenv-<hash>. The unit uses a
-# dedicated compose so start/stop never attach to a leftover session stack.
+# Membership hook only. devenv owns process-compose, PGPORT, secretspec.
 Environment=XDG_RUNTIME_DIR=/run/user/1001
-Environment=GAIUS_DEVENV_RUNTIME=/run/user/1001/gaius-systemd
-# Pin contract port — devenv's allocator otherwise shifts to :5445.
-Environment=PGPORT=5444
-# Wrappers live in the Gaius tree; they block until Engine/Status on :50051.
+# Wrappers: devenv up -d, wait for compose-owned Engine/Status on :50051.
 ExecStart=/home/rch/local/src/zndx/gaius/scripts/systemd_start.sh
 ExecStop=/home/rch/local/src/zndx/gaius/scripts/systemd_stop.sh
 TimeoutStartSec=1200

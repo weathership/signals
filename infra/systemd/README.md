@@ -1,5 +1,12 @@
 # Systemd group control — `signals.target`
 
+**Refresh is a complete recycle.** `sudo systemctl restart signals.target`
+(or `just signals-restart`) stops every `PartOf=` member, starts every
+enabled member, then `signals-refresh.service` verifies each unit is
+`active` and each lattice engine answers `Engine/Status`. A start-only
+of the target does **not** restart live peers. Do not treat the target as
+healthy if `signals-refresh.service` is failed.
+
 Sample units for lab hosts that bring **Signals foundation** up with optional
 federated peer engines (Ægir, Atelier, Gaius, Synth) and **external** engines
 (e.g. AGPL Metabase) under one group target.
@@ -98,6 +105,9 @@ just install-systemd --peers metabase --enable
 
 # 4) Group bring-up (includes Metabase when enabled)
 sudo systemctl start signals.target
+# later: complete refresh (stop every member, start, verify)
+#   sudo systemctl restart signals.target
+#   # or: just signals-restart
 
 # 5) Accept
 systemctl is-active metabase.service

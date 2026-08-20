@@ -24,6 +24,7 @@ they do **not** each re-host thrashing control-plane copies of these services.
 | Workflow production | **Airflow 3** | Metaflow DAG orchestration | NodePort `:30800` |
 | Flow metadata | **Metaflow** service | Platform runs for any engine | NodePort `:30180` |
 | Control UI | **signals-ui** | YK ⊇ backplane | `:9889` |
+| GPU telemetry | **DCGM exporter** + engine OTel yield | Live watts. Pull only. No TSDB. | host `:9400` / OTLP `:9410/v1/metrics` |
 
 These are **uniformly critical**: missing any of them is a degraded Signals
 deployment, not a supported “minimal profile” for product work. Hermetic unit

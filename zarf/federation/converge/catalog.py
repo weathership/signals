@@ -94,7 +94,13 @@ def det_c2(ctx) -> Probe:
 
 
 def det_otel(ctx) -> Probe:
-    return Probe(True, "otel phase schema documented — collector integration TBD")
+    ds = kube.get_json("ds", "dcgm-exporter", "-n", "federation-system")
+    if not ds:
+        return Probe(False, "dcgm-exporter DaemonSet missing")
+    ready = (ds.get("status") or {}).get("numberReady") or 0
+    if int(ready) < 1:
+        return Probe(False, f"dcgm-exporter numberReady={ready}")
+    return Probe(True, "dcgm-exporter Ready — live watts, no TSDB; OTel yield is engine GET /v1/metrics")
 
 
 def build_catalog() -> List[Invariant]:
@@ -184,7 +190,7 @@ def build_catalog() -> List[Invariant]:
         Invariant(
             id="T5.otel-phase",
             tier="T5",
-            title="OTel phase schema (collector TBD)",
+            title="DCGM exporter Ready (pull-only OTel yield)",
             layer=Layer.B,
             detect=det_otel,
             depends_on=("T5.c2-heartbeat",),

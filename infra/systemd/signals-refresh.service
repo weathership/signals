@@ -1,0 +1,20 @@
+[Unit]
+Description=Signals group post-start verify (complete refresh)
+Documentation=file:///home/rch/local/src/wxs/signals/infra/systemd/README.md
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md
+PartOf=signals.target
+After=network-online.target
+After=signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service
+After=gaius.service aegir.service atelier.service metabase.service synth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/wxs/signals
+ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_target_verify.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=signals.target

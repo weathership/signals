@@ -17,6 +17,8 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
 Environment=XDG_RUNTIME_DIR=/run/user/1001
 Environment=SIGNALS_ENGINE_GRPC_PORT=50551
 Environment=SIGNALS_YK_API_URL=http://127.0.0.1:30080
+Environment=SIGNALS_KRB_HOST=tinybox.dev.vista.zndx.org
+Environment=SIGNALS_ADVERTISE_HOST=tinybox.dev.vista.zndx.org
 # Wrappers block until Engine/Status answers on the lattice port.
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_engine_start.sh
 ExecStop=/home/rch/local/src/wxs/signals/scripts/systemd_engine_stop.sh
