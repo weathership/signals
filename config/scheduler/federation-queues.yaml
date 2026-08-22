@@ -70,13 +70,13 @@ partitions:
                   federation.class: internal.compute
                   federation.yk_enforces: memory,vcore,maxapplications
                   federation.peer_meters: ""
-                  federation.examples: cpu-burst;yield-proof;minifi-idle
+                  federation.examples: cpu-burst;yield-proof;minifi-idle;gaius.ambient
                 resources:
                   max:
                     memory: 128G
                     vcore: 32
                     federation.zndx.org/gpu: "0"
-                maxapplications: 32
+                maxapplications: 8
 
               - name: inference
                 parent: true
@@ -108,7 +108,8 @@ partitions:
                         federation.zndx.org/gpu: "4"
                       max:
                         federation.zndx.org/gpu: "4"
-                    maxapplications: 2
+                    # One 27B TP=4. A second heavy is 8 GPUs — will not fit.
+                    maxapplications: 1
 
                   - name: light
                     submitacl: '*'
@@ -119,8 +120,7 @@ partitions:
                       federation.examples: gaius.ask-agent;1.7b
                       preemption.delay: 5s
                     resources:
-                      # Guarantee 0 so heavy(4)+medium(2) fill the parent max of 6.
-                      # Light borrows from extract (max 2).
+                      # No standing floor. Shares leftover 2 with extract / on-demand SAE.
                       guaranteed:
                         federation.zndx.org/gpu: "0"
                       max:
@@ -136,8 +136,9 @@ partitions:
                       federation.examples: gaius.ask-sae;9b-tp2
                       preemption.delay: 5s
                     resources:
+                      # On-demand SAE TP=2 only when exploring SAE — not standing.
                       guaranteed:
-                        federation.zndx.org/gpu: "2"
+                        federation.zndx.org/gpu: "0"
                       max:
                         federation.zndx.org/gpu: "2"
                     maxapplications: 1
@@ -194,14 +195,16 @@ partitions:
                       federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
                       federation.peer_meters: ""
                       federation.examples: gaius.extract;atelier.ocr;docling
-                    # Offline / background. No GPU guarantee → legal victim
-                    # when light (Ask) is under its 2-GPU guarantee.
+                      preemption.delay: 5s
+                    # Floor of 1 GPU so standing ask-sae (medium, no guarantee)
+                    # is preempted when article-curate / docling arrives.
+                    # Thinking keeps 4; leftover 2 is extract+light/medium.
                     resources:
                       guaranteed:
-                        federation.zndx.org/gpu: "0"
+                        federation.zndx.org/gpu: "1"
                       max:
                         federation.zndx.org/gpu: "2"
-                    maxapplications: 16
+                    maxapplications: 2
 
           - name: external
             parent: true

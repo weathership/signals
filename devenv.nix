@@ -857,6 +857,11 @@ in
     };
     exec = ''
       set -euo pipefail
+      export JAVA_HOME="${pkgs.jdk21_headless.home}"
+      if [ -x "$JAVA_HOME/lib/openjdk/bin/java" ]; then
+        export JAVA_HOME="$JAVA_HOME/lib/openjdk"
+      fi
+      export PATH="$JAVA_HOME/bin:$PATH"
       POLARIS_HOME="''${POLARIS_HOME:-$PWD/.devenv/polaris}"
       if [ ! -f "$POLARIS_HOME/polaris-quarkus-server.jar" ] && [ ! -f "$POLARIS_HOME/server/quarkus-run.jar" ]; then
         echo "Polaris not installed at $POLARIS_HOME"

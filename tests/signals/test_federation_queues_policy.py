@@ -113,15 +113,28 @@ def test_zero_gpu_outside_inference() -> None:
             assert str(max_res[GPU]) == "0", f"{fqn} must not take GPU"
 
 
-def test_inference_occupancy_leaves_sum_to_parent() -> None:
+def test_occupancy_app_caps_and_medium_has_no_floor() -> None:
     root = _policy()["partitions"][0]["queues"][0]
     nodes = dict(_walk(root, ""))
-    g = 0
-    for fqn in (
-        "root.internal.inference.heavy",
-        "root.internal.inference.medium",
-        "root.internal.inference.light",
-    ):
-        g += int(nodes[fqn]["resources"]["guaranteed"][GPU])
-    assert g <= 6
+    assert int(nodes["root.internal.inference.heavy"]["resources"]["guaranteed"][GPU]) == 4
+    assert nodes["root.internal.inference.heavy"]["maxapplications"] == 1
+    med = nodes["root.internal.inference.medium"]
+    assert int(med["resources"]["guaranteed"][GPU]) == 0
+    assert int(med["resources"]["max"][GPU]) == 2
+    assert med["maxapplications"] == 1
+    assert int(nodes["root.internal.inference.light"]["resources"]["guaranteed"][GPU]) == 0
+    assert nodes["root.internal.inference.light"]["maxapplications"] == 2
+    assert nodes["root.internal.inference.extract"]["maxapplications"] == 2
     assert int(nodes["root.internal.inference.extract"]["resources"]["max"][GPU]) == 2
+    assert int(nodes["root.internal.inference.extract"]["resources"]["guaranteed"][GPU]) == 1
+    assert nodes["root.internal.compute"]["maxapplications"] == 8
+    g = sum(
+        int(nodes[fqn]["resources"]["guaranteed"][GPU])
+        for fqn in (
+            "root.internal.inference.heavy",
+            "root.internal.inference.medium",
+            "root.internal.inference.light",
+            "root.internal.inference.extract",
+        )
+    )
+    assert g <= 6

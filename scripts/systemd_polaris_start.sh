@@ -19,6 +19,22 @@ mkdir -p "$LOG_DIR"
 
 info() { echo "signals-polaris.service: $*"; }
 
+# Polarisfork is class-file 61 (Java 17+). systemd PATH is OpenJDK 11.
+if ! java -version 2>&1 | grep -qE 'version "1[7-9]|version "2[0-9]'; then
+  for home in \
+    "${JAVA_HOME:-}" \
+    /nix/store/*-openjdk-21*/lib/openjdk \
+    /nix/store/*-openjdk-21*; do
+    [ -n "$home" ] && [ -x "$home/bin/java" ] || continue
+    if "$home/bin/java" -version 2>&1 | grep -qE 'version "1[7-9]|version "2[0-9]'; then
+      export JAVA_HOME="$home"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      break
+    fi
+  done
+fi
+info "java $(java -version 2>&1 | head -1)"
+
 ready() {
   curl -sf -m 3 http://127.0.0.1:8182/q/health/ready >/dev/null 2>&1
 }
@@ -39,7 +55,7 @@ if [ ! -x "$POLARIS_HOME/bin/server" ]; then
 else
   info "starting Polaris from $POLARIS_HOME"
   export QUARKUS_DATASOURCE_DB_KIND=postgresql
-  export QUARKUS_DATASOURCE_JDBC_URL="${QUARKUS_DATASOURCE_JDBC_URL:-jdbc:postgresql://127.0.0.1:5455/polaris}"
+  export QUARKUS_DATASOURCE_JDBC_URL="${QUARKUS_DATASOURCE_JDBC_URL:-jdbc:postgresql://127.0.0.1:5455/polaris?currentSchema=polaris_schema}"
   export QUARKUS_DATASOURCE_USERNAME="${QUARKUS_DATASOURCE_USERNAME:-signals}"
   export QUARKUS_DATASOURCE_PASSWORD="${QUARKUS_DATASOURCE_PASSWORD:-signals}"
   export POLARIS_PERSISTENCE_TYPE=relational-jdbc
@@ -50,6 +66,13 @@ else
   export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Daws.endpointUrl=http://127.0.0.1:9010 -Daws.region=us-east-1 -Daws.s3.pathStyleAccessEnabled=true -Dquarkus.http.host=127.0.0.1"
   if [ -f "$ROOT/config/polaris/application.properties" ]; then
     export JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Dquarkus.config.locations=$ROOT/config/polaris/application.properties"
+  fi
+  psql -h 127.0.0.1 -p 5455 -d polaris -v ON_ERROR_STOP=1 \
+    -c "CREATE SCHEMA IF NOT EXISTS polaris_schema;" >/dev/null 2>&1 || true
+  if [ -x "$POLARIS_HOME/bin/admin" ]; then
+    info "bootstrapping Polarisfork schema (idempotent)"
+    "$POLARIS_HOME/bin/admin" bootstrap -v=3 -r=POLARIS -c=POLARIS,admin,admin -p \
+      >>"$LOG_FILE" 2>&1 || info "bootstrap note (see $LOG_FILE)"
   fi
   nohup "$POLARIS_HOME/bin/server" >>"$LOG_FILE" 2>&1 &
   echo $! >"$PID_FILE"

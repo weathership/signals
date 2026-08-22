@@ -13,16 +13,16 @@ GPU occupancy key: `federation.zndx.org/gpu`. Advertise node capacity with
 |------|-----|-------------|-------------------|
 | `root.default` | Unannotated leftover | cpu/mem/apps | — |
 | `root.platform` | Metaflow UI, Airflow, Eventing | cpu/mem/apps | — |
-| `root.internal.compute` | CPU burst, idle sentinels, yield-proof | cpu/mem/apps | — |
+| `root.internal.compute` | CPU burst, idle sentinels, Ambient ticks (cap 8 apps) | cpu/mem/apps | — |
 | `root.internal.inference.reasoning` | CoT / long-held chat | cpu/mem/gpu/apps | — |
 | `root.internal.inference.coding` | Code models | cpu/mem/gpu/apps | — |
 | `root.internal.inference.orchestration` | Planner / tool-router | cpu/mem/gpu/apps | — |
 | `root.internal.inference.instruct` | Instruct / short chat | cpu/mem/gpu/apps | — |
 | `root.internal.inference.embedding` | Embeddings | cpu/mem/gpu/apps | — |
-| `root.internal.inference.heavy` | Standing thinking / large TP (4 whole GPUs) | cpu/mem/gpu/apps | — |
-| `root.internal.inference.medium` | Interactive Ask SAE / TP=2 (2 whole GPUs) | cpu/mem/gpu/apps | — |
-| `root.internal.inference.light` | Interactive Ask 1.7B (1 whole GPU per app) | cpu/mem/gpu/apps | — |
-| `root.internal.inference.extract` | Offline OCR / docling / VLM | cpu/mem/gpu/apps | — |
+| `root.internal.inference.heavy` | Standing thinking TP=4 (4 GPUs, 1 app) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.medium` | On-demand SAE TP=2 (max 2 GPUs, 1 app, **no guarantee**) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.light` | Interactive Ask 1.7B (1 GPU/app, max 2 apps) | cpu/mem/gpu/apps | — |
+| `root.internal.inference.extract` | Offline OCR / docling / article-curate (**1 GPU guaranteed**, max 2, 2 apps). YK preempts medium (ask-sae, no floor) when extract work arrives. | cpu/mem/gpu/apps | — |
 | `root.external.token-metered` | Pay-per-token APIs | apps (no GPU) | tokens |
 | `root.external.rate-metered` | RPM/TPM APIs | apps (no GPU) | rpm |
 | `root.external.subscription.rate-limited` | Grok ACP / xAI subscription | apps (no GPU) | subscription |
