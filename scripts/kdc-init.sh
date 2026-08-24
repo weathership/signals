@@ -64,6 +64,7 @@ cat > "$KDC_DIR/krb5.conf" <<EOF
     renew_lifetime = 7d
     ticket_lifetime = 24h
     rdns = false
+    dns_canonicalize_hostname = false
     # Prefer correct FQDN SPNs; keep as escape hatch for local loopback clients.
     ignore_acceptor_hostname = true
     default_tkt_enctypes = aes256-cts aes128-cts
