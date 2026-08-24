@@ -130,7 +130,10 @@ let
   hmsFreeJavaOpts = builtins.concatStringsSep " " [
     "-Dsignals.hms_free_mode=true"
     "-Dsignals.catalog.jdbc_url=jdbc:postgresql://localhost:5455/signals_catalog"
-    "-Dsignals.kudu.master_addresses=127.0.0.1:7051"
+    # FQDN — 127.0.0.1 makes Kudu Java SASL request SPN kudu/127.0.0.1 (not in the KDC).
+    "-Dsignals.kudu.master_addresses=tinybox.dev.vista.zndx.org:7051"
+    "-Djava.security.krb5.conf=${config.devenv.root}/.devenv/kdc/krb5.conf"
+    "-Djavax.security.auth.useSubjectCredsOnly=false"
   ];
 
   # Java 21 --add-opens Impala would set when GetJavaMajorVersion works (sizeof weigher).
@@ -844,7 +847,7 @@ in
 
   # ── Polaris (Iceberg REST catalog :8181; admin :8182) ───────────────────
   # Source: components/polaris (rch/asf-polaris, pin 1.3.0-incubating).
-  # Persistence JDBC is administrative catalog metadata on pglite `polaris`.
+  # Persistence JDBC is administrative catalog metadata on Postgres :5455 DB `polaris`.
   # Table data lives on RustFS (s3://signals-dataproducts/iceberg) only.
   processes.polaris = {
     after = [ "devenv:processes:postgres" "devenv:processes:rustfs" ];

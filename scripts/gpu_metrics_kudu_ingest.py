@@ -22,6 +22,11 @@ INTERVAL_S = float(os.environ.get("GPU_METRICS_INTERVAL_S", "1"))
 TABLE = "signals_dataproducts.gpu_metrics_tier0"
 HOST = os.environ.get("SIGNALS_KRB_HOST", "tinybox.dev.vista.zndx.org")
 NVIDIA_SMI = os.environ.get("NVIDIA_SMI", "nvidia-smi")
+_ROOT = Path(os.environ.get("SIGNALS_ROOT", str(Path(__file__).resolve().parents[1])))
+CPP_CREATE = os.environ.get("GPU_KUDU_CREATE", "/tmp/gpu_kudu_create")
+CPP_INGEST = os.environ.get("GPU_KUDU_INGEST", "/tmp/gpu_kudu_ingest")
+# HS2 CREATE TABLE STORED AS Kudu hits Java SASL (KUDU-2121). Retry slowly.
+HS2_RETRY_S = float(os.environ.get("GPU_METRICS_HS2_RETRY_S", "60"))
 
 
 def _utc_now() -> datetime:
@@ -73,16 +78,70 @@ def write_status(**kw: object) -> None:
     STATUS.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _krb_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("KRB5_CONFIG", str(_ROOT / ".devenv/kdc/krb5.conf"))
+    env.setdefault("KUDU_MASTERS", f"{HOST}:7051")
+    if not env.get("KRB5CCNAME"):
+        cc = Path("/tmp") / f"krb5cc_{os.getuid()}"
+        env["KRB5CCNAME"] = str(cc if cc.exists() else _ROOT / ".devenv/kdc/krb5cc")
+    return env
+
+
 def _hs2():
     sys.modules.setdefault("thrift.protocol.fastbinary", None)
     sys.modules.setdefault("thrift.protocol.fastproto", None)
-    root = os.environ.get("SIGNALS_ROOT", str(Path(__file__).resolve().parents[1]))
+    root = str(_ROOT)
     if root not in sys.path:
-        sys.path.insert(0, str(Path(root) / "src"))
+        sys.path.insert(0, str(_ROOT / "src"))
     os.chdir(root)
     from signals.impala import impala_connect  # noqa: WPS433
 
     return impala_connect()
+
+
+def cpp_ensure_table() -> None:
+    exe = Path(CPP_CREATE)
+    if not exe.is_file() or not os.access(exe, os.X_OK):
+        raise RuntimeError(f"{GURU} missing C++ create helper {exe}")
+    r = subprocess.run(
+        [str(exe), str(epoch_hour())],
+        env=_krb_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"{GURU} cpp create: {(r.stderr or r.stdout).strip()}")
+
+
+def _rows_csv(ts: datetime, gpus: list[dict]) -> str:
+    eh = epoch_hour(ts)
+    ts_ns = int(ts.timestamp() * 1_000_000_000)
+    lines = [
+        f"{eh},{ts_ns},{g['i']},{g['w']},{g['u']},{g['m']},{g['t']}" for g in gpus
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def cpp_upsert_csv(csv_text: str) -> int:
+    exe = Path(CPP_INGEST)
+    if not exe.is_file() or not os.access(exe, os.X_OK):
+        raise RuntimeError(f"{GURU} missing C++ ingest helper {exe}")
+    r = subprocess.run(
+        [str(exe)],
+        input=csv_text,
+        env=_krb_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"{GURU} cpp ingest: {(r.stderr or r.stdout).strip()}")
+    out = (r.stdout or "").strip()
+    if out.startswith("upserted "):
+        return int(out.split()[1])
+    return csv_text.count("\n")
 
 
 def ensure_table(cur) -> None:
@@ -199,10 +258,13 @@ def kudu_max_ts(cur) -> int:
 def main() -> int:
     JSONL.parent.mkdir(parents=True, exist_ok=True)
     kudu_ok = False
+    kudu_via = ""
     kudu_err = ""
     inserted = 0
     ticks = 0
     cur = None
+    cpp_buf: list[str] = []
+    last_hs2_try = 0.0
     started = _utc_now()
     write_status(phase="start", jsonl=str(JSONL), interval_s=INTERVAL_S)
 
@@ -218,33 +280,57 @@ def main() -> int:
         append_jsonl(ts, gpus)
         ticks += 1
 
-        if not kudu_ok:
+        now_m = time.monotonic()
+        if not kudu_ok and (now_m - last_hs2_try) >= HS2_RETRY_S:
+            last_hs2_try = now_m
             try:
                 conn = _hs2()
                 cur = conn.cursor()
                 ensure_table(cur)
                 nbf = backfill_jsonl(cur, after_ns=kudu_max_ts(cur))
                 kudu_ok = True
+                kudu_via = "hs2"
                 kudu_err = ""
                 inserted += nbf
             except Exception as e:
                 kudu_err = f"{GURU} {type(e).__name__}: {e}"
                 cur = None
+                try:
+                    cpp_ensure_table()
+                    kudu_via = "cpp"
+                    kudu_err = f"{kudu_err} (cpp table ok)"
+                except Exception as ce:
+                    kudu_err = f"{kudu_err}; cpp: {ce}"
 
         if kudu_ok and cur is not None:
             try:
                 inserted += insert_rows(cur, ts, gpus)
             except Exception as e:
                 kudu_ok = False
+                kudu_via = ""
                 kudu_err = f"{GURU} insert {type(e).__name__}: {e}"
                 cur = None
+
+        if not kudu_ok or kudu_via == "cpp":
+            cpp_buf.append(_rows_csv(ts, gpus).rstrip("\n"))
+            if len(cpp_buf) >= 30:
+                try:
+                    cpp_ensure_table()
+                    n = cpp_upsert_csv("\n".join(cpp_buf) + "\n")
+                    inserted += n
+                    kudu_via = "cpp"
+                    kudu_err = ""
+                    cpp_buf = []
+                except Exception as e:
+                    kudu_err = f"{GURU} cpp {type(e).__name__}: {e}"
 
         if ticks == 1 or ticks % 30 == 0:
             write_status(
                 phase="run",
                 ticks=ticks,
                 inserted=inserted,
-                kudu_ok=kudu_ok,
+                kudu_ok=kudu_ok or kudu_via == "cpp",
+                kudu_via=kudu_via,
                 kudu_err=kudu_err,
                 gpus=len(gpus),
                 last_w=[g["w"] for g in gpus],

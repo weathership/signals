@@ -22,6 +22,19 @@ ALTER SERVER impala_kudu_srv OPTIONS (
   SET kudu_masters 'tinybox.dev.vista.zndx.org:7051'
 );
 
+-- USER MAPPING: Impala Java SASL is still KUDU-2121; kudu_scan uses the
+-- C++ client + this keytab. Mapping for the lab role and CURRENT_USER.
+CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER impala_kudu_srv
+  OPTIONS (
+    principal 'signals@DEV.VISTA.ZNDX.ORG',
+    keytab '/home/rch/local/src/wxs/signals/.devenv/kdc/signals.keytab'
+  );
+CREATE USER MAPPING IF NOT EXISTS FOR signals SERVER impala_kudu_srv
+  OPTIONS (
+    principal 'signals@DEV.VISTA.ZNDX.ORG',
+    keytab '/home/rch/local/src/wxs/signals/.devenv/kdc/signals.keytab'
+  );
+
 DROP FOREIGN TABLE IF EXISTS gpu_metrics_tier0 CASCADE;
 CREATE FOREIGN TABLE gpu_metrics_tier0 (
   epoch_hour integer,
@@ -35,7 +48,8 @@ CREATE FOREIGN TABLE gpu_metrics_tier0 (
 OPTIONS (
   database 'signals_dataproducts',
   "table" 'gpu_metrics_tier0',
-  access 'auto'
+  kudu_table 'impala::signals_dataproducts.gpu_metrics_tier0',
+  access 'kudu_scan'
 );
 
 DROP FOREIGN TABLE IF EXISTS gpu_metrics_tier1 CASCADE;
@@ -54,6 +68,9 @@ OPTIONS (
   access 'impala_sql'
 );
 
+-- Logical hierarchy. Prefer Impala UNION view (gpu_metrics) via HS2 once
+-- catalogd Java SASL can see Kudu. Until then kudu_scan the hot table so
+-- SELECT FROM gpu_metrics is real warehouse rows, not a stub.
 DROP FOREIGN TABLE IF EXISTS gpu_metrics CASCADE;
 CREATE FOREIGN TABLE gpu_metrics (
   epoch_hour integer,
@@ -66,6 +83,7 @@ CREATE FOREIGN TABLE gpu_metrics (
 ) SERVER impala_kudu_srv
 OPTIONS (
   database 'signals_dataproducts',
-  "table" 'gpu_metrics',
-  access 'impala_sql'
+  "table" 'gpu_metrics_tier0',
+  kudu_table 'impala::signals_dataproducts.gpu_metrics_tier0',
+  access 'kudu_scan'
 );
