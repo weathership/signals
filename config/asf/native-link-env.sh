@@ -50,10 +50,33 @@ if [ -n "${SIG_KRB5_LIB:-}" ]; then
   fi
 fi
 
+if [ -z "${SIG_SASL_INC:-}" ] && [ -n "${SIG_SASL_LIB:-}" ]; then
+  if [ -f "${SIG_SASL_LIB}/../include/sasl/sasl.h" ]; then
+    SIG_SASL_INC="$(cd "${SIG_SASL_LIB}/../include" && pwd)"
+  fi
+fi
+if [ -z "${SIG_SASL_INC:-}" ]; then
+  for _sasl_h in /usr/include/sasl/sasl.h \
+                 "${ROOT:-}/.devenv/profile/include/sasl/sasl.h" \
+                 /nix/store/*cyrus-sasl*-dev/include/sasl/sasl.h; do
+    if [ -f "$_sasl_h" ]; then
+      SIG_SASL_INC="$(cd "$(dirname "$_sasl_h")/.." && pwd)"
+      break
+    fi
+  done
+  unset _sasl_h
+fi
 if [ -n "${SIG_SASL_LIB:-}" ]; then
   _asf_prepend LIBRARY_PATH "$SIG_SASL_LIB"
   _asf_prepend CMAKE_LIBRARY_PATH "$SIG_SASL_LIB"
   case " ${LDFLAGS:-} " in *" -L${SIG_SASL_LIB} "*) ;; *) export LDFLAGS="-L${SIG_SASL_LIB} ${LDFLAGS:-}" ;; esac
+fi
+if [ -n "${SIG_SASL_INC:-}" ]; then
+  _asf_prepend CMAKE_INCLUDE_PATH "$SIG_SASL_INC"
+  _asf_prepend CPATH "$SIG_SASL_INC"
+  _asf_prepend CPLUS_INCLUDE_PATH "$SIG_SASL_INC"
+  case " ${CPPFLAGS:-} " in *" -I${SIG_SASL_INC} "*) ;; *) export CPPFLAGS="-I${SIG_SASL_INC} ${CPPFLAGS:-}" ;; esac
+  export SIG_SASL_INC
 fi
 if [ -n "${SIG_SSL_LIB:-}" ]; then
   _asf_prepend LIBRARY_PATH "$SIG_SSL_LIB"

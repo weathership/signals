@@ -17,6 +17,7 @@ cd "$ICEBERG"
   :iceberg-bundled-guava:publishToMavenLocal \
   :iceberg-data:publishToMavenLocal \
   :iceberg-parquet:publishToMavenLocal \
+  :iceberg-orc:publishToMavenLocal \
   :iceberg-hive-metastore:publishToMavenLocal \
   :iceberg-mr:publishToMavenLocal \
   -x test -x javadoc -x spotlessCheck \
