@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS catalog_databases (
 CREATE TABLE IF NOT EXISTS catalog_tables (
     db_name TEXT NOT NULL REFERENCES catalog_databases(name),
     table_name TEXT NOT NULL,
-    table_type TEXT NOT NULL CHECK (table_type IN ('KUDU', 'ICEBERG')),
+    table_type TEXT NOT NULL CHECK (table_type IN ('KUDU', 'ICEBERG', 'VIEW')),
     parameters JSONB DEFAULT '{}'::jsonb,
     PRIMARY KEY (db_name, table_name)
 );
