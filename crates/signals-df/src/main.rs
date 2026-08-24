@@ -81,6 +81,15 @@ enum Cmd {
         #[arg(long)]
         stamp: PathBuf,
     },
+    /// SQL over SysML machine HDF5 (hdf5-pure TableProvider; not Impala)
+    Hdf5 {
+        /// One or more .h5 files (`Machine/GpuMetric[0]/Values`)
+        #[arg(long = "file", required = true)]
+        files: Vec<PathBuf>,
+        /// SQL; table name is `gpu_power`
+        #[arg(long, default_value = "SELECT COUNT(*) AS n FROM gpu_power")]
+        sql: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -398,6 +407,25 @@ async fn verify_cmd(stamp: &Path) -> Result<()> {
     Ok(())
 }
 
+async fn hdf5_sql(files: &[PathBuf], sql: &str) -> Result<()> {
+    use hdf5_df::Hdf5TableProvider;
+    if files.is_empty() {
+        bail!("#SL.00000018.HDF5DF no --file");
+    }
+    for f in files {
+        if !f.is_file() {
+            bail!("#SL.00000018.HDF5DF missing {}", f.display());
+        }
+    }
+    let provider = Hdf5TableProvider::try_listing(files.to_vec())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let ctx = SessionContext::new();
+    ctx.register_table("gpu_power", std::sync::Arc::new(provider))?;
+    let df = ctx.sql(sql).await?;
+    df.show().await?;
+    Ok(())
+}
+
 async fn sql_cmd(stamp: &Path, query: &str) -> Result<()> {
     let ctx = session().await?;
     let names = register_all(&ctx, stamp).await?;
@@ -437,6 +465,7 @@ async fn main() -> Result<()> {
         Cmd::Verify { stamp } => verify_cmd(&stamp).await?,
         Cmd::Sql { stamp, query } => sql_cmd(&stamp, &query).await?,
         Cmd::Status { stamp } => status_cmd(&stamp).await?,
+        Cmd::Hdf5 { files, sql } => hdf5_sql(&files, &sql).await?,
     }
     Ok(())
 }

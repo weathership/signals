@@ -16,6 +16,7 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive", "env"] }
 datafusion = "50"
+hdf5-df = { git = "https://github.com/weathership/semantics.git", rev = "52e975b617372ac91d4ad076e8ba233bfdf27ebc" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process"] }
