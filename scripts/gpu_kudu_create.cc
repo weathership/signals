@@ -18,10 +18,33 @@ using kudu::client::KuduClientBuilder;
 using kudu::client::KuduColumnSchema;
 using kudu::client::KuduSchema;
 using kudu::client::KuduSchemaBuilder;
+using kudu::client::KuduTable;
+using kudu::client::KuduTableAlterer;
 using kudu::client::KuduTableCreator;
 using kudu::client::sp::shared_ptr;
 
 static const char kTable[] = "impala::signals_dataproducts.gpu_metrics_tier0";
+
+static Status AddHourRanges(KuduClient* client, const KuduSchema& schema, int hour) {
+  // HASH×RANGE: add each UTC hour for [-1, +4) so the 1 Hz writer does not
+  // stall at the hour boundary (table-create used to be a no-op if exists).
+  for (int i = -1; i < 4; ++i) {
+    KuduPartialRow* lo = schema.NewRow();
+    KuduPartialRow* hi = schema.NewRow();
+    Status rs = lo->SetInt32("epoch_hour", hour + i);
+    if (rs.ok()) rs = hi->SetInt32("epoch_hour", hour + i + 1);
+    if (!rs.ok()) return rs;
+    KuduTableAlterer* alt = client->NewTableAlterer(kTable);
+    Status s = alt->AddRangePartition(lo, hi)->Alter();
+    delete alt;
+    if (!s.ok() && s.ToString().find("already") == std::string::npos &&
+        s.ToString().find("overlap") == std::string::npos &&
+        s.ToString().find("Already present") == std::string::npos) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
 
 int main(int argc, char** argv) {
   const char* masters = std::getenv("KUDU_MASTERS");
@@ -44,7 +67,18 @@ int main(int argc, char** argv) {
     return 1;
   }
   if (exists) {
-    std::cout << "exists " << kTable << "\n";
+    shared_ptr<KuduTable> table;
+    s = client->OpenTable(kTable, &table);
+    if (!s.ok()) {
+      std::cerr << "#SL.00000024.GPUINGEST open: " << s.ToString() << "\n";
+      return 1;
+    }
+    s = AddHourRanges(client.get(), table->schema(), hour);
+    if (!s.ok()) {
+      std::cerr << "#SL.00000024.GPUINGEST add-range: " << s.ToString() << "\n";
+      return 1;
+    }
+    std::cout << "exists " << kTable << " ranges hour=" << hour << "\n";
     return 0;
   }
 

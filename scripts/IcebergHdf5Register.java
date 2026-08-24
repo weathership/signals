@@ -48,7 +48,19 @@ public final class IcebergHdf5Register {
         "hadoop.fs.s3a.aws.credentials.provider",
         "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");
 
+    org.apache.hadoop.conf.Configuration hconf = new org.apache.hadoop.conf.Configuration();
+    hconf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+    hconf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+    hconf.set("fs.s3a.endpoint", "http://127.0.0.1:9010");
+    hconf.set("fs.s3a.path.style.access", "true");
+    hconf.set("fs.s3a.connection.ssl.enabled", "false");
+    hconf.set("fs.s3a.access.key", "rustfsadmin");
+    hconf.set("fs.s3a.secret.key", "rustfsadmin");
+    hconf.set(
+        "fs.s3a.aws.credentials.provider",
+        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");
     RESTCatalog cat = new RESTCatalog();
+    cat.setConf(hconf);
     cat.initialize("signals", props);
 
     Namespace ns = Namespace.of("signals_dataproducts");
