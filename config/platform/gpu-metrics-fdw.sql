@@ -68,9 +68,10 @@ OPTIONS (
   access 'impala_sql'
 );
 
--- Logical hierarchy. Prefer Impala UNION view (gpu_metrics) via HS2 once
--- catalogd Java SASL can see Kudu. Until then kudu_scan the hot table so
--- SELECT FROM gpu_metrics is real warehouse rows, not a stub.
+-- Logical hierarchy via Impala UNION view (HS2 GSSAPI). Clients SELECT
+-- FROM gpu_metrics. Writes stay on gpu_metrics_tier0 (kudu_scan / G11).
+-- Do not DROP closed Kudu hour ranges until this SELECT is green and
+-- the closed hours have been verified in Iceberg (double-count until then).
 DROP FOREIGN TABLE IF EXISTS gpu_metrics CASCADE;
 CREATE FOREIGN TABLE gpu_metrics (
   epoch_hour integer,
@@ -83,7 +84,6 @@ CREATE FOREIGN TABLE gpu_metrics (
 ) SERVER impala_kudu_srv
 OPTIONS (
   database 'signals_dataproducts',
-  "table" 'gpu_metrics_tier0',
-  kudu_table 'impala::signals_dataproducts.gpu_metrics_tier0',
-  access 'kudu_scan'
+  "table" 'gpu_metrics',
+  access 'impala_sql'
 );
