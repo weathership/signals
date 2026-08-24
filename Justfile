@@ -98,6 +98,10 @@ kudu-java:
 impala-bootstrap:
     devenv tasks run impala:bootstrap
 
+# Publish Signals Iceberg (FileFormat.HDF5) + iceberg-hdf5 to .devenv/m2
+iceberg-publish:
+    bash scripts/iceberg-publish-local.sh
+
 # Full Impala build (C++ backend + Java frontend)
 impala-build:
     devenv tasks run impala:build

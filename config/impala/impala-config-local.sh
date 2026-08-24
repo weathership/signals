@@ -59,5 +59,11 @@ if [ "${SIG_USE_LOCAL_KUDU:-0}" = "1" ]; then
   fi
 fi
 
+# Iceberg File Format API + HDF5: publish components/iceberg (version.txt
+# 1.11.0-signals-hdf5) to $SIG_MAVEN_REPO, then rebuild impala-iceberg-runtime.
+export APACHE_ICEBERG_VERSION="${APACHE_ICEBERG_VERSION:-1.11.0-signals-hdf5}"
+export IMPALA_ICEBERG_VERSION="${IMPALA_ICEBERG_VERSION:-$APACHE_ICEBERG_VERSION}"
+
 echo "signals impala-config-local: RANGER_VERSION_OVERRIDE=${RANGER_VERSION_OVERRIDE}"
 echo "signals impala-config-local: RANGER_HOME_OVERRIDE=${RANGER_HOME_OVERRIDE}"
+echo "signals impala-config-local: IMPALA_ICEBERG_VERSION=${IMPALA_ICEBERG_VERSION}"
