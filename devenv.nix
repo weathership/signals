@@ -133,6 +133,7 @@ let
     # FQDN — 127.0.0.1 makes Kudu Java SASL request SPN kudu/127.0.0.1 (not in the KDC).
     "-Dsignals.kudu.master_addresses=tinybox.dev.vista.zndx.org:7051"
     "-Djava.security.krb5.conf=${config.devenv.root}/.devenv/kdc/krb5.conf"
+    "-Djava.security.auth.login.config=${config.devenv.root}/config/impala/kudu-jaas.conf"
     "-Djavax.security.auth.useSubjectCredsOnly=false"
   ];
 
@@ -1347,6 +1348,7 @@ in
         --log_dir="$PWD/.devenv/impala/catalogd/logs" \
         --hostname="$HOST_ARG" \
         --kudu_master_hosts="$KUDU_MASTERS" \
+        --catalog_config_dir="$PWD/config/impala/catalog_config_dir" \
         --abort_on_config_error=false \
         --hms_event_polling_interval_s=0 \
         --java_weigher=sizeof \
@@ -1437,6 +1439,7 @@ in
         --hostname="$HOST_ARG" \
         --kudu_master_hosts="$KUDU_MASTERS" \
         --use_local_catalog=true \
+        --catalog_config_dir="$PWD/config/impala/catalog_config_dir" \
         --abort_on_config_error=false \
         --hms_event_polling_interval_s=0 \
         --java_weigher=sizeof \
