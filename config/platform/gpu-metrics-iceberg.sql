@@ -22,9 +22,15 @@ TBLPROPERTIES (
   'write.location' = 's3a://signals-dataproducts/iceberg/gpu_metrics_tier1'
 );
 
+-- Kudu is authoritative for any hour still present. Iceberg fills the rest
+-- so analog-before-DROP cannot double-count under UNION ALL.
+-- Impala has no CREATE OR REPLACE VIEW; live updates use ALTER VIEW … AS.
 CREATE VIEW IF NOT EXISTS signals_dataproducts.gpu_metrics AS
 SELECT epoch_hour, ts_ns, gpu_index, power_w, util_pct, mem_used_mb, temp_c
   FROM signals_dataproducts.gpu_metrics_tier0
 UNION ALL
 SELECT epoch_hour, ts_ns, gpu_index, power_w, util_pct, mem_used_mb, temp_c
-  FROM signals_dataproducts.gpu_metrics_tier1;
+  FROM signals_dataproducts.gpu_metrics_tier1 t1
+ WHERE t1.epoch_hour NOT IN (
+   SELECT epoch_hour FROM signals_dataproducts.gpu_metrics_tier0 GROUP BY 1
+ );
