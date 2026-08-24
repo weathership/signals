@@ -5,9 +5,10 @@
 
 CREATE DATABASE IF NOT EXISTS signals_dataproducts;
 
--- Hour bounds are applied by scripts/gpu_metrics_kudu_ingest.py (ADD RANGE
--- for the current UTC hour ± 2). The CREATE below is the schema only; the
--- ingest script issues the RANGE list for the live hour.
+-- Live hours are ADD RANGE PARTITION VALUE = <epoch_hour> (single-value
+-- range; HASH(gpu_index) buckets ride along). Expire a closed hour with:
+--   ALTER TABLE … DROP RANGE PARTITION VALUE = <epoch_hour>
+-- (whole range, all hash buckets). Never row DELETE or a partial slice.
 
 CREATE TABLE IF NOT EXISTS signals_dataproducts.gpu_metrics_tier0 (
   epoch_hour INT,

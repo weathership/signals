@@ -16,15 +16,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 GURU = "#SL.00000024.GPUINGEST"
-JSONL = Path(os.environ.get("GPU_METRICS_JSONL", "/tmp/gpu-metrics-hour.jsonl"))
-STATUS = Path(os.environ.get("GPU_METRICS_STATUS", "/tmp/gpu-metrics-ingest.status"))
+_DATA = Path(
+    os.environ.get("SIGNALS_GPU_METRICS_DIR")
+    or os.environ.get("SIGNALS_DATA_ROOT")
+    or "/raid/signals/gpu-metrics"
+)
+if _DATA.name != "gpu-metrics":
+    _DATA = _DATA / "gpu-metrics"
+JSONL = Path(os.environ.get("GPU_METRICS_JSONL", str(_DATA / "hour.jsonl")))
+STATUS = Path(os.environ.get("GPU_METRICS_STATUS", str(_DATA / "ingest.status")))
 INTERVAL_S = float(os.environ.get("GPU_METRICS_INTERVAL_S", "1"))
 TABLE = "signals_dataproducts.gpu_metrics_tier0"
 HOST = os.environ.get("SIGNALS_KRB_HOST", "tinybox.dev.vista.zndx.org")
 NVIDIA_SMI = os.environ.get("NVIDIA_SMI", "nvidia-smi")
 _ROOT = Path(os.environ.get("SIGNALS_ROOT", str(Path(__file__).resolve().parents[1])))
-CPP_CREATE = os.environ.get("GPU_KUDU_CREATE", "/tmp/gpu_kudu_create")
-CPP_INGEST = os.environ.get("GPU_KUDU_INGEST", "/tmp/gpu_kudu_ingest")
+_DEVENV_BIN = _ROOT / ".devenv" / "bin"
+CPP_CREATE = os.environ.get(
+    "GPU_KUDU_CREATE",
+    str(_DEVENV_BIN / "gpu_kudu_create"),
+)
+CPP_INGEST = os.environ.get(
+    "GPU_KUDU_INGEST",
+    str(_DEVENV_BIN / "gpu_kudu_ingest"),
+)
 # HS2 CREATE TABLE STORED AS Kudu hits Java SASL (KUDU-2121). Retry slowly.
 HS2_RETRY_S = float(os.environ.get("GPU_METRICS_HS2_RETRY_S", "60"))
 
@@ -97,7 +111,9 @@ def _hs2():
     os.chdir(root)
     from signals.impala import impala_connect  # noqa: WPS433
 
-    return impala_connect()
+    # Never stall the 1 Hz jsonl sampler on a down HS2 (cpp ingest is enough).
+    timeout_s = float(os.environ.get("GPU_METRICS_HS2_TIMEOUT_S", "3"))
+    return impala_connect(timeout=timeout_s)
 
 
 def cpp_ensure_table() -> None:
@@ -256,6 +272,11 @@ def kudu_max_ts(cur) -> int:
 
 
 def main() -> int:
+    raise SystemExit(
+        f"{GURU} sidecar Kudu writer is retired.\n"
+        "  Product path: Gaius engine INSERT INTO gpu_metrics_tier0 via impala_fdw.\n"
+        "  Guru: #EN.00000031.FDWINGEST"
+    )
     JSONL.parent.mkdir(parents=True, exist_ok=True)
     kudu_ok = False
     kudu_via = ""

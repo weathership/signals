@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,9 +31,12 @@ def epoch_hour_of(ts: datetime) -> int:
 
 
 def load_jsonl(hour: int) -> list[dict]:
+    rows = load_fdw(hour)
+    if rows:
+        return rows
     if not JSONL.exists():
-        raise SystemExit(f"{GURU} missing {JSONL}")
-    rows: list[dict] = []
+        raise SystemExit(f"{GURU} no FDW rows and missing {JSONL} for hour {hour}")
+    rows = []
     with JSONL.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -54,6 +58,53 @@ def load_jsonl(hour: int) -> list[dict]:
                         "temp_c": float(g["t"]),
                     }
                 )
+    return rows
+
+
+def load_fdw(hour: int) -> list[dict]:
+    """Closed-hour rows from Postgres kudu_scan (engine writer)."""
+    env = os.environ.copy()
+    env.setdefault("PGPASSWORD", "signals")
+    cmd = [
+        "psql",
+        "-h",
+        os.environ.get("SIGNALS_PGHOST", "127.0.0.1"),
+        "-p",
+        os.environ.get("SIGNALS_PGPORT", "5455"),
+        "-U",
+        os.environ.get("SIGNALS_PGUSER", "signals"),
+        "-d",
+        os.environ.get("SIGNALS_PGDATABASE", "signals"),
+        "-At",
+        "-F",
+        "\t",
+        "-c",
+        (
+            "SELECT ts_ns, gpu_index, power_w, util_pct, mem_used_mb, temp_c "
+            f"FROM gpu_metrics_tier0 WHERE epoch_hour = {int(hour)}"
+        ),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, check=True, capture_output=True, text=True, env=env, timeout=120
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return []
+    rows: list[dict] = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 6:
+            continue
+        rows.append(
+            {
+                "ts_ns": int(parts[0]),
+                "gpu_index": int(parts[1]),
+                "power_w": float(parts[2]),
+                "util_pct": float(parts[3]),
+                "mem_used_mb": float(parts[4]),
+                "temp_c": float(parts[5]),
+            }
+        )
     return rows
 
 
