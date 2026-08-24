@@ -35,6 +35,11 @@
     <name>fs.s3a.impl</name>
     <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
   </property>
+  <!-- Polarisfork warehouse URIs are s3://; map the scheme onto S3A. -->
+  <property>
+    <name>fs.s3.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+  </property>
   <property>
     <name>fs.s3a.buffer.dir</name>
     <value>/raid/signals/impala/s3a-buffer</value>
