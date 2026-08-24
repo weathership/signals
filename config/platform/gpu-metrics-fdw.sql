@@ -68,17 +68,24 @@ OPTIONS (
   access 'impala_sql'
 );
 
--- Logical hierarchy in Postgres: Kudu is authoritative for any hour still
--- present; Iceberg fills the rest. Analog-before-DROP cannot double-count.
+-- Logical hierarchy is the Impala UNION view (Kudu hours still present;
+-- Iceberg fills the rest). Do not recreate that UNION as a Postgres VIEW
+-- of kudu_scan ∪ impala_sql: the Iceberg foreign scan then projects only
+-- epoch_hour (the NOT IN filter column) and measure columns come back NULL.
 -- Writes stay on gpu_metrics_tier0 (kudu_scan / G11).
-DROP FOREIGN TABLE IF EXISTS gpu_metrics CASCADE;
 DROP VIEW IF EXISTS gpu_metrics CASCADE;
-CREATE VIEW gpu_metrics AS
-SELECT epoch_hour, ts_ns, gpu_index, power_w, util_pct, mem_used_mb, temp_c
-  FROM gpu_metrics_tier0
-UNION ALL
-SELECT epoch_hour, ts_ns, gpu_index, power_w, util_pct, mem_used_mb, temp_c
-  FROM gpu_metrics_tier1 t1
- WHERE t1.epoch_hour NOT IN (
-   SELECT epoch_hour FROM gpu_metrics_tier0 GROUP BY 1
- );
+DROP FOREIGN TABLE IF EXISTS gpu_metrics CASCADE;
+CREATE FOREIGN TABLE gpu_metrics (
+  epoch_hour integer,
+  ts_ns bigint,
+  gpu_index integer,
+  power_w real,
+  util_pct real,
+  mem_used_mb real,
+  temp_c real
+) SERVER impala_kudu_srv
+OPTIONS (
+  database 'signals_dataproducts',
+  "table" 'gpu_metrics',
+  access 'impala_sql'
+);
