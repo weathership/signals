@@ -84,11 +84,24 @@ let
     # Pin headless devenv JDK (override host detection in impala-config.sh)
     ${impalaJdkEnv}
 
-    # .devenv shims only (no host /lib): sasl so.2 for toolchain kudu + kudu client
-    # alone (do NOT add whole kudu/lib — it ships a conflicting libstdc++.so.6).
+    # .devenv shims only (no host /lib): toolchain libkudu_client NEEDED
+    # libsasl2.so.2, libgssapi_krb5.so.2, libkrb5.so.3, libssl/crypto.so.3.
+    # Do NOT add whole kudu/lib — it ships a conflicting libstdc++.so.6.
+    # Nix pkgs.thrift is 0.22 only; Impala toolchain thrift 0.16 must stay
+    # off the FDW link line (TProtocol writeUUID vtable). Guru: #SL.00000028.HS2GSSAPI
     SIG_IMPALA_LIB="$PWD/.devenv/impala/lib"
     mkdir -p "$SIG_IMPALA_LIB"
     ln -sfn "$NIX_SASL/libsasl2.so.3" "$SIG_IMPALA_LIB/libsasl2.so.2"
+    for _g in libgssapi_krb5.so.2 libkrb5.so.3 libk5crypto.so.3 libcom_err.so.3 libkrb5support.so.0; do
+      if [ -e "$NIX_KRB5/$_g" ]; then
+        ln -sfn "$NIX_KRB5/$_g" "$SIG_IMPALA_LIB/$_g"
+      fi
+    done
+    for _s in libssl.so.3 libcrypto.so.3; do
+      if [ -e "$NIX_SSL/$_s" ]; then
+        ln -sfn "$NIX_SSL/$_s" "$SIG_IMPALA_LIB/$_s"
+      fi
+    done
     for _k in libkudu_client.so libkudu_client.so.0 libkudu_client.so.0.1.0; do
       if [ -e "$KUDU_LIB_SRC/$_k" ]; then
         ln -sfn "$KUDU_LIB_SRC/$_k" "$SIG_IMPALA_LIB/$_k"
@@ -135,6 +148,7 @@ let
     "-Djava.security.krb5.conf=${config.devenv.root}/.devenv/kdc/krb5.conf"
     "-Djava.security.auth.login.config=${config.devenv.root}/config/impala/kudu-jaas.conf"
     "-Djavax.security.auth.useSubjectCredsOnly=false"
+    "-Dkudu.krb5ccname=/tmp/krb5cc_impala"
   ];
 
   # Java 21 --add-opens Impala would set when GetJavaMajorVersion works (sizeof weigher).
@@ -810,6 +824,13 @@ in
   # Postgres. Port lattice: 9010 API / 9011 console (9000 reserved for synth).
   # See docs/current/src/architecture/governance-scale-plane.md
   processes.rustfs = {
+    ready = {
+      exec = "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9010'";
+      initial_delay = 2;
+      period = 5;
+      probe_timeout = 3;
+      failure_threshold = 12;
+    };
     exec = ''
       set -euo pipefail
       # shellcheck source=/dev/null
@@ -1331,6 +1352,9 @@ in
       if [ -f "$KDC_DIR/krb5.conf" ]; then
         export KRB5_CONFIG="$KDC_DIR/krb5.conf"
       fi
+      export KRB5CCNAME=/tmp/krb5cc_impala
+      kinit -kt "$IMPALA_KEYTAB" \
+        "impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" >/dev/null
       HOST_ARG="$KRB_HOST"
       KUDU_MASTERS="$KRB_HOST:7051"
       KRB_ARGS=( --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" --keytab_file="$IMPALA_KEYTAB" )
@@ -1418,6 +1442,9 @@ in
       if [ -f "$KDC_DIR/krb5.conf" ]; then
         export KRB5_CONFIG="$KDC_DIR/krb5.conf"
       fi
+      export KRB5CCNAME=/tmp/krb5cc_impala
+      kinit -kt "$IMPALA_KEYTAB" \
+        "impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" >/dev/null
       HOST_ARG="$KRB_HOST"
       KUDU_MASTERS="$KRB_HOST:7051"
       KRB_ARGS=( --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" --keytab_file="$IMPALA_KEYTAB" )
@@ -2120,6 +2147,9 @@ EOF
         # PR-K5b: libkrb5 for optional keytab→ccache kinit in exec_kudu
         export SIG_KRB5_INC="''${SIG_KRB5_INC:-${pkgs.krb5.dev}/include}"
         export SIG_KRB5_LIB="''${SIG_KRB5_LIB:-${pkgs.krb5.lib}/lib}"
+        export SIG_SASL_INC="''${SIG_SASL_INC:-${pkgs.cyrus_sasl.dev}/include}"
+        export SIG_SASL_LIB="''${SIG_SASL_LIB:-${pkgs.cyrus_sasl.out}/lib}"
+        export SIG_SSL_LIB="''${SIG_SSL_LIB:-${pkgs.openssl.out}/lib}"
         make with_llvm=no \
           PG_CONFIG="$PG_CONFIG" \
           CC="$CC" \
@@ -2130,19 +2160,36 @@ EOF
           BOOST_HOME="$BOOST_HOME" \
           SIG_KRB5_INC="$SIG_KRB5_INC" \
           SIG_KRB5_LIB="$SIG_KRB5_LIB" \
+          SIG_SASL_INC="$SIG_SASL_INC" \
+          SIG_SASL_LIB="$SIG_SASL_LIB" \
+          SIG_SSL_LIB="$SIG_SSL_LIB" \
           KUDU_CLIENT_LIBDIR="$KUDU_CLIENT_LIBDIR" \
           KUDU_CLIENT_INCDIR="$KUDU_CLIENT_INCDIR" \
           IMPALA_FDW_WITH_KUDU="''${IMPALA_FDW_WITH_KUDU}" \
           PG_CPPFLAGS="-I$BOOST_HOME/include -I$THRIFT_HOME/include -Isrc -Igen-cpp -I$SIG_KRB5_INC''${KUDU_CLIENT_INCDIR:+ -I$KUDU_CLIENT_INCDIR}''${IMPALA_FDW_WITH_KUDU:+ -DIMPALA_FDW_WITH_KUDU=1}"
         test -f impala_fdw.so || { echo "ERROR: impala_fdw.so not produced"; ls -la; exit 1; }
-        if [ "''${IMPALA_FDW_WITH_KUDU}" = "1" ]; then
-          if command -v ldd >/dev/null 2>&1; then
-            ldd impala_fdw.so | grep -q kudu_client \
-              || { echo "ERROR: impala_fdw.so built WITH_KUDU but not linked to libkudu_client"; ldd impala_fdw.so; exit 1; }
+        if command -v ldd >/dev/null 2>&1; then
+          _ldd=$(ldd impala_fdw.so)
+          echo "$_ldd"
+          echo "$_ldd" | grep -q 'libthrift.so.0.22' \
+            || { echo "ERROR: impala_fdw.so must link Nix libthrift 0.22 (not toolchain 0.16). Guru: #SL.00000028.HS2GSSAPI"; exit 1; }
+          if echo "$_ldd" | grep -q 'libthrift-0.16'; then
+            echo "ERROR: impala_fdw.so linked toolchain libthrift 0.16 — OpenSession SIGSEGV. Guru: #SL.00000028.HS2GSSAPI"
+            exit 1
           fi
-          echo "impala_fdw.so built (HS2 thrift + libkudu_client stub; kudu_scan PR-K0)."
+          if [ "''${IMPALA_FDW_WITH_KUDU}" = "1" ]; then
+            echo "$_ldd" | grep -q kudu_client \
+              || { echo "ERROR: impala_fdw.so built WITH_KUDU but not linked to libkudu_client"; exit 1; }
+            if echo "$_ldd" | grep -q 'libgssapi_krb5.so.2 => not found'; then
+              echo "ERROR: libgssapi_krb5 unresolved (kudu_scan GSSAPI). Guru: #SL.00000028.HS2GSSAPI"
+              exit 1
+            fi
+          fi
+        fi
+        if [ "''${IMPALA_FDW_WITH_KUDU}" = "1" ]; then
+          echo "impala_fdw.so built (HS2 thrift 0.22 + libkudu_client; kudu_scan PR-K0)."
         else
-          echo "impala_fdw.so built (HS2 thrift client; Kerberos GSSAPI required at runtime)."
+          echo "impala_fdw.so built (HS2 thrift 0.22; Kerberos GSSAPI required at runtime)."
         fi
         echo "Next: devenv tasks run impala-fdw:install"
       '';
