@@ -14,7 +14,7 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_target_verify.sh
-TimeoutStartSec=180
+TimeoutStartSec=300
 
 [Install]
 WantedBy=signals.target

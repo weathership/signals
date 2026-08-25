@@ -13,6 +13,9 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/zndx/aegir
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+# devenv runtime dir follows XDG_RUNTIME_DIR; unset under systemd it falls back
+# to /tmp, invisible to a login-shell `devenv processes` (see signals.service).
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Wrappers live in the Ægir tree; they block until Engine/Status on :50151
 # (capability engine — not just up stack-health).
 ExecStart=/home/rch/local/src/zndx/aegir/scripts/systemd_start.sh

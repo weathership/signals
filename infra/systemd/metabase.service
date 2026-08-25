@@ -16,6 +16,9 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/agpl/metabase
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+# devenv runtime dir follows XDG_RUNTIME_DIR; unset under systemd it falls back
+# to /tmp, invisible to a login-shell `devenv processes` (see signals.service).
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Wrapper scripts live in the AGPL tree (WorkingDirectory); keep multiline
 # shell out of the unit file (systemd rejects unbalanced quotes).
 ExecStart=/home/rch/local/src/agpl/metabase/scripts/systemd_start.sh

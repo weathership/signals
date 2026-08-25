@@ -143,6 +143,14 @@ if [[ "$(uname -s)" == "Linux" ]]; then
   check_http "impala-catalogd" "http://127.0.0.1:25020/" 1
   check_http "impala-impalad-web" "http://127.0.0.1:25000/" 1
   check_tcp "impala-hs2" "127.0.0.1" "21050" 1
+  # Warehouse read path: Postgres impala_fdw → Kudu (engine writes this table).
+  if PGPASSWORD="${PGPASSWORD:-signals}" psql -h "$PGHOST" -p "$PGPORT" \
+      -U "${PGUSER:-signals}" -d signals -Atqc \
+      "SELECT 1 FROM signal_tier0 LIMIT 1" >/dev/null 2>&1; then
+    record "impala_fdw" PASS 1 "SELECT signal_tier0 :${PGPORT}"
+  else
+    record "impala_fdw" FAIL 1 "signal_tier0 not readable via impala_fdw on :${PGPORT}"
+  fi
 else
   record "impala" SKIP 0 "Darwin: Impala processes not in stack"
 fi

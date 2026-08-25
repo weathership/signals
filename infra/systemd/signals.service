@@ -14,6 +14,11 @@ WorkingDirectory=/home/rch/local/src/wxs/signals
 # System-wide just (/usr/local/bin) is required — not only devenv/nix PATH.
 # Login shell still loads direnv/devenv for the rest of the toolchain.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+# devenv derives its runtime dir from XDG_RUNTIME_DIR. Unset under systemd it
+# falls back to /tmp/devenv-<hash>, which a login-shell `devenv processes`
+# (looking in /run/user/<uid>) cannot see: `just down` then stops nothing.
+# With linger enabled /run/user/1001 exists at boot; pin it (as gaius.service does).
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Idempotent: already-ready stack (manual devenv) does not fail the unit
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_foundation_start.sh
 ExecStop=/home/rch/local/src/wxs/signals/scripts/systemd_foundation_stop.sh

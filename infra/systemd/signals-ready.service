@@ -12,6 +12,11 @@ User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+# devenv derives its runtime dir from XDG_RUNTIME_DIR. Unset under systemd it
+# falls back to /tmp/devenv-<hash>, which a login-shell `devenv processes`
+# (looking in /run/user/<uid>) cannot see: `just down` then stops nothing.
+# With linger enabled /run/user/1001 exists at boot; pin it (as gaius.service does).
+Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Poll until critical plane is ready (includes Kudu + Metaflow)
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_signals_ready.sh
 TimeoutStartSec=1500

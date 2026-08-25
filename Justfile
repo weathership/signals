@@ -365,6 +365,21 @@ install-systemd *ARGS:
 signals-restart:
     bash scripts/systemd_target_refresh.sh
 
+# Settle closed hours of signal_tier0 → Iceberg+HDF5 signal_tier1, verify, then
+# retire fully-verified closed days from Kudu (DROP RANGE PARTITION).
+# Needs h5py + boto3: uses the gaius venv unless SIGNAL_SETTLE_PY is set.
+# Acceptance for the tiered signal warehouse (registry, both PGs, freshness,
+# DECIMAL pushdown, hierarchy view through Impala, tablet budget).
+signal-verify:
+    bash scripts/signal_stack_verify.sh
+
+signal-settle *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PY="${SIGNAL_SETTLE_PY:-$HOME/local/src/zndx/gaius/.devenv/state/venv/bin/python}"
+    "$PY" scripts/signal_settle.py --backfill 2 {{ARGS}}
+    "$PY" scripts/signal_settle.py --drop-days
+
 # Assert devenv process graph includes Kudu/Impala (not a partial up).
 process-assert:
     bash scripts/devenv_process_assert.sh
@@ -426,7 +441,55 @@ airflow-eventing-smoke:
 # Preferred up/down wrappers (turn-key + port lattice hygiene).
 # Bare `devenv processes down` often leaves the postmaster on :5455; we stop
 # only *our* .devenv/state/postgres PID (see signals_port_lattice.sh).
+# devenv allocatePort/strictPorts fails eval if :5455 is already bound — even
+# when the holder is this tree's leftover postmaster — so free ours first.
 up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    cd "$ROOT"
+    # shellcheck source=/dev/null
+    . "$ROOT/scripts/signals_port_lattice.sh"
+    # One devenv daemon per checkout. A leftover daemon (old process graph,
+    # no Impala) respawns Postgres on :5455 and devenv allocatePort fails.
+    signals_pg_stop_ours "$ROOT"
+    if [[ -n "${DEVENV_RUNTIME:-}" && -S "${DEVENV_RUNTIME}/processes/native.sock" ]]; then
+      devenv processes down 2>/dev/null || true
+    fi
+    # Stale runtimes for *this* tree (cwd = signals) besides the live Gaius one.
+    # Leftover daemons for THIS checkout, in any runtime dir: /run/user/<uid>
+    # normally, /tmp when devenv started before the user runtime dir existed
+    # (boot without linger). Match by cwd, not by pid file — a daemon that
+    # timed out before writing native-manager.pid is still a daemon.
+    while read -r pid args; do
+      [[ "$args" == *devenv-wrapped*daemon-processes* ]] || continue
+      cwd=$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)
+      [[ "$cwd" == "$ROOT" ]] || continue
+      echo "just up: stopping leftover signals devenv daemon pid=$pid ($(ps -p "$pid" -o args= | grep -oE '/run/user/[0-9]+/devenv-[a-z0-9]+|/tmp/devenv-[a-z0-9]+' | head -1))"
+      kill "$pid" 2>/dev/null || true
+    done < <(ps -eo pid=,args=)
+    signals_pg_stop_ours "$ROOT"
+    # devenv's strict-port check is stricter than "no listener": on 2026-08-25
+    # it refused :5455 while nothing listened, right after the postmaster was
+    # killed and its clients (the gaius engine's strip reader) still held
+    # sockets to that port. Wait for the port to be absent from EVERY socket
+    # state, not just LISTEN, before evaluating the graph.
+    for _ in $(seq 1 60); do
+      if signals_port_free "$(signals_pg_port)" && ! ss -tanH 2>/dev/null | grep -qE "[:.]$(signals_pg_port)[[:space:]]"; then
+        break
+      fi
+      sleep 1
+    done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if signals_port_free "$(signals_pg_port)"; then
+        break
+      fi
+      sleep 0.5
+    done
+    if ! signals_port_free "$(signals_pg_port)"; then
+      echo "ERROR: :$(signals_pg_port) still bound after stopping our postmaster" >&2
+      exit 1
+    fi
     devenv up -d
 
 down:
