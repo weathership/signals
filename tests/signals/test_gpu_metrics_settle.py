@@ -67,7 +67,7 @@ def test_airflow_dag_is_hourly_clock() -> None:
     assert "walk(apply=True" in text
 
 
-def test_pg_cron_sql_schedules_settle() -> None:
+def test_settle_sql_is_work_not_warehouse_clock() -> None:
     from pathlib import Path
 
     text = (
@@ -76,7 +76,7 @@ def test_pg_cron_sql_schedules_settle() -> None:
         / "platform"
         / "gpu-metrics-settle.sql"
     ).read_text(encoding="utf-8")
-    assert "cron.schedule" in text
-    assert "gpu-metrics-settle" in text
+    assert "SELECT cron.schedule" not in text
+    assert "gpu_metrics_settle" in text
     assert "DROP RANGE PARTITION VALUE" in text
     assert "live hour stays on Kudu" in text

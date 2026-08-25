@@ -1,6 +1,7 @@
--- Clock: Iceberg verify then Kudu DROP RANGE for closed gpu_metrics hours.
--- Analog (HDF5 → Polarisfork) is Metaflow GpuMetricsSettle. This function
--- recovers missed DROPs when Iceberg already holds the hour.
+-- Work (not the clock): Iceberg verify then Kudu DROP RANGE.
+-- Gaius pg_cron on zndx_gaius :5444 inserts scheduled_tasks.gpu_metrics_settle.
+-- The engine calls this function over SIGNALS_WAREHOUSE_DSN (:5455).
+-- Do not cron.schedule this on the warehouse database.
 -- Guru: #SL.00000026.SETTLE
 
 CREATE OR REPLACE FUNCTION public.gpu_metrics_settle()
@@ -51,12 +52,4 @@ $$;
 COMMENT ON FUNCTION public.gpu_metrics_settle() IS
   'Iceberg-verify then Kudu DROP RANGE for closed gpu_metrics hours. Live hour is skipped. Fail-closed if analog is missing.';
 
-SELECT cron.unschedule('gpu-metrics-settle')
-WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gpu-metrics-settle');
-
--- Five minutes past each UTC hour: the previous hour is closed.
-SELECT cron.schedule(
-  'gpu-metrics-settle',
-  '5 * * * *',
-  $$SELECT public.gpu_metrics_settle()$$
-);
+-- Clock lives on Gaius zndx_gaius :5444 (scheduled_tasks), not here.

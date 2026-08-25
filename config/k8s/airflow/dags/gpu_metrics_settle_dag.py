@@ -1,8 +1,8 @@
 """Hourly gpu_metrics analog → Iceberg verify → Kudu DROP RANGE.
 
 Metaflow is the work (`signals.flows.gpu_metrics_settle`). This DAG is
-the Airflow clock. pg_cron on devenv :5455 runs the same honesty path
-for hours already analoged (`public.gpu_metrics_settle()`).
+the Airflow clock. Gaius pg_cron on zndx_gaius :5444 is the lab clock
+(`scheduled_tasks.gpu_metrics_settle`). Warehouse :5455 is not a clock.
 """
 
 from __future__ import annotations
