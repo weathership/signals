@@ -1183,6 +1183,7 @@ in
         --webserver_port=8050 \
         --rpc_bind_addresses="$KUDU_RPC_BIND" \
         --unlock_unsafe_flags \
+        --array_cell_max_elem_num=4096 \
         "''${KUDU_AUTH_ARGS[@]}"
     '';
     process-compose = {
