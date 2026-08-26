@@ -100,12 +100,18 @@ void BuildSignalSeries(KuduSchemaBuilder* b) {
  * sources (16 of 17 DCGM families, plus power as mW); val_d carries genuine
  * floats (vLLM ratios, latency histograms). Exactly one is non-NULL. ---- */
 void BuildSignalTier0(KuduSchemaBuilder* b) {
+  // Kudu requires PK columns declared first, in key order. The dimensions
+  // gpu/inst are in the PK (NOT NULL) so that the 6 GPUs of one DCGM series at
+  // one ts_ns do not share a key and get UPSERT-collapsed to one. A metric
+  // with no such dimension carries -1: DCGM series set gpu=0..N, inst=-1; a
+  // per-endpoint vLLM series sets gpu=-1, inst=<ordinal>; a scalar cognition
+  // series sets both -1.
   Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
   Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
   Col(b, "series_id", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "gpu", KuduColumnSchema::INT8, true, Enc::RLE);
+  Col(b, "inst", KuduColumnSchema::INT16, true, Enc::RLE);
   Col(b, "src", KuduColumnSchema::INT8, true, Enc::RLE);
-  Col(b, "gpu", KuduColumnSchema::INT8, false, Enc::RLE);
-  Col(b, "inst", KuduColumnSchema::INT16, false, Enc::RLE);
   Col(b, "val_i", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
   Col(b, "val_d", KuduColumnSchema::DECIMAL, false, Enc::BIT_SHUFFLE)
       ->Precision(18)
@@ -179,7 +185,7 @@ const std::vector<TableSpec>& Specs() {
   static const std::vector<TableSpec> kSpecs = {
       {"signal_series", BuildSignalSeries, {"series_id"}, {"series_id"}, 2, false},
       {"signal_tier0", BuildSignalTier0,
-       {"epoch_hour", "ts_ns", "series_id"}, {"series_id"}, 4, true},
+       {"epoch_hour", "ts_ns", "series_id", "gpu", "inst"}, {"series_id"}, 4, true},
       {"latent_tier0", BuildLatentTier0,
        {"epoch_hour", "ts_ns", "stream_id", "seq"}, {"stream_id"}, 2, true},
       {"clt_feature", BuildCltFeature,
@@ -312,6 +318,33 @@ int main(int argc, char** argv) {
   if (!s.ok()) {
     std::cerr << kGuru << " connect: " << s.ToString() << "\n";
     return 1;
+  }
+
+  // --drop <table>: delete the Kudu table so it can be recreated with a new
+  // schema. Idempotent — a missing table is success.
+  if (which == "--drop") {
+    if (argc < 3) {
+      std::cerr << kGuru << " --drop needs a table name\n";
+      return 2;
+    }
+    const std::string full = std::string(kPrefix) + argv[2];
+    bool exists = false;
+    Status es = client->TableExists(full, &exists);
+    if (!es.ok()) {
+      std::cerr << kGuru << " exists " << argv[2] << ": " << es.ToString() << "\n";
+      return 1;
+    }
+    if (!exists) {
+      std::cout << "absent " << argv[2] << " (nothing to drop)\n";
+      return 0;
+    }
+    Status ds = client->DeleteTable(full);
+    if (!ds.ok()) {
+      std::cerr << kGuru << " drop " << argv[2] << ": " << ds.ToString() << "\n";
+      return 1;
+    }
+    std::cout << "dropped " << argv[2] << "\n";
+    return 0;
   }
 
   int rc = 0;

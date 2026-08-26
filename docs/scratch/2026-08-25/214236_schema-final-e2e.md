@@ -136,7 +136,7 @@ gpu         INT8           NULL      RLE
 inst        INT16          NULL      RLE
 val_i       INT64          NULL      BIT_SHUFFLE  -- integer sources
 val_d       DECIMAL(18,6)  NULL      BIT_SHUFFLE  -- genuine floats
-PRIMARY KEY (epoch_hour, ts_ns, series_id)
+PRIMARY KEY (epoch_hour, ts_ns, series_id, gpu, inst)  -- dims in the key
 HASH (series_id) 4 BUCKETS
 RANGE (epoch_hour) day-wide bounds, 3 hot
 COMPRESSION LZ4 throughout
@@ -429,3 +429,14 @@ Ordering is load-bearing — several steps are prerequisites, not preferences.
 - ColBERT packing benchmark → then `embedding_tier0`.
 - `POWER_USAGE` as `power_mw INT32` (exact, NVML-native) vs `DECIMAL(18,6)` W.
 - Array block-size tuning for 8 KB cells is unmeasured.
+
+
+## Correction (2026-08-26): dimensions belong in the PK
+
+The original `signal_tier0` PK `(epoch_hour, ts_ns, series_id)` assumed one value
+per (time, series). DCGM writes all N GPUs of one series at one ts_ns, so they
+shared a key and Kudu UPSERT kept only the last — 5 of 6 GPUs silently dropped,
+and the waterfall showed a single flickering GPU. Fix: `gpu` and `inst` are in
+the PK (NOT NULL, sentinel -1 for a series without that dimension). Kudu
+requires PK columns declared first, so column order is
+epoch_hour, ts_ns, series_id, gpu, inst, src, val_i, val_d.
