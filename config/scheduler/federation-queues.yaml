@@ -10,7 +10,10 @@
 # nvidia.com/gpu on host-engine sentinels — that binds the card into the
 # empty pod. In-cluster CUDA pods request both keys.
 #
-# Lab GPU pool: 6 × RTX 4090 on tinybox. Tune integers after occupancy data.
+# Lab GPU pool: 6 × RTX 4090 on tinybox. Standing heavy=4; leftover pair is
+# extract vs light/CLT or medium/SAE. Peers send RequestQueueShare; Signals
+# merges RECORDED floors (parent max 6) and PromoteScratch applies
+# yunikorn-configs. Peers never write this file.
 # Catalog for peers: each leaf's properties.federation.* (MCP later).
 partitions:
   - name: default

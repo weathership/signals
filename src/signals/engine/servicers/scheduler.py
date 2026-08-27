@@ -10,6 +10,11 @@ import grpc
 from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2, scheduler_pb2_grpc
 from signals.engine.k8s_apply import ApplyConfig, ApplyError, apply_queues_yaml
 from signals.engine.projection import ProjectionStore
+from signals.engine.queue_share import (
+    QueueShareService,
+    QueueShareStore,
+    SharePersistError,
+)
 from signals.engine.yk_client import (
     YkRestClient,
     YkRestError,
@@ -17,6 +22,15 @@ from signals.engine.yk_client import (
 )
 
 log = logging.getLogger("signals.engine.scheduler")
+
+
+def _share_state(name: str) -> int:
+    return {
+        "RECORDED": scheduler_pb2.QUEUE_SHARE_RECORDED,
+        "SUPERSEDED": scheduler_pb2.QUEUE_SHARE_SUPERSEDED,
+        "APPLIED": scheduler_pb2.QUEUE_SHARE_APPLIED,
+        "REJECTED": scheduler_pb2.QUEUE_SHARE_REJECTED,
+    }.get(name, scheduler_pb2.QUEUE_SHARE_STATE_UNSPECIFIED)
 
 
 def _res_map(obj: Any) -> scheduler_pb2.ResourceMap:
@@ -107,6 +121,7 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         self.yk = yk
         self.store = store
         self.apply_cfg = apply_cfg or ApplyConfig.from_env()
+        self.shares = QueueShareService(QueueShareStore(store.root / "shares"))
 
     def ListPartitions(self, request, context):  # noqa: N802
         try:
@@ -672,6 +687,53 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
                     id=a["id"], created_at=a.get("created_at", ""), note=a.get("note", "")
                 )
             )
+        return out
+
+    def RequestQueueShare(self, request, context):  # noqa: N802
+        """Persist WRK occupancy intent; apply merged floors via PromoteScratch."""
+
+        def read_yaml() -> str | None:
+            return self.store.read_config("current") or self.store.read_config("scratch")
+
+        def write_scratch(body: str) -> None:
+            self.store.write_config(body, root="scratch")
+
+        def apply_fn() -> None:
+            r = self.PromoteScratch(
+                scheduler_pb2.PromoteScratchRequest(dry_run=False), context
+            )
+            if not r.ok:
+                raise RuntimeError(r.message or "PromoteScratch failed")
+
+        try:
+            return self.shares.ingest(
+                request,
+                apply_fn=apply_fn,
+                read_yaml=read_yaml,
+                write_scratch=write_scratch,
+            )
+        except SharePersistError as e:
+            context.abort(grpc.StatusCode.INTERNAL, str(e))
+            return scheduler_pb2.QueueShareResponse(
+                accepted=False,
+                error=str(e),
+            )
+
+    def ListQueueShareRequests(self, request, context):  # noqa: N802
+        rows = self.shares.list(
+            peer=request.peer or "",
+            queue=request.queue or "",
+            since_ns=int(request.since_ns or 0),
+            limit=int(request.limit or 0) or 100,
+        )
+        out = scheduler_pb2.ListQueueShareRequestsResponse()
+        for rec in rows:
+            item = scheduler_pb2.QueueShareRecord(
+                request=rec.request,
+                recorded_at_ns=rec.recorded_at_ns,
+                state=_share_state(rec.state),
+            )
+            out.records.append(item)
         return out
 
     def RestoreArchiveToScratch(self, request, context):  # noqa: N802
