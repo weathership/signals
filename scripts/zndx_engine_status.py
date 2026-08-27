@@ -35,6 +35,7 @@ _QUERY_KINDS = {
     "peers": "SERVER_QUERY_KIND_PEERS",
     "surfaces": "SERVER_QUERY_KIND_SURFACES",
     "queues": "SERVER_QUERY_KIND_QUEUES",
+    "workloads": "SERVER_QUERY_KIND_WORKLOADS",
 }
 
 

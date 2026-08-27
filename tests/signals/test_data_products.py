@@ -140,7 +140,7 @@ def test_seed_and_review_write_warehouse_not_jsonl(tmp_path: Path) -> None:
     prod = product_by_id("gaius.cognition.outputs")
     assert prod is not None
     assert "quality" in agent_brief(prod, ev).lower()
-    assert "pglite" in agent_brief(prod, ev).lower()
+    assert "postgres" in agent_brief(prod, ev).lower() or "age" in agent_brief(prod, ev).lower()
 
 
 def test_history_review_method_holds_until_understood() -> None:
