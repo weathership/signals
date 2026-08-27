@@ -1,3 +1,4 @@
+from ...engine.v1 import engine_pb2 as _engine_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -13,10 +14,23 @@ class ProjectionRoot(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CURRENT: _ClassVar[ProjectionRoot]
     SCRATCH: _ClassVar[ProjectionRoot]
     ARCHIVE: _ClassVar[ProjectionRoot]
+
+class QueueShareState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    QUEUE_SHARE_STATE_UNSPECIFIED: _ClassVar[QueueShareState]
+    QUEUE_SHARE_RECORDED: _ClassVar[QueueShareState]
+    QUEUE_SHARE_SUPERSEDED: _ClassVar[QueueShareState]
+    QUEUE_SHARE_APPLIED: _ClassVar[QueueShareState]
+    QUEUE_SHARE_REJECTED: _ClassVar[QueueShareState]
 PROJECTION_ROOT_UNSPECIFIED: ProjectionRoot
 CURRENT: ProjectionRoot
 SCRATCH: ProjectionRoot
 ARCHIVE: ProjectionRoot
+QUEUE_SHARE_STATE_UNSPECIFIED: QueueShareState
+QUEUE_SHARE_RECORDED: QueueShareState
+QUEUE_SHARE_SUPERSEDED: QueueShareState
+QUEUE_SHARE_APPLIED: QueueShareState
+QUEUE_SHARE_REJECTED: QueueShareState
 
 class PolicyDocument(_message.Message):
     __slots__ = ("media_type", "body")
@@ -543,3 +557,91 @@ class RestoreArchiveToScratchResponse(_message.Message):
     ok: bool
     message: str
     def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
+
+class WorkloadIntent(_message.Message):
+    __slots__ = ("wrk", "queue", "applications", "capabilities", "requirements", "resource_class")
+    WRK_FIELD_NUMBER: _ClassVar[int]
+    QUEUE_FIELD_NUMBER: _ClassVar[int]
+    APPLICATIONS_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    REQUIREMENTS_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_CLASS_FIELD_NUMBER: _ClassVar[int]
+    wrk: str
+    queue: str
+    applications: int
+    capabilities: _containers.RepeatedScalarFieldContainer[str]
+    requirements: _engine_pb2.WorkloadRequirements
+    resource_class: _engine_pb2.ResourceClass
+    def __init__(self, wrk: _Optional[str] = ..., queue: _Optional[str] = ..., applications: _Optional[int] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[_engine_pb2.WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[_engine_pb2.ResourceClass, str]] = ...) -> None: ...
+
+class QueueShare(_message.Message):
+    __slots__ = ("queue", "guaranteed", "max", "max_applications")
+    QUEUE_FIELD_NUMBER: _ClassVar[int]
+    GUARANTEED_FIELD_NUMBER: _ClassVar[int]
+    MAX_FIELD_NUMBER: _ClassVar[int]
+    MAX_APPLICATIONS_FIELD_NUMBER: _ClassVar[int]
+    queue: str
+    guaranteed: ResourceMap
+    max: ResourceMap
+    max_applications: int
+    def __init__(self, queue: _Optional[str] = ..., guaranteed: _Optional[_Union[ResourceMap, _Mapping]] = ..., max: _Optional[_Union[ResourceMap, _Mapping]] = ..., max_applications: _Optional[int] = ...) -> None: ...
+
+class QueueShareRequest(_message.Message):
+    __slots__ = ("peer", "request_id", "valid_from_ns", "valid_until_ns", "reason", "supersedes_request_id", "workloads", "shares")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    VALID_FROM_NS_FIELD_NUMBER: _ClassVar[int]
+    VALID_UNTIL_NS_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    SUPERSEDES_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    WORKLOADS_FIELD_NUMBER: _ClassVar[int]
+    SHARES_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    request_id: str
+    valid_from_ns: int
+    valid_until_ns: int
+    reason: str
+    supersedes_request_id: str
+    workloads: _containers.RepeatedCompositeFieldContainer[WorkloadIntent]
+    shares: _containers.RepeatedCompositeFieldContainer[QueueShare]
+    def __init__(self, peer: _Optional[str] = ..., request_id: _Optional[str] = ..., valid_from_ns: _Optional[int] = ..., valid_until_ns: _Optional[int] = ..., reason: _Optional[str] = ..., supersedes_request_id: _Optional[str] = ..., workloads: _Optional[_Iterable[_Union[WorkloadIntent, _Mapping]]] = ..., shares: _Optional[_Iterable[_Union[QueueShare, _Mapping]]] = ...) -> None: ...
+
+class QueueShareResponse(_message.Message):
+    __slots__ = ("accepted", "request_id", "state", "error")
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    accepted: bool
+    request_id: str
+    state: QueueShareState
+    error: str
+    def __init__(self, accepted: _Optional[bool] = ..., request_id: _Optional[str] = ..., state: _Optional[_Union[QueueShareState, str]] = ..., error: _Optional[str] = ...) -> None: ...
+
+class ListQueueShareRequestsRequest(_message.Message):
+    __slots__ = ("peer", "queue", "since_ns", "limit")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    QUEUE_FIELD_NUMBER: _ClassVar[int]
+    SINCE_NS_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    queue: str
+    since_ns: int
+    limit: int
+    def __init__(self, peer: _Optional[str] = ..., queue: _Optional[str] = ..., since_ns: _Optional[int] = ..., limit: _Optional[int] = ...) -> None: ...
+
+class QueueShareRecord(_message.Message):
+    __slots__ = ("request", "recorded_at_ns", "state")
+    REQUEST_FIELD_NUMBER: _ClassVar[int]
+    RECORDED_AT_NS_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    request: QueueShareRequest
+    recorded_at_ns: int
+    state: QueueShareState
+    def __init__(self, request: _Optional[_Union[QueueShareRequest, _Mapping]] = ..., recorded_at_ns: _Optional[int] = ..., state: _Optional[_Union[QueueShareState, str]] = ...) -> None: ...
+
+class ListQueueShareRequestsResponse(_message.Message):
+    __slots__ = ("records",)
+    RECORDS_FIELD_NUMBER: _ClassVar[int]
+    records: _containers.RepeatedCompositeFieldContainer[QueueShareRecord]
+    def __init__(self, records: _Optional[_Iterable[_Union[QueueShareRecord, _Mapping]]] = ...) -> None: ...

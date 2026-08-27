@@ -124,6 +124,16 @@ class SchedulerStub:
                 request_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchRequest.SerializeToString,
                 response_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchResponse.FromString,
                 _registered_method=True)
+        self.RequestQueueShare = channel.unary_unary(
+                '/zndx.scheduler.v1.Scheduler/RequestQueueShare',
+                request_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareRequest.SerializeToString,
+                response_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareResponse.FromString,
+                _registered_method=True)
+        self.ListQueueShareRequests = channel.unary_unary(
+                '/zndx.scheduler.v1.Scheduler/ListQueueShareRequests',
+                request_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsRequest.SerializeToString,
+                response_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsResponse.FromString,
+                _registered_method=True)
 
 
 class SchedulerServicer:
@@ -242,6 +252,24 @@ class SchedulerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RequestQueueShare(self, request, context):
+        """── Queue share (peer occupancy intent over time) ─────────────────────
+        Peers request guaranteed/max capacity on resource-class leaves as their
+        WRK mix changes. YK preemption only fires when a queue is *under* its
+        guarantee; Signals records these requests (this RPC) and later applies
+        config deltas. Peers NEVER call the scheduler-backend REST.
+        (added 2026-08-22, gaius — additive v1.)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListQueueShareRequests(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SchedulerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -334,6 +362,16 @@ def add_SchedulerServicer_to_server(servicer, server):
                     servicer.RestoreArchiveToScratch,
                     request_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchRequest.FromString,
                     response_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchResponse.SerializeToString,
+            ),
+            'RequestQueueShare': grpc.unary_unary_rpc_method_handler(
+                    servicer.RequestQueueShare,
+                    request_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareRequest.FromString,
+                    response_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareResponse.SerializeToString,
+            ),
+            'ListQueueShareRequests': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListQueueShareRequests,
+                    request_deserializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsRequest.FromString,
+                    response_serializer=zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -822,6 +860,60 @@ class Scheduler:
             '/zndx.scheduler.v1.Scheduler/RestoreArchiveToScratch',
             zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchRequest.SerializeToString,
             zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.RestoreArchiveToScratchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RequestQueueShare(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/zndx.scheduler.v1.Scheduler/RequestQueueShare',
+            zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareRequest.SerializeToString,
+            zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.QueueShareResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListQueueShareRequests(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/zndx.scheduler.v1.Scheduler/ListQueueShareRequests',
+            zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsRequest.SerializeToString,
+            zndx_dot_scheduler_dot_v1_dot_scheduler__pb2.ListQueueShareRequestsResponse.FromString,
             options,
             channel_credentials,
             insecure,

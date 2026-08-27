@@ -228,4 +228,5 @@ def local_response(
         )
     if kind == engine_pb2.SERVER_QUERY_KIND_SURFACES:
         resp.surfaces.extend(local_surfaces())
+    # WORKLOADS: Signals is scheduler, not a model host — empty is honest.
     return resp

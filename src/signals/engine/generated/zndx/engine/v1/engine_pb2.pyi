@@ -40,6 +40,22 @@ class ServerQueryKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_QUERY_KIND_NOTE: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_SURFACES: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_QUEUES: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_WORKLOADS: _ClassVar[ServerQueryKind]
+
+class ServingBackend(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SERVING_BACKEND_UNSPECIFIED: _ClassVar[ServingBackend]
+    SERVING_BACKEND_VLLM_LOCAL: _ClassVar[ServingBackend]
+    SERVING_BACKEND_KSERVE_REMOTE: _ClassVar[ServingBackend]
+    SERVING_BACKEND_CPU_PROXY: _ClassVar[ServingBackend]
+
+class ResourceClass(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESOURCE_CLASS_UNSPECIFIED: _ClassVar[ResourceClass]
+    RESOURCE_CLASS_HEAVY: _ClassVar[ResourceClass]
+    RESOURCE_CLASS_MEDIUM: _ClassVar[ResourceClass]
+    RESOURCE_CLASS_LIGHT: _ClassVar[ResourceClass]
+    RESOURCE_CLASS_COMPUTE: _ClassVar[ResourceClass]
 SIGNAL_KIND_UNSPECIFIED: SignalKind
 EXTERNAL_NAMESPACE_VIOLATION: SignalKind
 UNSATISFIABLE: SignalKind
@@ -62,6 +78,16 @@ SERVER_QUERY_KIND_PEERS: ServerQueryKind
 SERVER_QUERY_KIND_NOTE: ServerQueryKind
 SERVER_QUERY_KIND_SURFACES: ServerQueryKind
 SERVER_QUERY_KIND_QUEUES: ServerQueryKind
+SERVER_QUERY_KIND_WORKLOADS: ServerQueryKind
+SERVING_BACKEND_UNSPECIFIED: ServingBackend
+SERVING_BACKEND_VLLM_LOCAL: ServingBackend
+SERVING_BACKEND_KSERVE_REMOTE: ServingBackend
+SERVING_BACKEND_CPU_PROXY: ServingBackend
+RESOURCE_CLASS_UNSPECIFIED: ResourceClass
+RESOURCE_CLASS_HEAVY: ResourceClass
+RESOURCE_CLASS_MEDIUM: ResourceClass
+RESOURCE_CLASS_LIGHT: ResourceClass
+RESOURCE_CLASS_COMPUTE: ResourceClass
 
 class Candidate(_message.Message):
     __slots__ = ("iri", "label", "kind", "score")
@@ -134,7 +160,7 @@ class RemediationResponse(_message.Message):
     def __init__(self, correction: _Optional[str] = ..., disposition: _Optional[_Union[Disposition, str]] = ..., rationale: _Optional[str] = ..., model: _Optional[str] = ..., reasoning_content: _Optional[str] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ...) -> None: ...
 
 class CompleteRequest(_message.Message):
-    __slots__ = ("capability", "prompt", "system_prompt", "max_tokens", "temperature", "json_schema", "timezone", "clock_json")
+    __slots__ = ("capability", "prompt", "system_prompt", "max_tokens", "temperature", "json_schema", "timezone", "clock_json", "tools_json", "tool_choice", "messages_json")
     CAPABILITY_FIELD_NUMBER: _ClassVar[int]
     PROMPT_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
@@ -143,6 +169,9 @@ class CompleteRequest(_message.Message):
     JSON_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     TIMEZONE_FIELD_NUMBER: _ClassVar[int]
     CLOCK_JSON_FIELD_NUMBER: _ClassVar[int]
+    TOOLS_JSON_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CHOICE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGES_JSON_FIELD_NUMBER: _ClassVar[int]
     capability: str
     prompt: str
     system_prompt: str
@@ -151,7 +180,10 @@ class CompleteRequest(_message.Message):
     json_schema: str
     timezone: str
     clock_json: str
-    def __init__(self, capability: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., json_schema: _Optional[str] = ..., timezone: _Optional[str] = ..., clock_json: _Optional[str] = ...) -> None: ...
+    tools_json: str
+    tool_choice: str
+    messages_json: str
+    def __init__(self, capability: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., json_schema: _Optional[str] = ..., timezone: _Optional[str] = ..., clock_json: _Optional[str] = ..., tools_json: _Optional[str] = ..., tool_choice: _Optional[str] = ..., messages_json: _Optional[str] = ...) -> None: ...
 
 class CompleteResponse(_message.Message):
     __slots__ = ("text", "model", "prompt_tokens", "completion_tokens", "latency_ms", "reasoning_content", "finish_reason")
@@ -294,7 +326,7 @@ class ServerQueryRequest(_message.Message):
     def __init__(self, kind: _Optional[_Union[ServerQueryKind, str]] = ..., ttl: _Optional[int] = ..., nonce: _Optional[str] = ..., origin_project: _Optional[str] = ..., note_id: _Optional[str] = ...) -> None: ...
 
 class ServerQueryResponse(_message.Message):
-    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues")
+    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads")
     PROJECT_FIELD_NUMBER: _ClassVar[int]
     REMOTES_FIELD_NUMBER: _ClassVar[int]
     HEAD_FIELD_NUMBER: _ClassVar[int]
@@ -303,6 +335,7 @@ class ServerQueryResponse(_message.Message):
     NOTE_FIELD_NUMBER: _ClassVar[int]
     SURFACES_FIELD_NUMBER: _ClassVar[int]
     QUEUES_FIELD_NUMBER: _ClassVar[int]
+    WORKLOADS_FIELD_NUMBER: _ClassVar[int]
     project: str
     remotes: _containers.RepeatedCompositeFieldContainer[GitRemote]
     head: str
@@ -311,7 +344,68 @@ class ServerQueryResponse(_message.Message):
     note: WikiNote
     surfaces: _containers.RepeatedCompositeFieldContainer[Surface]
     queues: _containers.RepeatedCompositeFieldContainer[QueueHint]
-    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ...) -> None: ...
+    workloads: _containers.RepeatedCompositeFieldContainer[WorkloadOffer]
+    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ...) -> None: ...
+
+class ModelParallelism(_message.Message):
+    __slots__ = ("tensor_parallel", "pipeline_parallel", "data_parallel")
+    TENSOR_PARALLEL_FIELD_NUMBER: _ClassVar[int]
+    PIPELINE_PARALLEL_FIELD_NUMBER: _ClassVar[int]
+    DATA_PARALLEL_FIELD_NUMBER: _ClassVar[int]
+    tensor_parallel: int
+    pipeline_parallel: int
+    data_parallel: int
+    def __init__(self, tensor_parallel: _Optional[int] = ..., pipeline_parallel: _Optional[int] = ..., data_parallel: _Optional[int] = ...) -> None: ...
+
+class ResourceFootprint(_message.Message):
+    __slots__ = ("gpu", "vram_mib", "memory_mib", "vcore")
+    GPU_FIELD_NUMBER: _ClassVar[int]
+    VRAM_MIB_FIELD_NUMBER: _ClassVar[int]
+    MEMORY_MIB_FIELD_NUMBER: _ClassVar[int]
+    VCORE_FIELD_NUMBER: _ClassVar[int]
+    gpu: int
+    vram_mib: int
+    memory_mib: int
+    vcore: int
+    def __init__(self, gpu: _Optional[int] = ..., vram_mib: _Optional[int] = ..., memory_mib: _Optional[int] = ..., vcore: _Optional[int] = ...) -> None: ...
+
+class KServeTarget(_message.Message):
+    __slots__ = ("inference_service", "namespace", "serving_runtime")
+    INFERENCE_SERVICE_FIELD_NUMBER: _ClassVar[int]
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    SERVING_RUNTIME_FIELD_NUMBER: _ClassVar[int]
+    inference_service: str
+    namespace: str
+    serving_runtime: str
+    def __init__(self, inference_service: _Optional[str] = ..., namespace: _Optional[str] = ..., serving_runtime: _Optional[str] = ...) -> None: ...
+
+class WorkloadRequirements(_message.Message):
+    __slots__ = ("backend", "parallelism", "footprint", "kserve")
+    BACKEND_FIELD_NUMBER: _ClassVar[int]
+    PARALLELISM_FIELD_NUMBER: _ClassVar[int]
+    FOOTPRINT_FIELD_NUMBER: _ClassVar[int]
+    KSERVE_FIELD_NUMBER: _ClassVar[int]
+    backend: ServingBackend
+    parallelism: ModelParallelism
+    footprint: ResourceFootprint
+    kserve: KServeTarget
+    def __init__(self, backend: _Optional[_Union[ServingBackend, str]] = ..., parallelism: _Optional[_Union[ModelParallelism, _Mapping]] = ..., footprint: _Optional[_Union[ResourceFootprint, _Mapping]] = ..., kserve: _Optional[_Union[KServeTarget, _Mapping]] = ...) -> None: ...
+
+class WorkloadOffer(_message.Message):
+    __slots__ = ("peer", "model", "capabilities", "requirements", "resource_class", "queue")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    REQUIREMENTS_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_CLASS_FIELD_NUMBER: _ClassVar[int]
+    QUEUE_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    model: str
+    capabilities: _containers.RepeatedScalarFieldContainer[str]
+    requirements: WorkloadRequirements
+    resource_class: ResourceClass
+    queue: str
+    def __init__(self, peer: _Optional[str] = ..., model: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[ResourceClass, str]] = ..., queue: _Optional[str] = ...) -> None: ...
 
 class QueueHint(_message.Message):
     __slots__ = ("path", "resource_class", "gpu_guarantee", "gpu_max", "max_applications", "preemption_policy", "preemption_delay", "role", "examples")

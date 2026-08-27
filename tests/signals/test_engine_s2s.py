@@ -117,6 +117,12 @@ def test_server_query_remotes_and_head(tmp_path: Path) -> None:
     assert len(resp.head) == 40
 
 
+def test_server_query_workloads_empty_is_honest() -> None:
+    q = local_response(engine_pb2.SERVER_QUERY_KIND_WORKLOADS)
+    assert q.project == "signals"
+    assert list(q.workloads) == []
+
+
 def test_server_query_surfaces_matches_status(monkeypatch) -> None:
     monkeypatch.setenv("SIGNALS_ADVERTISE_HOST", "tinybox.dev.vista.zndx.org")
     q = local_response(engine_pb2.SERVER_QUERY_KIND_SURFACES)

@@ -25,6 +25,10 @@ sed -i 's/^from zndx\.engine\.v1 import engine_pb2/from . import engine_pb2/' \
   "$OUT/zndx/engine/v1/engine_pb2_grpc.py"
 sed -i 's/^from zndx\.scheduler\.v1 import scheduler_pb2/from . import scheduler_pb2/' \
   "$OUT/zndx/scheduler/v1/scheduler_pb2_grpc.py"
+sed -i 's/^from zndx\.engine\.v1 import engine_pb2 as /from ...engine.v1 import engine_pb2 as /' \
+  "$OUT/zndx/scheduler/v1/scheduler_pb2.py"
+sed -i 's/^from zndx\.engine\.v1 import engine_pb2 as /from ...engine.v1 import engine_pb2 as /' \
+  "$OUT/zndx/scheduler/v1/scheduler_pb2.pyi"
 # Drop leftover unpublished yunikorn stubs if present
 rm -rf "$OUT/zndx/yunikorn"
 # Mirror into the engine package for runtime imports
