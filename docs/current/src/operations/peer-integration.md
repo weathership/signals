@@ -106,7 +106,7 @@ See [infra/systemd/README.md](../../../infra/systemd/README.md).
 | Lineage / governance | Atlas OL + tags (`:21010`) | Peer Marquez DB |
 | Analytic tables | Impala HS2 + Kudu (Kerberos) | Parallel warehouses on `:5455` |
 | Object store | RustFS `:9010` | Competing S3 on same ports |
-| Data product inventory | Signals warehouse (`details` / `tx` / `hx`) + RustFS URIs | Peer pglite / JSON catalog as SoR |
+| Data product inventory | Signals warehouse (`details` / `tx` / `hx`) + RustFS URIs | Peer Postgres / JSON catalog as SoR |
 
 A peer that **maintains its own product** (Gaius prospects, Ægir corpora, …)
 follows [Peer data products](./peer-data-products.md). Contract:

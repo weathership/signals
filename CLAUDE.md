@@ -274,7 +274,7 @@ Started together by `devenv up` (process-compose). Impala processes are `lib.mkI
 
 | Service | Endpoint / notes |
 |---------|------------------|
-| PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry, `polaris` admin JDBC); extensions Apache AGE (graph), pg_cron, pg_trgm |
+| PostgreSQL 16 | port **5455**, database `signals` (+ `signals_catalog` registry, `polaris` admin JDBC); extensions Apache AGE (graph), pg_cron, pg_trgm. **Not pglite** (Atelier AMP only). |
 | Kerberos KDC | realm `DEV.VISTA.ZNDX.ORG`, host `tinybox.dev.vista.zndx.org`, port 8848 (127.0.0.1); user `signals` (pw `signals`) |
 | Atlas | port **21010**, AGE graph backend on PG `signals` / graph `atlas_graph` (OL SoR target) |
 | Marquez Web | port **21011** (= Atlas HTTP + 1; default stack; `marquez:build-web` before process + `languages.javascript.npm.install`) |

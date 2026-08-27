@@ -1,12 +1,16 @@
-# Governance scale plane (Atlas / Ranger → pglite → FDW → Kudu)
+# Governance scale plane (Atlas / Ranger → Postgres AGE → FDW → Kudu)
 
 **Why this exists:** Federated engine services (Ægir, Atelier, Gaius, Hermes)
 must be able to run **simultaneously** without overwhelming the lab governance
-database on Postgres `:5455` (colloquially **pglite** here: the thin AGE +
-admin Postgres instance, not a separate product). Scale is achieved by
-engineering **Atlas and Ranger to keep connecting to Postgres**, while
-**Postgres uses impala_fdw** to reach **Kudu** for bulk governance tables.
-**RustFS** holds durable objects on `$SIGNALS_DATA_ROOT/rustfs`.
+database. This lab uses **devenv PostgreSQL 16** on `:5455` (`services.postgres`
+in `devenv.nix`) with **Apache AGE**. That is **not** pglite. pglite is
+Atelier's AMP embedded Postgres and is only intended for AMP-style
+deployments, not this Signals core.
+
+Scale is achieved by engineering **Atlas and Ranger to keep connecting to
+Postgres**, while **Postgres uses impala_fdw** to reach **Kudu** for bulk
+governance tables. **RustFS** holds durable objects on
+`$SIGNALS_DATA_ROOT/rustfs`.
 
 This is a **prerequisite** for multi-engine operation and for
 [signals-protocol](./signals-protocol-core.md).
@@ -29,14 +33,14 @@ This is a **prerequisite** for multi-engine operation and for
 | Layer | Role |
 |-------|------|
 | **Atlas / Ranger processes** | Always talk to **Postgres** (JDBC) — topology, admin, policy UI, Cypher |
-| **Postgres (pglite)** | Thin **SoR** for AGE graph + Ranger admin; **FDW client** for scale reads |
-| **impala_fdw** | How pglite **leverages Kudu** without relocating Cypher or policy admin |
+| **Postgres 16 + AGE** | Thin **SoR** for AGE graph + Ranger admin; **FDW client** for scale reads (`:5455`) |
+| **impala_fdw** | How this Postgres **leverages Kudu** without relocating Cypher or policy admin |
 | **Kudu projections** | High-volume **derived** entity/tag/edge/audit tables |
 | **RustFS** | Object/blob store **and** Iceberg warehouse for data products + `hx` (sole SoR) |
 
 **Hard rule:** Do **not** host AGE openCypher topology on Kudu. Do **not** make
 engines bypass Postgres for Atlas/Ranger identity — they use Atlas/Ranger APIs
-(or SQL against pglite, which FDWs to Kudu). Historical audit:
+(or SQL against Postgres `:5455`, which FDWs to Kudu). Historical audit:
 `docs/scratch/2026-08-07/204458_fdw-atlas-ranger-scale-audit.md`.
 
 ```text
@@ -47,14 +51,14 @@ Federated engines / Hermes
         │                │              │
         │ JDBC           │ JDBC         │ objects
         ▼                ▼              ▼
-     Postgres :5455 (pglite)         RustFS
+     Postgres :5455 (AGE)            RustFS
         │  AGE SoR + Ranger admin    ($SIGNALS_DATA_ROOT/rustfs)
         │  + foreign tables
         ▼
      Kudu (scale projections via FDW)
 ```
 
-Bulk governance SQL from tools that sit **on** pglite (Aegir, analytics,
+Bulk governance SQL from tools that sit **on** this Postgres (Aegir, analytics,
 Weathership helpers) should hit **foreign tables** → Kudu, not sequential
 openCypher over the whole estate.
 
@@ -66,20 +70,20 @@ openCypher over the whole estate.
 | **Policy admin SoR** | Postgres `ranger` | `x_policy*`, defs, admin UI | High-QPS tag membership heap scans |
 | **Scale projections** | **Kudu**, exposed as **PG foreign tables** | entity_flat, by_qn, edges, classifications; Ranger tag denorm | openCypher graph |
 | **Object / blob** | **RustFS** | artifacts, lineage packages, Weathership memory, backup objects | Relational SoR |
-| **Data products + `hx`** | **Kudu tier0 + RustFS Iceberg tier1** (`details`/`tx`/`hx` views) | fact log, tx, hx | **pglite / any Postgres copy** |
+| **Data products + `hx`** | **Kudu tier0 + RustFS Iceberg tier1** (`details`/`tx`/`hx` views) | fact log, tx, hx | **Postgres AGE / any extra PG copy** |
 | **Logical packages** | DataFusion (`signals-df`) | portable Parquet backup/verify | Live multi-writer SoR |
 
-## Atlas → Kudu (via pglite FDW)
+## Atlas → Kudu (via Postgres FDW)
 
 | Artifact | Path |
 |----------|------|
 | DDL (Kudu) | `config/atlas/kudu_projections.sql` |
-| FDW (on pglite) | `config/atlas/kudu_projections_fdw.sql` |
+| FDW (on Postgres `:5455`) | `config/atlas/kudu_projections_fdw.sql` |
 | Seed | `just atlas-kudu-projections-seed` |
 | Outbox contract | [Atlas → Kudu outbox](./atlas-kudu-outbox.md) |
 
 Atlas **continues to use AGE on Postgres** as SoR. Projections are **derived**;
-consumers on pglite query foreign tables. Continuous fill needs the **outbox
+consumers on Postgres `:5455` query foreign tables. Continuous fill needs the **outbox
 worker** (notifications → Impala UPSERT).
 
 **Still required for “fully leverage”:**
@@ -88,12 +92,12 @@ worker** (notifications → Impala UPSERT).
 2. True `kudu_scan` / libkudu_client for pk_lookup latency  
 3. Atlas/AGE and app SQL prefer foreign tables for bulk entity/tag joins  
 
-## Ranger → Kudu (via pglite FDW)
+## Ranger → Kudu (via Postgres FDW)
 
 | Artifact | Path |
 |----------|------|
 | DDL (Kudu) | `config/ranger/kudu_projections.sql` |
-| FDW (on pglite) | `config/ranger/kudu_projections_fdw.sql` |
+| FDW (on Postgres `:5455`) | `config/ranger/kudu_projections_fdw.sql` |
 | Seed | `just ranger-kudu-projections-seed` |
 
 Ranger **admin** remains on Postgres. Tag/resource denorm lives on Kudu and is
@@ -115,7 +119,7 @@ TagSync / outbox → UPSERT is near-term wiring.
 ## Implications for signals-protocol
 
 Discovery should advertise Atlas, Ranger, OL, **OBJECT_STORE**, and that
-governance bulk SQL is available via **pglite + FDW** (not “raw Kudu only”).
+governance bulk SQL is available via **Postgres `:5455` + FDW** (not “raw Kudu only”).
 
 Engines leave SoR writes to Atlas/Ranger APIs; bulk analytics and tag joins go
 through the scale plane above.
@@ -125,7 +129,7 @@ through the scale plane above.
 ```bash
 just bootstrap
 devenv up -d
-just atlas-kudu-projections-seed   # Kudu tables + foreign tables on pglite
+just atlas-kudu-projections-seed   # Kudu tables + foreign tables on Postgres :5455
 just ranger-kudu-projections-seed
 just gov-kudu-projections-seed     # both
 mc ls local/

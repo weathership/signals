@@ -142,6 +142,13 @@ placementrules:
     create: false
 ```
 
+**Queue share (WRK occupancy).** Peers send `Scheduler/RequestQueueShare`
+(uuidv7 `request_id`, `workloads[]`, `shares[]` guaranteed/max, validity
+window). Signals persists the time series, merges overlapping leftover
+floors against parent GPU max 6 (`extract=1` vs light/CLT or medium/SAE),
+and `PromoteScratch` applies `yunikorn-configs`. Peers never write
+`queues.yaml`. Persist failure is `#YK.00000007.SHAREFAIL`.
+
 **Idle occupancy.** Extended **inactivity** on a model (e.g. Qwen3.8) is
 Knative KPA scale-to-zero of the **proxy sentinel Application**, then
 MiNiFi C2 last-gasp → `Engine/Yield` on the **federated engine that owns

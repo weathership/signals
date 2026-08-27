@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "description": "Bootstrap seed only. Warehouse is details/tx/hx views over tier0 Kudu + tier1 Iceberg on RustFS. pglite is administrative — no product/hx copies. First Signals-owned product is signals.metaflow.snapshots (immutable per-run code/data/deps on RustFS).",
+  "description": "Bootstrap seed only. Warehouse is details/tx/hx views over tier0 Kudu + tier1 Iceberg on RustFS. Postgres :5455 (devenv PostgreSQL 16 + AGE) is administrative — not pglite; no product/hx copies. First Signals-owned product is signals.metaflow.snapshots (immutable per-run code/data/deps on RustFS).",
   "event_type": "dev.signals.dataproduct.updated",
   "agent": {
     "review": ["quality", "lineage", "delta", "nominal"],

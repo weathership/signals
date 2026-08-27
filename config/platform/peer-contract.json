@@ -46,7 +46,7 @@
       "url": "http://127.0.0.1:8181",
       "admin": "http://127.0.0.1:8182",
       "warehouse": "s3://signals-dataproducts/iceberg",
-      "note": "Iceberg REST catalog. JDBC on pglite/polaris is admin metadata only; table data on RustFS."
+      "note": "Iceberg REST catalog. JDBC on Postgres :5455 database polaris is admin metadata only; table data on RustFS. Not pglite."
     },
     "atlas_http": {
       "url": "http://127.0.0.1:21010"

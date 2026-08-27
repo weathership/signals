@@ -77,6 +77,12 @@ our `.devenv/state/postgres` postmaster.
 Do not run Atlas/Marquez/Metaflow as long-lived orphans outside `devenv up` /
 `devenv processes down` (plus RKE2 platform bootstrap).
 
+**Python is devenv's.** `languages.python` (python312 + uv) owns `.devenv/state/venv`;
+every script, readiness oneshot and systemd unit resolves the interpreter through
+`scripts/signals_python.sh` (`signals_python_path` / `signals_py`, override
+`SIGNALS_PYTHON`) — never a host `python3`, which has no protobuf/grpc/kerberos wheels
+(the `signals-engine` false WARN in `signals-ready`). Justfile recipes use `uv run`.
+
 Process manager: **native** (`process.manager.implementation = "native"`). Ordering
 uses process `after` / `ready` (Kudu → Impala; Postgres → Atlas → Marquez;
 **signals:stack-ready** before signals-ui). Control:
@@ -91,7 +97,7 @@ devenv processes down     # stop full graph (or: just down)
 
 | Process / platform | Role | Default port(s) |
 |--------------------|------|-----------------|
-| `postgres` | AGE + Ranger + catalog + Metaflow DB | 5455 |
+| `postgres` | devenv PostgreSQL 16 + AGE (Atlas graph, Ranger, catalog). Not pglite. | 5455 |
 | `kdc` | Kerberos | 8848 |
 | `kudu-master` / `kudu-tserver` | Columnar store | 7051/7050 (web 8051/8050) |
 | `impala-statestore` / `catalogd` / `impalad` | SQL + kudu_scan | HS2 21050 |
@@ -104,7 +110,7 @@ devenv processes down     # stop full graph (or: just down)
 | RKE2 **YuniKorn** | Federation scheduler | REST **30080** |
 | RKE2 **Knative** | Serving (+ Eventing M3) | Serving ns |
 | RKE2 **Metaflow** | Platform metadata service | **30180** |
-| RKE2 **Airflow** | Metaflow production DAGs | M2 (policy-critical) |
+| RKE2 **Airflow 3** | Platform DAG orchestration + UI (`just airflow-ui`; admin/admin) | **30800** |
 
 **Turn-key first run:** `devenv up [-d]` is the only entry point users need for the
 core stack. Marquez-web is bootstrapped like other heavy UI deps (cybersec pattern):

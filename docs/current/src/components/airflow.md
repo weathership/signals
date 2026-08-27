@@ -37,6 +37,9 @@ just airflow-platform
 # Status
 just airflow-platform-status
 
+# UI URL + component health (OPEN=1 opens a browser)
+just airflow-ui
+
 # Trigger CI DAG and wait for success
 just airflow-platform-ci
 
@@ -56,6 +59,27 @@ SIGNALS_STACK_REQUIRE_AIRFLOW=1 just stack-ready
 | Values | `config/k8s/airflow/values-signals.yaml` |
 | Host PG bridge | `signals-postgres-proxy` (hostNetwork socat → `127.0.0.1:5455`) |
 | Zarf | `zarf.dev/agent: ignore` until packaged into federation |
+
+## UI
+
+The Airflow 3 UI is the API server itself (React SPA + `/api/v2`) on NodePort
+**30800** — the RKE2 analogue of Marquez-web on `:21011`; both are listed in the
+`devenv` shell summary. `just airflow-ui` prints the URL and the
+`/api/v2/monitor/health` component status.
+
+**Direction — top-down schedule view.** Airflow is where every federated
+engine's schedule should be visible in one place: Metaflow flows deploy as DAGs
+(`python flow.py airflow create`), and pg_cron clocks on peer engines (e.g. Gaius
+`gpu-metrics-settle`) are to be mirrored here as DAGs. Until an image carries the
+`signals.*` package, `config/k8s/airflow/dags/gpu_metrics_settle_dag.py` is **not**
+mounted (its `signals.ops` import would surface as a DAG import error).
+
+**Stability note.** `scripts/signals_stack_preflight.sh` lets an installed Broker
+settle (`SIGNALS_STACK_EVENTING_WAIT`, default 120s) before re-running the Eventing
+bootstrap, and the bootstrap only replaces Zarf-rewritten pods and only restarts the
+dag-processor when the DAG ConfigMap changed — re-bootstrapping on every
+signals-ui restart used to roll the eventing control plane and the dag-processor
+each iteration.
 
 ## Related
 

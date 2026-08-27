@@ -21,7 +21,9 @@ then `DROP RANGE PARTITION` — never `DELETE` rows
 Hour is the range unit, not a second hash/range level. Iceberg is **not**
 hour-partitioned (file explosion); `details_tier1` / `tx` / `hx` use product.
 
-**pglite** is administrative only. No product copies there. `impala_fdw` stays
+**Postgres `:5455` (devenv PostgreSQL 16 + AGE)** is administrative only
+(Atlas graph, Ranger). It is **not** pglite. No product copies there.
+`impala_fdw` stays
 Kudu-only and is not the warehouse reader.
 
 Schema:

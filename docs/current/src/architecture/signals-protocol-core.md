@@ -307,8 +307,9 @@ only what that engine's Status returns.
 
 `Engine/ServerQuery` is pairwise S2S (not gossip): `REMOTES` (named git
 remotes + `head`), `PEERS` (lattice `host:port` from peer-contract),
-`SURFACES` (same list as Status), `QUEUES` (peer leaf hints for
-PromoteScratch). Empty is honest.
+`SURFACES` (same list as Status), `QUEUES` (occupancy leaf shape),
+`WORKLOADS` (models, capabilities, TP/PP requirements — not the queue).
+Empty is honest.
 
 A later `zndx.discovery.v1` package can grow auth hints if the surface
 expands.

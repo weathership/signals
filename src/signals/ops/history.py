@@ -129,7 +129,7 @@ def agent_brief(product: dict[str, Any], event: dict[str, Any]) -> str:
         f"Agent focus: {product.get('agent_focus')}\n"
         "Capabilities: grok-subscription [thinking] or grok-local Qwen3.8 [thinking,vision].\n"
         "Queue for subscription work: root.external.subscription.rate-limited.\n"
-        "Persist traces on Iceberg hx_* keyed to tx_id (RustFS). Do not copy into pglite.\n"
+        "Persist traces on Iceberg hx_* keyed to tx_id (RustFS). Do not copy into Postgres AGE.\n"
     )
     if pid == "signals.metaflow.snapshots" or product.get("kind") == "snapshot":
         from signals.ops.metaflow_store import snapshot_understanding

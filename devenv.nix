@@ -2729,6 +2729,8 @@ SQL
     echo "  Kerberos KDC      — realm: DEV.VISTA.ZNDX.ORG, host: tinybox.dev.vista.zndx.org, port: 8848"
     echo "  Atlas             — http://localhost:21010 (AGE + OL SoR → signals DB)"
     echo "  Marquez Web       — http://localhost:21011 (OL validation only; Atlas + 1)"
+    echo "  Airflow 3 UI      — http://localhost:30800 (RKE2 NodePort; admin/admin; just airflow-ui)"
+    echo "  Metaflow service  — http://localhost:30180 (RKE2 NodePort; /ping; platform flow metadata)"
     echo "  signals-engine    — grpc://127.0.0.1:50551 (Engine + Scheduler; YK REST private)"
     echo "  signals-c2        — http://127.0.0.1:50561 (C2 HTTP → Engine/Yield gRPC)"
     echo "  signals-ui        — http://localhost:9889 (PRIMARY; /readyz = Engine/Status)"

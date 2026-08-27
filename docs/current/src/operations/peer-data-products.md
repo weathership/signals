@@ -20,7 +20,8 @@ retained. Gaius `prospects` is the next consumer of this shape.
 | Fill quality / lineage / delta / nominal on `hx_*` | Re-inventory in the UI or a JSON file |
 | Stamp a resource-class YK queue | Invent `root.gaius` / `root.aegir` |
 
-pglite (`:5455`) is Signals admin (AGE, Ranger). Peer PG ports stay
+devenv PostgreSQL 16 (`:5455`, AGE) is Signals admin (Atlas graph, Ranger).
+That is not pglite — pglite is Atelier AMP only. Peer PG ports stay
 engine-private. **Never bind RustFS `:9010`.**
 
 ## 2. Object plane
