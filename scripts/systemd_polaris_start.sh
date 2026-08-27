@@ -54,6 +54,19 @@ if [ ! -x "$POLARIS_HOME/bin/server" ]; then
   info "Polaris not installed at $POLARIS_HOME — waiting for devenv process"
 else
   info "starting Polaris from $POLARIS_HOME"
+  # Postgres :5455 is Polaris's datasource. The unit orders After=signals-ready
+  # so it should be up, but wait briefly rather than launch the JVM against a
+  # dead DB (which then burns the 180s readiness wait and gives up). If it never
+  # comes, exit non-zero so systemd Restart re-attempts once the plane is ready.
+  _pg_ok=0
+  for _ in $(seq 1 60); do
+    if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/5455" 2>/dev/null; then _pg_ok=1; break; fi
+    sleep 2
+  done
+  if [[ "$_pg_ok" -ne 1 ]]; then
+    info "Postgres :5455 not reachable after 120s — failing for systemd Restart"
+    exit 1
+  fi
   export QUARKUS_DATASOURCE_DB_KIND=postgresql
   export QUARKUS_DATASOURCE_JDBC_URL="${QUARKUS_DATASOURCE_JDBC_URL:-jdbc:postgresql://127.0.0.1:5455/polaris?currentSchema=polaris_schema}"
   export QUARKUS_DATASOURCE_USERNAME="${QUARKUS_DATASOURCE_USERNAME:-signals}"

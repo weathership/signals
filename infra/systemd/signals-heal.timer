@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic signals group self-heal check
+Documentation=file:///home/rch/local/src/wxs/signals/infra/systemd/README.md
+
+[Timer]
+# First check a few minutes into boot (after the foundation's own retries have
+# had a chance), then every 3 minutes while the group is not verified healthy.
+OnBootSec=5min
+OnUnitInactiveSec=3min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

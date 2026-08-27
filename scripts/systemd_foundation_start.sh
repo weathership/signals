@@ -38,23 +38,43 @@ repair_native_manager_pid() {
 
 info "not ready — just up (login shell for direnv/devenv/nix)"
 # Full user environment: devenv is not on bare systemd PATH.
-if /bin/bash -lc "cd \"$ROOT\" && export PATH=\"/usr/local/bin:\$PATH\" && just up"; then
+up_rc=0
+/bin/bash -lc "cd \"$ROOT\" && export PATH=\"/usr/local/bin:\$PATH\" && just up" || up_rc=$?
+
+# devenv 2.1's 120 s daemon waiter can return non-zero while the compose is in
+# fact coming up (native.sock live, native-manager.pid unwritten — see the
+# repair note above). So repair the pid and POLL readiness on BOTH paths: a
+# non-zero `just up` here is frequently a false negative, not a dead stack.
+repair_native_manager_pid
+if [[ "$up_rc" -eq 0 ]]; then
   info "just up OK"
-  repair_native_manager_pid
-  # Allow processes a moment; ready oneshot will poll hard
+else
+  info "just up returned $up_rc — devenv waiter may have timed out; polling readiness before deciding"
+fi
+
+# The critical plane converges shortly after `up` returns. Poll rather than
+# checking once — the 2026-08-26 boot failed a single post-up check and gave up
+# permanently, leaving the whole data plane down with no retry.
+POLL_SECS="${FOUNDATION_READY_POLL_SECS:-150}"
+_deadline=$(( SECONDS + POLL_SECS ))
+while (( SECONDS < _deadline )); do
   if just signals-ready; then
+    info "foundation READY"
     exit 0
   fi
-  info "up completed; ready not yet — peer oneshot will poll"
+  sleep 10
+done
+
+if [[ "$up_rc" -eq 0 ]]; then
+  # up succeeded, compose still warming — optimistic success. signals-ready /
+  # signals-refresh (Restart=on-failure) keep verifying until healthy.
+  info "up completed; ready not yet after ${POLL_SECS}s — verify oneshots will converge"
   exit 0
 fi
 
-info "just up failed — checking whether foundation is already healthy (e.g. live :5455)"
-# Common lab case: stack was started outside systemd; strictPorts rejects second up.
-if just signals-ready; then
-  info "foundation READY despite up failure — treating as success"
-  exit 0
-fi
-
-info "foundation still not ready after up failure"
+# up genuinely failed and did not converge in the poll window. Fail so systemd
+# Restart re-runs the whole start: a fresh `just up` self-cleans stale daemons
+# and frees :5455, which recovers a boot-contention daemon-start loss without
+# any manual/agent intervention.
+info "foundation not ready after up failure + ${POLL_SECS}s poll — failing for systemd Restart"
 exit 1

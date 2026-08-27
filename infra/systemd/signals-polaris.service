@@ -5,11 +5,20 @@ Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architectu
 PartOf=signals.target
 After=signals.service network-online.target
 Wants=signals.service network-online.target
+# Polaris needs Postgres :5455 but NOT the full readiness gate (which also
+# covers unrelated k8s services). systemd_polaris_start.sh now waits for :5455
+# directly before launching the JVM, and Restart retries — so we stay ordered
+# after signals.service and don't couple the catalog to yunikorn/metaflow.
+StartLimitIntervalSec=3600
+StartLimitBurst=30
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 KillMode=control-group
+# Retry until Postgres :5455 is reachable and the catalog comes up.
+Restart=on-failure
+RestartSec=15
 User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals

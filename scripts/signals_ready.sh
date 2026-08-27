@@ -21,6 +21,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=signals_python.sh
+. "$ROOT/scripts/signals_python.sh"
 cd "$ROOT"
 
 FORMAT=text
@@ -180,7 +182,7 @@ fi
 # Platform engine — WARN here: unit starts After=signals-ready, so this
 # oneshot must not require :50551. lattice-ci + UI /readyz gate Status.
 ENGINE_TARGET="${SIGNALS_ENGINE_TARGET:-127.0.0.1:50551}"
-if python3 "$ROOT/scripts/zndx_engine_status.py" \
+if signals_py "$ROOT/scripts/zndx_engine_status.py" \
     --expect-project signals --expect-capability scheduler \
     "$ENGINE_TARGET" >/dev/null 2>&1; then
   record "signals-engine" PASS 0 "$ENGINE_TARGET Engine/Status"

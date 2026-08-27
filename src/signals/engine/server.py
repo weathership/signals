@@ -76,7 +76,17 @@ def _start_control_http(cfg: EngineConfig, table: WorkloadTable) -> ThreadingHTT
                 return
             self._json(404, {"error": "not found"})
 
-    httpd = ThreadingHTTPServer((cfg.control_host, cfg.control_port), Handler)
+    try:
+        httpd = ThreadingHTTPServer((cfg.control_host, cfg.control_port), Handler)
+    except OSError as e:
+        # A restart race can leave the prior control socket briefly held. The
+        # lattice Engine + Scheduler serving does not depend on this control HTTP,
+        # so a bind failure must not crash or degrade the engine — log and skip.
+        log.warning(
+            "engine control HTTP bind on %s failed (%s) — continuing without it",
+            cfg.control_addr, e,
+        )
+        return None
     threading.Thread(target=httpd.serve_forever, name="engine-control", daemon=True).start()
     log.info("engine control HTTP on %s (POST /workloads)", cfg.control_addr)
     return httpd

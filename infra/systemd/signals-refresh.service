@@ -6,6 +6,10 @@ PartOf=signals.target
 After=network-online.target
 After=signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service
 After=gaius.service aegir.service atelier.service metabase.service synth.service
+# Re-verify until the group converges: members and warehouse-ingest freshness
+# lag boot. Verify-only (no restarts of members), so retries are cheap.
+StartLimitIntervalSec=3600
+StartLimitBurst=60
 
 [Service]
 Type=oneshot
@@ -15,6 +19,8 @@ Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_target_verify.sh
 TimeoutStartSec=300
+Restart=on-failure
+RestartSec=30
 
 [Install]
 WantedBy=signals.target

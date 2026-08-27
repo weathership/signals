@@ -4,10 +4,19 @@ Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/architectu
 PartOf=signals.target
 After=network-online.target
 Wants=network-online.target
+# Retry a transient boot-time devenv daemon-start timeout instead of dying
+# permanently (2026-08-26). Generous burst: slow ~5min retry cycles rarely
+# trip it; only a fast fail-loop (something truly broken) surfaces as failed.
+StartLimitIntervalSec=3600
+StartLimitBurst=30
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# oneshot honors Restart= on this systemd (verified). Re-run the whole start
+# on failure: a fresh `just up` self-cleans stale daemons + frees :5455.
+Restart=on-failure
+RestartSec=20
 User=rch
 Group=rch
 WorkingDirectory=/home/rch/local/src/wxs/signals

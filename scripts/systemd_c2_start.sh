@@ -2,6 +2,8 @@
 # Idempotent oneshot: Signals C2 HTTP on :50561 (Yield via engine gRPC).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=signals_python.sh
+. "$ROOT/scripts/signals_python.sh"
 cd "$ROOT"
 export PATH="/usr/local/bin:/usr/bin:/bin:${HOME}/.nix-profile/bin:${PATH:-}"
 export SIGNALS_C2_HTTP_PORT="${SIGNALS_C2_HTTP_PORT:-50561}"
@@ -25,12 +27,8 @@ if status_ok; then
 fi
 
 info "starting python -m signals.c2 on :${SIGNALS_C2_HTTP_PORT}"
-# Prefer the project venv. Bare `uv run` under systemd re-resolves the lock
-# and can stall on native wheels (kerberos) with no devenv compilers.
-PY="$ROOT/.devenv/state/venv/bin/python"
-if [[ ! -x "$PY" ]]; then
-  PY=python3
-fi
+# Signals-controlled Python only (devenv uv venv); never system python3.
+PY="$(signals_python_path)" || { info "ERROR: devenv venv missing — run devenv shell (uv sync)"; exit 1; }
 setsid env \
   SIGNALS_C2_HTTP_PORT="$SIGNALS_C2_HTTP_PORT" \
   SIGNALS_PEER_CONTRACT="$SIGNALS_PEER_CONTRACT" \

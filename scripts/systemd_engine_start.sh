@@ -2,6 +2,8 @@
 # Idempotent oneshot: Signals engine (YuniKorn + Engine Status) on :50551.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=signals_python.sh
+. "$ROOT/scripts/signals_python.sh"
 cd "$ROOT"
 export PATH="/usr/local/bin:/usr/bin:/bin:${HOME}/.nix-profile/bin:${PATH:-}"
 export SIGNALS_ENGINE_GRPC_PORT="${SIGNALS_ENGINE_GRPC_PORT:-50551}"
@@ -19,8 +21,8 @@ mkdir -p "$LOG_DIR"
 info() { echo "signals-engine.service: $*"; }
 
 status_ok() {
-  local py="$ROOT/.devenv/state/venv/bin/python"
-  [[ -x "$py" ]] || py=python3
+  local py
+  py="$(signals_python_path 2>/dev/null)" || return 1
   "$py" - <<'PY' 2>/dev/null
 import os, sys
 sys.path.insert(0, "src")
@@ -41,12 +43,8 @@ if status_ok; then
 fi
 
 info "starting python -m signals.engine on :${SIGNALS_ENGINE_GRPC_PORT}"
-# Prefer the project venv. Bare `uv run` under systemd re-resolves the lock
-# and can stall on native wheels (kerberos) with no devenv compilers.
-PY="$ROOT/.devenv/state/venv/bin/python"
-if [[ ! -x "$PY" ]]; then
-  PY=python3
-fi
+# Signals-controlled Python only (devenv uv venv); never system python3.
+PY="$(signals_python_path)" || { info "ERROR: devenv venv missing — run devenv shell (uv sync)"; exit 1; }
 setsid env \
   SIGNALS_ENGINE_GRPC_PORT="$SIGNALS_ENGINE_GRPC_PORT" \
   SIGNALS_YK_API_URL="$SIGNALS_YK_API_URL" \

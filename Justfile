@@ -138,7 +138,7 @@ gov-kudu-projections-seed: atlas-kudu-projections-seed ranger-kudu-projections-s
 # Frontier hop bench (PR-K4). Prefer --compare --measure exec for gates.
 # Example: just atlas-frontier-bench --compare --skip-seed --batches 8,32,64,256
 atlas-frontier-bench *ARGS:
-    python3 scripts/atlas_frontier_bench.py --write-scratch {{ARGS}}
+    uv run python scripts/atlas_frontier_bench.py --write-scratch {{ARGS}}
 
 # PR-K5a: Kudu Kerberos keytab/principal checks
 kudu-kerberos-smoke:
@@ -546,6 +546,20 @@ airflow-platform-status:
     else
       echo "(no token — admin user may not exist yet)"
     fi
+
+# RKE2 analogue of Marquez-web :21011. Prints URL + component health; OPEN=1 opens a browser.
+# Airflow 3 UI (RKE2 NodePort 30800; lab login admin/admin).
+airflow-ui:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    URL="${AIRFLOW_API_URL:-http://127.0.0.1:30800}"
+    echo "Airflow 3 UI: $URL   (login: admin / admin — lab only)"
+    echo -n "health: "
+    curl -sS -m 5 "$URL/api/v2/monitor/health" 2>/dev/null && echo \
+      || echo "NOT REACHABLE — just airflow-platform (or just stack-ready)"
+    echo "REST:   POST $URL/auth/token {username,password} → Authorization: Bearer <jwt> for /api/v2"
+    echo "DAGs:   just airflow-platform-status"
+    if [[ "${OPEN:-0}" == "1" ]]; then (xdg-open "$URL" || open "$URL") >/dev/null 2>&1 || true; fi
 
 # Trigger signals_ci DAG and wait for success (elevated M2 CI gate).
 airflow-platform-ci:
