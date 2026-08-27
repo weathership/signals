@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +17,14 @@ import yaml
 log = logging.getLogger("signals.engine.projection")
 
 ROOTS = ("current", "scratch", "archive")
+
+# Archive retention. PromoteScratch archives current on every apply, and promotes
+# are frequent and usually no-ops, so an unbounded audit trail ballooned to 2155
+# snapshot dirs / 44K files / 273MB by 2026-08-27. Keep a bounded window of the
+# most recent snapshots; override with SIGNALS_PROJECTION_ARCHIVE_KEEP.
+ARCHIVE_KEEP = int(os.environ.get("SIGNALS_PROJECTION_ARCHIVE_KEEP") or "200")
+# Snapshot dirs are UTC stamps like 20260827T231522Z; only these are prunable.
+_STAMP_RE = re.compile(r"^\d{8}T\d{6}Z$")
 
 
 @dataclass
@@ -55,7 +65,13 @@ class ProjectionStore:
         p.write_text(yaml_body, encoding="utf-8")
         if root == "scratch":
             self._write_queue_notes_from_yaml(yaml_body, root="scratch")
-            self.rebuild_index()
+            # NOTE: do NOT rebuild_index() here. write_config(scratch) runs on the
+            # RequestQueueShare hot path (every admit), and rebuild_index rglobs
+            # current+scratch+archive and YAML-parses every note. With a large
+            # archive that is tens of seconds under the ingest lock — the root cause
+            # of the 2026-08-26 admission stall (#YK.00000002.NOTADMITTED). The index
+            # is a browse artifact: it is refreshed off the hot path by sync_current
+            # (PromoteScratch/apply) and rebuilt lazily by list_notes().
         return p
 
     def sync_current(
@@ -202,7 +218,7 @@ class ProjectionStore:
                 n += self._emit_live_queue(c, partition=partition, root=root)
         return n
 
-    def rebuild_index(self) -> Path:
+    def rebuild_index(self, include_archive: bool = False) -> Path:
         notes: list[dict[str, Any]] = []
         for root_name in ("current", "scratch"):
             base = self.root / root_name
@@ -212,16 +228,20 @@ class ProjectionStore:
                 meta = self._parse_frontmatter(md, root_name)
                 if meta:
                     notes.append(meta)
-        # archive: one level of stamp dirs
-        arch = self.root / "archive"
-        if arch.is_dir():
-            for stamp_dir in sorted(arch.iterdir()):
-                if not stamp_dir.is_dir():
-                    continue
-                for md in stamp_dir.rglob("*.md"):
-                    meta = self._parse_frontmatter(md, "archive", archive_id=stamp_dir.name)
-                    if meta:
-                        notes.append(meta)
+        # archive: stamped snapshots accumulate without bound (one per promote),
+        # reaching tens of thousands of notes. Scanning + YAML-parsing all of them
+        # is O(archive) and must stay off every operational path. Index the archive
+        # only when a caller explicitly browses it (list_notes(root="archive")).
+        if include_archive:
+            arch = self.root / "archive"
+            if arch.is_dir():
+                for stamp_dir in sorted(arch.iterdir()):
+                    if not stamp_dir.is_dir():
+                        continue
+                    for md in stamp_dir.rglob("*.md"):
+                        meta = self._parse_frontmatter(md, "archive", archive_id=stamp_dir.name)
+                        if meta:
+                            notes.append(meta)
         idx = {
             "counts": {
                 "total": len(notes),
@@ -275,9 +295,17 @@ class ProjectionStore:
 
     def list_notes(self, root: str, archive_id: str | None = None) -> list[NoteMeta]:
         idx_path = self.root / "index.json"
+        need_archive = root == "archive"
         if not idx_path.is_file():
-            self.rebuild_index()
+            self.rebuild_index(include_archive=need_archive)
         data = json.loads(idx_path.read_text(encoding="utf-8"))
+        if need_archive and not any(
+            (n.get("root") == "archive") for n in (data.get("notes") or [])
+        ):
+            # archive browsing requested but the fast index omits it — rebuild once
+            # including the archive, then reload.
+            self.rebuild_index(include_archive=True)
+            data = json.loads(idx_path.read_text(encoding="utf-8"))
         out: list[NoteMeta] = []
         for n in data.get("notes") or []:
             if n.get("root") != root:
@@ -337,7 +365,15 @@ class ProjectionStore:
             live_diff = "".join(u2)
         return "".join(u1), live_diff
 
-    def archive_current(self, stamp: str | None = None) -> str:
+    def archive_current(self, stamp: str | None = None, *, keep: int = ARCHIVE_KEEP) -> str:
+        # Skip a duplicate snapshot when current/config is unchanged from the most
+        # recent archive. Promotes are frequent and usually no-ops; without this
+        # guard the archive accrues one identical snapshot per apply (the 2026-08-27
+        # bloat). Return the existing stamp so callers still get a valid archive_id.
+        latest = self._latest_archive_stamp()
+        if latest is not None and self._archive_config_matches_current(latest):
+            self._prune_archive(keep=keep)
+            return latest
         stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         dest = self.root / "archive" / stamp
         if dest.exists():
@@ -347,8 +383,53 @@ class ProjectionStore:
             shutil.copytree(src, dest)
         else:
             dest.mkdir(parents=True)
+        self._prune_archive(keep=keep)
         self.rebuild_index()
         return stamp
+
+    def _stamp_dirs(self) -> list[Path]:
+        """Timestamp-named archive snapshot dirs, oldest first (name sort == time sort)."""
+        arch = self.root / "archive"
+        if not arch.is_dir():
+            return []
+        return sorted(
+            (d for d in arch.iterdir() if d.is_dir() and _STAMP_RE.match(d.name)),
+            key=lambda p: p.name,
+        )
+
+    def _latest_archive_stamp(self) -> str | None:
+        dirs = self._stamp_dirs()
+        return dirs[-1].name if dirs else None
+
+    def _archive_config_matches_current(self, stamp: str) -> bool:
+        cur = self.config_path("current")
+        arch = self.root / "archive" / stamp / "config" / "queues.yaml"
+        if not cur.is_file() or not arch.is_file():
+            return False
+        try:
+            return cur.read_text(encoding="utf-8") == arch.read_text(encoding="utf-8")
+        except OSError:
+            return False
+
+    def _prune_archive(self, keep: int = ARCHIVE_KEEP) -> int:
+        """Delete stamped snapshots beyond the `keep` most recent. Returns count removed.
+
+        Only timestamp-named dirs are eligible; scaffold/other dirs are left alone.
+        """
+        if keep < 0:
+            return 0
+        dirs = self._stamp_dirs()
+        excess = dirs[:-keep] if keep else dirs
+        removed = 0
+        for d in excess:
+            try:
+                shutil.rmtree(d)
+                removed += 1
+            except OSError as e:
+                log.warning("archive prune failed for %s: %s", d.name, e)
+        if removed:
+            log.info("archive pruned %d snapshot(s), kept %d", removed, keep)
+        return removed
 
     def list_archives(self) -> list[dict[str, str]]:
         arch = self.root / "archive"

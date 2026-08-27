@@ -1,0 +1,416 @@
+"""Peer WRK occupancy intent: persist, merge leftover floors, apply via PromoteScratch.
+
+Peers never write queues.yaml. YK preemption only fires under guarantee.
+Parent GPU max is 6: standing heavy (4) + leftover pair (extract vs light/CLT
+or medium/SAE).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from google.protobuf.json_format import MessageToDict, ParseDict
+
+from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2
+from signals.uuidv7 import is_uuidv7
+
+log = logging.getLogger("signals.engine.queue_share")
+
+GURU_SHAREFAIL = "#YK.00000007.SHAREFAIL"
+GPU = "federation.zndx.org/gpu"
+PARENT_GPU_MAX = 6
+ALLOWED_PEERS = frozenset({"gaius", "aegir", "atelier", "signals"})
+# Leftover pair beside standing thinking (4). Mutually exclusive floors.
+LEFTOVER_QUEUES = frozenset(
+    {
+        "root.internal.inference.extract",
+        "root.internal.inference.light",
+        "root.internal.inference.medium",
+    }
+)
+OCCUPANCY_QUEUES = LEFTOVER_QUEUES | {"root.internal.inference.heavy"}
+BASELINE = Path("config/scheduler/federation-queues.yaml")
+
+_STATES = {
+    "RECORDED": scheduler_pb2.QUEUE_SHARE_RECORDED,
+    "SUPERSEDED": scheduler_pb2.QUEUE_SHARE_SUPERSEDED,
+    "APPLIED": scheduler_pb2.QUEUE_SHARE_APPLIED,
+    "REJECTED": scheduler_pb2.QUEUE_SHARE_REJECTED,
+}
+
+
+class SharePersistError(Exception):
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(f"{GURU_SHAREFAIL} {detail}")
+
+
+@dataclass
+class ShareRecord:
+    request: scheduler_pb2.QueueShareRequest
+    recorded_at_ns: int
+    state: str  # RECORDED | SUPERSEDED | APPLIED | REJECTED
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "request": MessageToDict(self.request, preserving_proto_field_name=True),
+            "recorded_at_ns": self.recorded_at_ns,
+            "state": self.state,
+        }
+
+    @classmethod
+    def from_json(cls, doc: dict[str, Any]) -> "ShareRecord":
+        req = scheduler_pb2.QueueShareRequest()
+        ParseDict(doc.get("request") or {}, req, ignore_unknown_fields=True)
+        return cls(
+            request=req,
+            recorded_at_ns=int(doc.get("recorded_at_ns") or 0),
+            state=str(doc.get("state") or "RECORDED"),
+        )
+
+
+class QueueShareStore:
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self._mu = threading.Lock()
+
+    def _path(self, request_id: str) -> Path:
+        safe = request_id.replace("/", "_")
+        return self.root / f"{safe}.json"
+
+    def get(self, request_id: str) -> ShareRecord | None:
+        p = self._path(request_id)
+        if not p.is_file():
+            return None
+        try:
+            return ShareRecord.from_json(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None
+
+    def put(self, rec: ShareRecord) -> None:
+        rid = rec.request.request_id
+        p = self._path(rid)
+        tmp = p.with_suffix(".json.tmp")
+        try:
+            tmp.write_text(
+                json.dumps(rec.to_json(), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(tmp, p)
+        except OSError as e:
+            raise SharePersistError(f"cannot persist {rid}: {e}") from e
+
+    def list_all(self) -> list[ShareRecord]:
+        out: list[ShareRecord] = []
+        for p in sorted(self.root.glob("*.json")):
+            if p.name.endswith(".tmp"):
+                continue
+            try:
+                out.append(ShareRecord.from_json(json.loads(p.read_text(encoding="utf-8"))))
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+        out.sort(key=lambda r: (r.recorded_at_ns, r.request.request_id))
+        return out
+
+
+def gpu_qty(share: scheduler_pb2.QueueShare, field: str) -> int:
+    m = share.guaranteed if field == "guaranteed" else share.max
+    return int((m.quantities or {}).get(GPU, 0) or 0)
+
+
+def _in_window(req: scheduler_pb2.QueueShareRequest, now_ns: int) -> bool:
+    start = int(req.valid_from_ns or 0)
+    end = int(req.valid_until_ns or 0)
+    if start and now_ns < start:
+        return False
+    if end and now_ns >= end:
+        return False
+    return True
+
+
+def active_records(store: QueueShareStore, now_ns: int | None = None) -> list[ShareRecord]:
+    now = now_ns if now_ns is not None else time.time_ns()
+    out = []
+    for rec in store.list_all():
+        if rec.state not in {"RECORDED", "APPLIED"}:
+            continue
+        if _in_window(rec.request, now):
+            out.append(rec)
+    return out
+
+
+def merge_floors(records: list[ShareRecord]) -> dict[str, int]:
+    """Per-queue guaranteed GPU floor across the federated view of active intents.
+
+    The authoritative source is each WorkloadIntent's typed
+    requirements.footprint.gpu — the Signals engine sizes YuniKorn queues from the
+    real footprints peers advertise, so a changing workload profile (e.g. Metaflow
+    churn) reconciles guarantees automatically. The caller's QueueShare.guaranteed
+    is a fallback for intents that do not yet carry a footprint (transition).
+    """
+    fp_floors: dict[str, int] = {}   # footprint-derived (authoritative)
+    sh_floors: dict[str, int] = {}   # caller QueueShare.guaranteed (fallback)
+    for rec in records:
+        for wi in rec.request.workloads:
+            q = (wi.queue or "").strip()
+            gpu = int(wi.requirements.footprint.gpu or 0)
+            if q and gpu:
+                fp_floors[q] = max(fp_floors.get(q, 0), gpu)
+        for sh in rec.request.shares:
+            q = (sh.queue or "").strip()
+            if q:
+                sh_floors[q] = max(sh_floors.get(q, 0), gpu_qty(sh, "guaranteed"))
+    floors = dict(sh_floors)
+    floors.update(fp_floors)  # footprint wins per-queue where present
+    return floors
+
+
+def occupancy_sum(floors: dict[str, int]) -> int:
+    return sum(int(floors.get(q, 0) or 0) for q in OCCUPANCY_QUEUES)
+
+
+def find_queue(doc: dict[str, Any], fqn: str) -> dict[str, Any] | None:
+    parts = [p for p in fqn.split(".") if p]
+    if not parts:
+        return None
+    nodes = []
+    for part in doc.get("partitions") or []:
+        nodes.extend(part.get("queues") or [])
+    for i, name in enumerate(parts):
+        hit = None
+        for n in nodes:
+            if isinstance(n, dict) and n.get("name") == name:
+                hit = n
+                break
+        if hit is None:
+            return None
+        if i == len(parts) - 1:
+            return hit
+        nodes = hit.get("queues") or []
+    return None
+
+
+def patch_occupancy(
+    yaml_body: str,
+    floors: dict[str, int],
+    *,
+    shares: list[scheduler_pb2.QueueShare] | None = None,
+) -> str:
+    import yaml
+
+    doc = yaml.safe_load(yaml_body) or {}
+    share_by_q = {s.queue: s for s in (shares or []) if s.queue}
+    for q in OCCUPANCY_QUEUES:
+        node = find_queue(doc, q)
+        if node is None:
+            continue
+        res = node.setdefault("resources", {})
+        g = res.setdefault("guaranteed", {})
+        g[GPU] = str(int(floors.get(q, 0) or 0))
+        mx = res.setdefault("max", {})
+        sh = share_by_q.get(q)
+        if sh is not None:
+            want_max = gpu_qty(sh, "max")
+            if want_max:
+                mx[GPU] = str(want_max)
+            if sh.max_applications:
+                node["maxapplications"] = int(sh.max_applications)
+        elif GPU not in mx:
+            mx[GPU] = g[GPU]
+    return yaml.safe_dump(doc, default_flow_style=False, sort_keys=False)
+
+
+def baseline_yaml(store_cfg: Path | None = None) -> str:
+    p = store_cfg or BASELINE
+    if p.is_file():
+        return p.read_text(encoding="utf-8")
+    raise SharePersistError(f"baseline queues missing: {p}")
+
+
+def leftover_queues_of(req: scheduler_pb2.QueueShareRequest) -> set[str]:
+    return {s.queue for s in req.shares if s.queue in LEFTOVER_QUEUES}
+
+
+class QueueShareService:
+    def __init__(self, store: QueueShareStore):
+        self.store = store
+        self._mu = threading.Lock()
+        self._apply_mu = threading.Lock()  # serialize off-hot-path applies
+
+    def ingest(
+        self,
+        req: scheduler_pb2.QueueShareRequest,
+        *,
+        apply_fn,
+        read_yaml,
+        write_scratch,
+    ) -> scheduler_pb2.QueueShareResponse:
+        """Persist then merge+promote. Peers never write queues.yaml."""
+        with self._mu:
+            return self._ingest_locked(req, apply_fn, read_yaml, write_scratch)
+
+    def _ingest_locked(
+        self,
+        req: scheduler_pb2.QueueShareRequest,
+        apply_fn,
+        read_yaml,
+        write_scratch,
+    ) -> scheduler_pb2.QueueShareResponse:
+        peer = (req.peer or "").strip().lower()
+        if peer not in ALLOWED_PEERS:
+            return scheduler_pb2.QueueShareResponse(
+                accepted=False,
+                error=f"{GURU_SHAREFAIL} unknown peer {peer!r}",
+                state=scheduler_pb2.QUEUE_SHARE_STATE_UNSPECIFIED,
+            )
+        rid = (req.request_id or "").strip()
+        if not is_uuidv7(rid):
+            return scheduler_pb2.QueueShareResponse(
+                accepted=False,
+                request_id=rid,
+                error=f"{GURU_SHAREFAIL} request_id MUST be RFC 9562 UUIDv7",
+                state=scheduler_pb2.QUEUE_SHARE_STATE_UNSPECIFIED,
+            )
+        if not req.valid_from_ns:
+            req.valid_from_ns = time.time_ns()
+        existing = self.store.get(rid)
+        if existing is not None:
+            return scheduler_pb2.QueueShareResponse(
+                accepted=True,
+                request_id=rid,
+                state=_STATES.get(existing.state, scheduler_pb2.QUEUE_SHARE_RECORDED),
+            )
+        if not req.shares:
+            return scheduler_pb2.QueueShareResponse(
+                accepted=False,
+                request_id=rid,
+                error=f"{GURU_SHAREFAIL} shares[] empty",
+            )
+        rec = ShareRecord(request=req, recorded_at_ns=time.time_ns(), state="RECORDED")
+        self.store.put(rec)
+
+        if req.supersedes_request_id:
+            prior = self.store.get(req.supersedes_request_id)
+            if prior and prior.state in {"RECORDED", "APPLIED"}:
+                prior.state = "SUPERSEDED"
+                self.store.put(prior)
+        new_leftover = leftover_queues_of(req)
+        if new_leftover:
+            for old in self.store.list_all():
+                if old.request.request_id == rid:
+                    continue
+                if (old.request.peer or "").strip().lower() != peer:
+                    continue
+                if old.state not in {"RECORDED", "APPLIED"}:
+                    continue
+                if leftover_queues_of(old.request) and leftover_queues_of(old.request) != new_leftover:
+                    old.state = "SUPERSEDED"
+                    self.store.put(old)
+        for old in self.store.list_all():
+            if old.request.request_id == rid:
+                continue
+            if (old.request.peer or "").strip().lower() != peer:
+                continue
+            if old.state not in {"RECORDED", "APPLIED"}:
+                continue
+            old_qs = {s.queue for s in old.request.shares}
+            new_qs = {s.queue for s in req.shares}
+            if old_qs & new_qs:
+                old.state = "SUPERSEDED"
+                self.store.put(old)
+
+        floors = merge_floors(active_records(self.store))
+        total = occupancy_sum(floors)
+        if total > PARENT_GPU_MAX:
+            rec.state = "REJECTED"
+            self.store.put(rec)
+            return scheduler_pb2.QueueShareResponse(
+                accepted=True,
+                request_id=rid,
+                state=scheduler_pb2.QUEUE_SHARE_REJECTED,
+                error=(
+                    f"overlapping guaranteed GPU {total} exceeds parent max "
+                    f"{PARENT_GPU_MAX}: {floors}"
+                ),
+            )
+        try:
+            yaml_body = read_yaml() or baseline_yaml()
+            patched = patch_occupancy(yaml_body, floors, shares=list(req.shares))
+            write_scratch(patched)
+        except SharePersistError:
+            raise
+        except Exception as e:
+            rec.state = "RECORDED"
+            self.store.put(rec)
+            return scheduler_pb2.QueueShareResponse(
+                accepted=True,
+                request_id=rid,
+                state=scheduler_pb2.QUEUE_SHARE_RECORDED,
+                error=f"recorded; scratch deferred: {e}",
+            )
+        # Apply OFF the RPC hot path: a cold YuniKorn REST / kubectl must never time
+        # out the caller (the 2026-08-26 admission failure). Footprint-driven sizing
+        # is already written to scratch above; a background applier promotes it to YK
+        # and flips RECORDED -> APPLIED. Callers positively wait for APPLIED rather
+        # than trusting a fast accept.
+        self._schedule_apply(rid, apply_fn)
+        return scheduler_pb2.QueueShareResponse(
+            accepted=True,
+            request_id=rid,
+            state=scheduler_pb2.QUEUE_SHARE_RECORDED,
+        )
+
+    def _schedule_apply(self, rid: str, apply_fn) -> None:
+        """Promote the current scratch to YK/kubectl off the RPC path; flip to APPLIED.
+
+        Applies are serialized (apply_fn re-reads the current scratch, so the latest
+        federated sizing wins) and never block or fail the caller — a failed apply
+        leaves the record RECORDED for the next request/applier to retry, which the
+        caller observes as "not yet APPLIED".
+        """
+        def _run() -> None:
+            with self._apply_mu:
+                try:
+                    apply_fn()
+                except Exception as e:  # noqa: BLE001 - deliberate: never crash the applier
+                    log.warning("queue apply deferred for %s: %s", rid, e)
+                    return
+            with self._mu:
+                r = self.store.get(rid)
+                if r is not None and r.state == "RECORDED":
+                    r.state = "APPLIED"
+                    self.store.put(r)
+
+        threading.Thread(target=_run, name="qs-apply", daemon=True).start()
+
+    def list(
+        self,
+        *,
+        peer: str = "",
+        queue: str = "",
+        since_ns: int = 0,
+        limit: int = 0,
+    ) -> list[ShareRecord]:
+        peer = (peer or "").strip().lower()
+        queue = (queue or "").strip()
+        rows = self.store.list_all()
+        out: list[ShareRecord] = []
+        for rec in reversed(rows):  # newest first
+            if since_ns and rec.recorded_at_ns < since_ns:
+                continue
+            if peer and (rec.request.peer or "").strip().lower() != peer:
+                continue
+            if queue and not any(s.queue == queue for s in rec.request.shares):
+                continue
+            out.append(rec)
+            if limit and len(out) >= limit:
+                break
+        return out
