@@ -16,6 +16,8 @@ AUTO_EVENTING="${SIGNALS_STACK_AUTO_EVENTING:-1}"
 # Lab default: Airflow is critical once M2 landed
 REQUIRE_AIRFLOW="${SIGNALS_STACK_REQUIRE_AIRFLOW:-1}"
 REQUIRE_EVENTING="${SIGNALS_STACK_REQUIRE_EVENTING:-1}"
+# Seconds to let an installed-but-not-Ready Broker settle before (re)bootstrapping.
+EVENTING_WAIT="${SIGNALS_STACK_EVENTING_WAIT:-120}"
 REQUIRE_DATA_PLANE="${SIGNALS_STACK_REQUIRE_DATA_PLANE:-1}"
 # Prefer SIGNALS_STACK_DATA_PLANE_CI; legacy SIGNALS_STACK_DATA_PLANE_SMOKE still accepted
 DATA_PLANE_SMOKE="${SIGNALS_STACK_DATA_PLANE_CI:-${SIGNALS_STACK_DATA_PLANE_SMOKE:-1}}"
@@ -33,6 +35,22 @@ fi
 # Lab lattice: signals owns 5455 (see scripts/signals_port_lattice.sh)
 PGPORT="${SIGNALS_PG_PORT:-${PGPORT:-5455}}"
 ATLAS_URL="${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:${SIGNALS_ATLAS_HTTP_PORT:-21010}}"
+
+# Readable kubeconfig. A login shell may export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+# (root-only 0600); with that every kubectl below fails silently, the Eventing gate can
+# never pass, and signals-ui restart-loops (re-bootstrapping eventing each time) while
+# the bootstrap — which picks its own readable kubeconfig — keeps "succeeding".
+# Same pick as signals_ready.sh / knative_eventing_bootstrap.sh.
+pick_kubeconfig() {
+  local c
+  for c in "${KUBECONFIG:-}" "${HOME}/.kube/rke2.yaml" "${HOME}/.kube/config"; do
+    [[ -n "$c" && -r "$c" ]] || continue
+    export KUBECONFIG="$c"
+    return 0
+  done
+  return 1
+}
+pick_kubeconfig || true
 
 info() { echo "stack-preflight: $*"; }
 die() { echo "ERROR: stack-preflight: $*" >&2; exit 1; }
@@ -241,7 +259,7 @@ else
 fi
 
 # ── RKE2: Knative Eventing (M3 — CE → Airflow, no Argo) ───────────
-info "=== Knative Eventing (platform event fabric) ==="
+info "=== Knative Eventing (platform event fabric) === (KUBECONFIG=${KUBECONFIG:-unset})"
 eventing_ok() {
   command -v kubectl >/dev/null 2>&1 || return 1
   kubectl --kubeconfig "${KUBECONFIG:-$HOME/.kube/rke2.yaml}" get ns knative-eventing &>/dev/null 2>&1 || return 1
@@ -250,13 +268,33 @@ eventing_ok() {
     get broker default -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
   [[ "$r" == "True" ]]
 }
+# Installed = ns + Broker object exist; Ready may lag (reboot, load, webhook restarts).
+eventing_installed() {
+  command -v kubectl >/dev/null 2>&1 || return 1
+  kubectl --kubeconfig "${KUBECONFIG:-$HOME/.kube/rke2.yaml}" get ns knative-eventing &>/dev/null || return 1
+  kubectl --kubeconfig "${KUBECONFIG:-$HOME/.kube/rke2.yaml}" -n signals-events get broker default &>/dev/null
+}
+# Poll Ready for up to $1 seconds. Never re-bootstrap a merely-settling Broker: the
+# bootstrap rolls the eventing control plane, which un-readies the Broker again — under
+# the signals-ui restart policy that became a self-sustaining loop (and rolled the
+# Airflow dag-processor every iteration).
+eventing_wait() {
+  local deadline=$((SECONDS + ${1:-120}))
+  while (( SECONDS < deadline )); do
+    eventing_ok && return 0
+    sleep 5
+  done
+  eventing_ok
+}
 if eventing_ok; then
   ok "Knative Eventing Broker signals-events/default Ready"
+elif eventing_installed && { info "Eventing installed, Broker not Ready — settling up to ${EVENTING_WAIT}s"; eventing_wait "$EVENTING_WAIT"; }; then
+  ok "Knative Eventing Broker Ready (after settle)"
 else
   if [[ "$AUTO_EVENTING" == "1" || "$AUTO_EVENTING" == "true" ]]; then
     info "Eventing not ready — running knative_eventing_bootstrap.sh"
     if bash "$ROOT/scripts/knative_eventing_bootstrap.sh"; then
-      if eventing_ok; then
+      if eventing_wait "$EVENTING_WAIT"; then
         ok "Knative Eventing Broker Ready (after bootstrap)"
       else
         if [[ "$REQUIRE_EVENTING" == "1" || "$REQUIRE_EVENTING" == "true" ]]; then

@@ -128,10 +128,20 @@ k -n "$NAMESPACE" delete endpoints signals-postgres --ignore-not-found 2>/dev/nu
 info "waiting for signals-postgres-proxy..."
 k -n "$NAMESPACE" rollout status deploy/signals-postgres-proxy --timeout=120s
 
-info "applying CI DAG ConfigMap (signals_ci + legacy smoke dual-map)"
-k -n "$NAMESPACE" create configmap signals-airflow-dags \
-  --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py" \
-  --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py" \
+info "applying CI DAG ConfigMap (signals_ci + legacy smoke dual-map + eventing DAGs when present)"
+# values-signals.yaml subPath-mounts every key below; a key missing from the CM leaves the
+# dag-processor stuck in ContainerCreating. Keep this set ⊇ the mounted files.
+cm_args=(
+  --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py"
+  --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py"
+)
+EVENTING_DAGS="$ROOT/config/k8s/eventing/dags"
+for f in signals_eventing_ci_dag.py signals_eventing_smoke_dag.py; do
+  if [[ -f "$EVENTING_DAGS/$f" ]]; then
+    cm_args+=(--from-file="$f=$EVENTING_DAGS/$f")
+  fi
+done
+k -n "$NAMESPACE" create configmap signals-airflow-dags "${cm_args[@]}" \
   --dry-run=client -o yaml | k apply -f -
 
 # Metaflow ns may not exist yet — apply when present

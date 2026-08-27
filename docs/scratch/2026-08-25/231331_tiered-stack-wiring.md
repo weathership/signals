@@ -82,3 +82,50 @@ plan, not the caller.
 ## Verification
 
 (appended after `just signals-restart`)
+
+## Verification (after `just signals-restart`)
+
+`just signal-verify` — all green:
+
+```
+signals postgres :5455 is …/wxs/signals/.devenv/state/postgres (db=signals)   ← identity proven
+gaius   postgres :5444 is …/zndx/gaius/.devenv/state/postgres (db=zndx_gaius)  ← inet_server_port()+db
+:5455 signal_tier0 rows=7735   :5444 signal_tier0 rows=7735   signal_series 25 series
+ingest fresh age_ms=2162       DECIMAL predicate pushed (kudu_scan)
+signal view via Impala: 7752   kudu tablets for new tables: 36
+```
+
+- **signal_tier0** typed rows: `dcgm.power_mw` = 11641 (NVML milliwatts, INT),
+  17 DCGM families as INT. No float widening.
+- **signal view** answers 7752 across tier0 ∪ tier1 through one Impala plan.
+- **HDF5 settle write** (current hour): 10234 rows → 18832 bytes,
+  `int64 (17, 602)`, chunk `(1, 602)`, gzip; `is_signal_layout: True`.
+- **HDF5 reader** honours predicates — 9 jUnit tests incl. exact ts range,
+  series IN with exact DECIMAL, residual-only value predicate, wrong-hour empty.
+- **Strip** via `GET :9890/api/gaius/v1/cognition/waterfall?window_s=60` →
+  `driver: warehouse`, 20 channels.
+
+### Still settling (downstream of vLLM, not the storage path)
+- The DECIMAL cognition series (`cog.*`) populate once the thinking vLLM is
+  HEALTHY and the Ricci/CLT embedders are warm; the endpoint was cold-starting
+  (`vllm serve Qwen/Qwen3.8-27B`) during verification, so `val_d` rows were 0.
+  The cognition→DECIMAL path itself is covered by 24 passing unit tests.
+
+## Empty-Iceberg snapshot fix
+
+signal_tier1 exists before its first settle so the UNION resolves; the local
+catalog carried Thrift's unset-long 0 as a snapshot id → "Cannot find snapshot
+with ID 0". IcebergMetaProvider/LocalIcebergTable now map "no snapshot" to -1
+and planFiles treats `snapshotId <= 0` as an empty scan. FE rebuilt.
+
+## FDW fence
+
+`impala_fdw_exec` accepted only bare ADD/DROP RANGE PARTITION; the writer's
+idempotent `ADD IF NOT EXISTS` was silently rejected (the C++ creator's head
+start masked it). Fence widened to accept both idempotent forms.
+
+## Commits
+- signals: `5d888b7` (ops/settle/registry/fdw/recycle), `1449607` (fdw fence)
+- impala:  `8bf489bef` (empty-Iceberg snapshot), `4bc819425` (HDF5 pushdown)
+- semantics: `321dce1` (reader + /signal layout)
+- gaius:   `27f5ee2` (signal_tier0 write + reads), `0d9cb32` (ingest ALTER)

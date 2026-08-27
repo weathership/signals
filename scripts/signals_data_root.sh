@@ -59,5 +59,8 @@ signals_ensure_data_layout() {
     "$SIGNALS_FLINK_DATA_DIR" \
     "$SIGNALS_BACKUP_DIR" \
     "$SIGNALS_DATA_ROOT/impala/s3a-buffer" \
-    "$SIGNALS_DATA_ROOT/impala/hadoop-tmp"
+    "$SIGNALS_DATA_ROOT/impala/hadoop-tmp" \
+    "$SIGNALS_DATA_ROOT/gpu-metrics" \
+    "$SIGNALS_DATA_ROOT/bin"
+  export SIGNALS_GPU_METRICS_DIR="${SIGNALS_GPU_METRICS_DIR:-$SIGNALS_DATA_ROOT/gpu-metrics}"
 }

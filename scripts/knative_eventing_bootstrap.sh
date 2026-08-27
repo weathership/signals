@@ -59,8 +59,25 @@ zarf_ignore_ns() {
       >/dev/null 2>&1 || true
   done
 }
+# Idempotent: only pods the Zarf agent already rewrote (127.0.0.1:31999/…) need replacing.
+# A blanket `delete pods --all --force` on every run rolled the whole eventing control
+# plane, un-readied the Broker, and (via stack-preflight → signals-ui restart) looped.
+zarf_rewritten_pods() {
+  local ns="$1"
+  k -n "$ns" get pods -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .spec.containers[*]}{.image}{" "}{end}{"\n"}{end}' 2>/dev/null \
+    | awk '/:31999\//{print $1}'
+}
+delete_zarf_rewritten_pods() {
+  local ns="$1" pods
+  pods="$(zarf_rewritten_pods "$ns" | tr '\n' ' ')"
+  if [[ -n "${pods// /}" ]]; then
+    info "replacing Zarf-rewritten pods in ns/$ns: $pods"
+    # shellcheck disable=SC2086
+    k -n "$ns" delete pods $pods --force --grace-period=0 2>/dev/null || true
+  fi
+}
 zarf_ignore_ns knative-eventing
-k -n knative-eventing delete pods --all --force --grace-period=0 2>/dev/null || true
+delete_zarf_rewritten_pods knative-eventing
 
 info "waiting for eventing controller/webhook..."
 k -n knative-eventing rollout status deploy/eventing-controller --timeout=300s
@@ -70,8 +87,7 @@ info "applying in-memory channel + MT channel broker"
 k apply -f "$MANIFEST_DIR/in-memory-channel.yaml"
 k apply -f "$MANIFEST_DIR/mt-channel-broker.yaml"
 zarf_ignore_ns knative-eventing
-k -n knative-eventing delete pods -l app=imc-controller --force --grace-period=0 2>/dev/null || true
-k -n knative-eventing delete pods -l app=mt-broker-controller --force --grace-period=0 2>/dev/null || true
+delete_zarf_rewritten_pods knative-eventing
 k -n knative-eventing rollout status deploy/imc-controller --timeout=300s 2>/dev/null \
   || k -n knative-eventing wait --for=condition=Available deploy -l messaging.knative.dev/channel=InMemoryChannel --timeout=300s 2>/dev/null \
   || info "WARN: imc-controller wait skipped"
@@ -93,16 +109,20 @@ k -n signals-events rollout status deploy/airflow-dag-trigger --timeout=180s
 # Ensure eventing CI DAGs are in Airflow ConfigMap (ci primary + legacy smoke dual-map)
 if k get ns "$AIRFLOW_DAGS_CM_NS" >/dev/null 2>&1; then
   info "updating Airflow DAG ConfigMap (signals_ci + signals_eventing_ci + legacy)"
-  k -n "$AIRFLOW_DAGS_CM_NS" create configmap signals-airflow-dags \
+  cm_result="$(k -n "$AIRFLOW_DAGS_CM_NS" create configmap signals-airflow-dags \
     --from-file=signals_ci_dag.py="$ROOT/config/k8s/airflow/dags/signals_ci_dag.py" \
     --from-file=signals_eventing_ci_dag.py="$PLATFORM_DIR/dags/signals_eventing_ci_dag.py" \
     --from-file=signals_smoke_dag.py="$ROOT/config/k8s/airflow/dags/signals_smoke_dag.py" \
     --from-file=signals_eventing_smoke_dag.py="$PLATFORM_DIR/dags/signals_eventing_smoke_dag.py" \
-    --dry-run=client -o yaml | k apply -f -
-  # Restart dag-processor to pick up new file (subPath mounts do not auto-refresh all nodes)
-  k -n "$AIRFLOW_DAGS_CM_NS" rollout restart deploy -l component=dag-processor 2>/dev/null \
-    || k -n "$AIRFLOW_DAGS_CM_NS" delete pod -l component=dag-processor --force --grace-period=0 2>/dev/null \
-    || true
+    --dry-run=client -o yaml | k apply -f -)"
+  echo "$cm_result"
+  # subPath mounts do not refresh in place: restart dag-processor only when the CM changed.
+  if [[ "$cm_result" != *unchanged* ]]; then
+    info "DAG ConfigMap changed — restarting dag-processor"
+    k -n "$AIRFLOW_DAGS_CM_NS" rollout restart deploy -l component=dag-processor 2>/dev/null \
+      || k -n "$AIRFLOW_DAGS_CM_NS" delete pod -l component=dag-processor --force --grace-period=0 2>/dev/null \
+      || true
+  fi
 else
   info "WARN: ns/$AIRFLOW_DAGS_CM_NS missing — skip DAG ConfigMap (run just airflow-platform first)"
 fi
