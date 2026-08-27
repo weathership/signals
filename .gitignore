@@ -251,3 +251,6 @@ Cargo.lock
 
 # k3d
 .k3d/
+
+# runtime logs (polaris/impala/etc.) — not for VC
+/logs/
