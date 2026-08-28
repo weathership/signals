@@ -163,7 +163,11 @@ def settle(hour: int, *, no_upload: bool) -> int:
         return 0
     rows = read_hour(hour)
     if not rows:
-        raise SystemExit(f"{GURU} signal_tier0 has no rows for epoch_hour={hour}")
+        # A closed hour with no rows is a genuine ingest gap (host downtime), not
+        # an error -- there is nothing to settle. Skip so a wide --backfill spans
+        # gaps instead of dying on the first missing hour.
+        print(f"hour {hour}: no signal_tier0 rows (gap) — skipping")
+        return 0
     path = write_h5(hour, rows)
     size = path.stat().st_size
     print(f"analog {path} rows={len(rows)} bytes={size} hour={hour}")
@@ -193,35 +197,65 @@ def settle(hour: int, *, no_upload: bool) -> int:
 
 
 def drop_days() -> int:
-    """DROP RANGE PARTITION for every closed day whose 24 hours are verified."""
+    """DROP RANGE PARTITION for every closed day whose every tier0-present hour
+    is verified in Iceberg.
+
+    Gate on *present* hours (the epoch_hours that actually exist in signal_tier0
+    for the day), not a literal 24. Host downtime leaves closed days with gaps
+    (e.g. 9/24 hours ever ingested); a closed day gets no future rows, so once
+    all of its real hours are verified in tier1 it is safe to reclaim -- keying
+    on 24 would strand every gapped day in Kudu forever. A day fully dropped
+    leaves signal_tier0, so it reports present=0 next pass and is skipped.
+    """
     ensure_state()
     today0 = (int(datetime.now(timezone.utc).timestamp()) // 3600 // HOURS_PER_DAY) * HOURS_PER_DAY
     out = psql(
-        "SELECT (epoch_hour / 24) * 24 AS day0, count(*) FILTER (WHERE verified IS NOT NULL), "
-        "count(*) FILTER (WHERE dropped IS NOT NULL) "
-        "FROM signal_settle_state GROUP BY 1 ORDER BY 1"
+        "SELECT (t.epoch_hour / 24) * 24 AS day0, "
+        "count(*) AS present, count(s.verified) AS verified "
+        "FROM (SELECT DISTINCT epoch_hour FROM signal_tier0) t "
+        "LEFT JOIN signal_settle_state s ON s.epoch_hour = t.epoch_hour "
+        "GROUP BY 1 ORDER BY 1"
     )
     rc = 0
     for line in out.splitlines():
-        day0, n_ver, n_drop = (int(x) for x in line.split("\t"))
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        day0, present, verified = (int(x) for x in parts)
         if day0 >= today0:
             continue  # still the hot window
-        if n_ver < HOURS_PER_DAY:
-            print(f"day {day0}: {n_ver}/24 verified — keeping Kudu")
-            continue
-        if n_drop == HOURS_PER_DAY:
+        if present == 0:
+            continue  # already dropped, or nothing there
+        if verified < present:
+            print(f"day {day0}: {verified}/{present} present hours verified — keeping Kudu")
             continue
         ddl = (
             "ALTER TABLE signals_dataproducts.signal_tier0 "
             f"DROP RANGE PARTITION {day0} <= VALUES < {day0 + HOURS_PER_DAY}"
         )
-        psql(f"SELECT impala_fdw_exec('impala_kudu_srv', $q${ddl}$q$)")
+        try:
+            psql(f"SELECT impala_fdw_exec('impala_kudu_srv', $q${ddl}$q$)")
+        except SystemExit:
+            # HMS-free deployment: Impala's alterKuduTable drops the Kudu range
+            # (executes first) but then fails reloading table metadata via the
+            # absent Hive Metastore. The drop itself lands; verify the range is
+            # actually gone via a kudu_scan (needs no HMS) before treating the
+            # metadata-reload error as fatal.
+            remaining = psql(
+                "SELECT count(*) FROM signal_tier0 "
+                f"WHERE epoch_hour >= {day0} AND epoch_hour < {day0 + HOURS_PER_DAY}"
+            ).strip()
+            if remaining not in ("0", ""):
+                raise  # the Kudu drop really failed, not just the HMS reload
+            print(f"day {day0}: DROP RANGE metadata reload errored (HMS-free), but "
+                  "the Kudu range is gone — continuing")
         psql(
             "UPDATE signal_settle_state SET dropped = now() "
             f"WHERE epoch_hour >= {day0} AND epoch_hour < {day0 + HOURS_PER_DAY}",
             tuples=False,
         )
-        print(f"day {day0}: 24/24 verified → dropped Kudu range")
+        print(f"day {day0}: {present}/{present} present hours verified → dropped Kudu range")
+        rc += 1
     return rc
 
 

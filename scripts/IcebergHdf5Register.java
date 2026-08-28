@@ -16,6 +16,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
@@ -112,8 +113,16 @@ public final class IcebergHdf5Register {
       System.out.println("metrics: epoch_hour/ts_ns/series_id bounds from " + localH5);
     }
     DataFile df = b.build();
-    table.newAppend().appendFile(df).commit();
-    System.out.println("appended " + path + " records=" + records + " format=" + FileFormat.HDF5);
+    // Idempotent per epoch_hour: replace any existing data for this hour instead
+    // of appending. A re-settle (an hour that registered but failed verify, or a
+    // corrected rewrite) must not double the partition -- that would fail the
+    // exact-count verify and strand the hour in Kudu forever. The table is
+    // identity-partitioned on epoch_hour, so this filter is partition-aligned.
+    table.newOverwrite()
+        .overwriteByRowFilter(Expressions.equal("epoch_hour", hour))
+        .addFile(df)
+        .commit();
+    System.out.println("registered " + path + " records=" + records + " format=" + FileFormat.HDF5);
   }
 
   static Schema schemaFor(String table) {
