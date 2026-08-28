@@ -67,6 +67,12 @@ spec:
           env:
             - name: DCGM_EXPORTER_LISTEN
               value: ":9400"
+            # Collect at 4 Hz to match the tinybox LCD (NVML @ 250ms). The default
+            # 30000ms froze every GPU channel in the waterfall for 30s at a time —
+            # our 1 Hz warehouse writer just re-read the same stale value ~30x, so
+            # all sub-30s GPU dynamics were lost. 250ms restores LCD-grade motion.
+            - name: DCGM_EXPORTER_INTERVAL
+              value: "250"
             - name: DCGM_EXPORTER_KUBERNETES
               value: "false"
             - name: NVIDIA_VISIBLE_DEVICES
