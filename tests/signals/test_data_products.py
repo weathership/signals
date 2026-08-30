@@ -30,6 +30,10 @@ def test_catalog_has_federation_peers() -> None:
     assert cats["gaius.prospects.corpus"]["peer"] == "gaius"
     assert cats["gaius.prospects.corpus"]["kind"] == "corpus"
     assert cats["gaius.prospects.corpus"]["leaf"] == "root.internal.inference.extract"
+    assert "gaius.curation.cot_reasoning" in cats
+    assert cats["gaius.curation.cot_reasoning"]["kind"] == "reasoning"
+    assert cats["gaius.curation.cot_reasoning"]["leaf"] == "root.internal.inference.extract"
+    assert cats["gaius.curation.cot_reasoning"]["table_identifier"] == "hx.cot_reasoning"
     assert "aegir.usd-corpora" in cats
     assert "aegir.models.bespoke" in cats
     assert "atelier.classification.embeddings" in cats
@@ -37,10 +41,12 @@ def test_catalog_has_federation_peers() -> None:
 
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:
     root = Path(__file__).resolve().parents[2] / "config" / "platform"
-    ice = (root / "data-products-iceberg.sql").read_text(encoding="utf-8")
     kudu = (root / "data-products-kudu.sql").read_text(encoding="utf-8")
     views = (root / "data-products-views.sql").read_text(encoding="utf-8")
-    assert "details_tier1" in ice and "STORED AS ICEBERG" in ice
+    # Impala Iceberg DDL is retired — tier1 is created through Polaris
+    # (signals.ops.iceberg_register); the MultiMetaProvider cannot load back
+    # Impala-created Iceberg metadata on this fork.
+    assert not (root / "data-products-iceberg.sql").exists()
     assert "details_tier0" in kudu and "STORED AS KUDU" in kudu
     assert "DROP RANGE PARTITION" in kudu
     assert "Never DELETE FROM" in kudu
@@ -48,10 +54,46 @@ def test_iceberg_schema_is_sole_sor_not_pglite() -> None:
     assert "HASH (e)" in kudu
     assert "168" in kudu
     assert "settle_weeks" in kudu
+    assert "pglite" in kudu.lower()
     assert "UNION ALL" in views
     assert "signals_dataproducts.details AS" in views
-    assert "signals_dataproducts.history" not in ice
-    assert "pglite" in ice.lower()
+    # role is an Impala reserved word; the exchange voice column is actor.
+    assert "actor" in kudu and "actor" in views
+    assert " role " not in kudu.lower() and " role " not in views.lower()
+    # Every view masks tier1 weeks that still live in tier0 (no double-count).
+    assert views.count("NOT IN") == 4
+
+
+def test_tier1_registrar_matches_tier0_shape() -> None:
+    from signals.ops.iceberg_register import (
+        NAMESPACE,
+        TIER1_TABLES,
+        tier1_partition_column,
+        tier1_schema,
+    )
+
+    assert NAMESPACE == "signals_dataproducts"
+    assert TIER1_TABLES == (
+        "tx_tier1",
+        "details_tier1",
+        "hx_exchange_tier1",
+        "hx_reasoning_tier1",
+    )
+    assert tier1_partition_column("details_tier1") == "e"
+    assert tier1_partition_column("tx_tier1") == "product_id"
+    names = {t: [f.name for f in tier1_schema(t).fields] for t in TIER1_TABLES}
+    assert names["tx_tier1"] == [
+        "epoch_hour", "product_id", "tx_id", "ts_ns",
+        "kind", "summary", "source", "ce_type",
+    ]
+    assert names["details_tier1"] == ["epoch_hour", "e", "a", "t", "v", "op", "ts_ns"]
+    assert names["hx_exchange_tier1"] == [
+        "epoch_hour", "product_id", "tx_id", "ts_ns", "agent", "actor", "message",
+    ]
+    assert names["hx_reasoning_tier1"] == [
+        "epoch_hour", "product_id", "tx_id", "agent", "ts_ns",
+        "quality", "lineage", "delta", "trace",
+    ]
 
 
 def test_no_tmp_warehouse_paths() -> None:

@@ -19,8 +19,11 @@ from signals.ops.procedures import DATA_PRODUCT_HISTORY_REVIEW, get_method
 from signals.ops.warehouse import DataProductWarehouse, default_warehouse
 from signals.uuidv7 import mint as mint_uuidv7
 
-CATALOG = Path("config/platform/data-products.json")
-BRIEF_DIR = Path("build/state/data-product-briefs")
+# Repo-anchored so review() works from any cwd (Gaius shells out with
+# cwd=$SIGNALS_ROOT today, but nothing should depend on that).
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+CATALOG = _REPO_ROOT / "config/platform/data-products.json"
+BRIEF_DIR = _REPO_ROOT / "build/state/data-product-briefs"
 
 EVENT_TYPE = "dev.signals.dataproduct.updated"
 
@@ -215,7 +218,7 @@ def review(
                 "product_id": product_id,
                 "ts_ns": ev["ts_ns"],
                 "agent": hx_agent,
-                "role": "observer",
+                "actor": "observer",
                 "message": (
                     f"assessment={prod.get('assessment')} "
                     f"upkeep_nominal={prod.get('upkeep_nominal')} "

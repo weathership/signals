@@ -373,6 +373,11 @@ signals-restart:
 signal-verify:
     bash scripts/signal_stack_verify.sh
 
+# Create the data-product warehouse (tier0 Kudu via HS2, tier1 via Polaris,
+# merged views). Idempotent; reports every failed statement, not just the first.
+data-products-schema:
+    uv run python -m signals.ops schema-apply
+
 signal-settle *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail

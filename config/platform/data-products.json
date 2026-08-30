@@ -37,6 +37,16 @@
       "agent_focus": "Quality of retained SEC/FMP compact and summary objects on RustFS; lineage of Metaflow pathspec, code sha, and YK extract claim; delta vs prior latest_run_id; nominal walk of prospects-update (holding is not failed and not done)."
     },
     {
+      "id": "gaius.curation.cot_reasoning",
+      "peer": "gaius",
+      "title": "Article curation chain-of-thought reasoning",
+      "kind": "reasoning",
+      "leaf": "root.internal.inference.extract",
+      "agent_focus": "Quality and depth of retained cot_reflection traces for select_article (hx.cot_reasoning on RustFS, one row per run); lineage of Metaflow pathspec, optillm technique, model, and YK extract claim; delta vs the prior run's decision; nominal walk of article-curate (reasoning that completes and lands is nominal — long generations are the product).",
+      "table_identifier": "hx.cot_reasoning",
+      "data_uri": "s3://signals-dataproducts/iceberg/hx/cot_reasoning"
+    },
+    {
       "id": "aegir.usd-corpora",
       "peer": "aegir",
       "title": "USD corpora",

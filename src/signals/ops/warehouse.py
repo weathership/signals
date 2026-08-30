@@ -15,10 +15,15 @@ from typing import Any, Protocol
 
 from signals.uuidv7 import NonUuid7TxId, epoch_hour_of, is_uuidv7, mint as mint_uuidv7
 
+# Repo root, not cwd: apply_schema must work from any working directory.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# tier1 tables are NOT SQL: Impala Iceberg DDL writes metadata the
+# MultiMetaProvider cannot load back (2026-08-30 phantom-table incident).
+# They are created through Polaris by signals.ops.iceberg_register, between
+# the kudu and views files — see signals.ops.__main__ schema-apply.
 SCHEMA_SQL = (
-    Path("config/platform/data-products-kudu.sql"),
-    Path("config/platform/data-products-iceberg.sql"),
-    Path("config/platform/data-products-views.sql"),
+    _REPO_ROOT / "config/platform/data-products-kudu.sql",
+    _REPO_ROOT / "config/platform/data-products-views.sql",
 )
 DATABASE = "signals_dataproducts"
 TABLES = ("tx", "details", "hx_exchange", "hx_reasoning")
@@ -36,7 +41,7 @@ DETAIL_SKIP = frozenset(
 
 def detail_keys(product: dict[str, Any]) -> list[str]:
     """Catalog attrs plus extra scalar facts (Metaflow snapshot fields, …)."""
-    keys = list(DETAIL_ATTRS)
+    keys: list[str] = list(DETAIL_ATTRS)
     for k, v in product.items():
         if k in DETAIL_SKIP or k in keys:
             continue
@@ -226,11 +231,18 @@ class ImpalaWarehouse:
         return None
 
     def apply_schema(self, sql_path: Path | None = None) -> None:
+        """Apply every statement in every schema file; fail with ALL errors.
+
+        A single bad statement (e.g. a reserved word) must not silently leave
+        the inventory half-built — every remaining statement still runs, then
+        one aggregate WarehouseError reports each failure.
+        """
         paths: tuple[Path, ...]
         if sql_path is None:
             paths = SCHEMA_SQL
         else:
             paths = (sql_path,)
+        failures: list[str] = []
         for path in paths:
             raw = path.read_text(encoding="utf-8")
             stmt: list[str] = []
@@ -241,8 +253,18 @@ class ImpalaWarehouse:
             blob = "\n".join(stmt)
             for part in blob.split(";"):
                 sql = part.strip()
-                if sql:
+                if not sql:
+                    continue
+                try:
                     self._execute(sql)
+                except Exception as e:  # noqa: BLE001 — collected and re-raised
+                    head = " ".join(sql.split())[:80]
+                    failures.append(f"{path.name}: {head!r}: {e}")
+        if failures:
+            raise WarehouseError(
+                f"apply_schema: {len(failures)} statement(s) failed:\n  "
+                + "\n  ".join(failures)
+            )
 
     def insert_tx(self, event: dict[str, Any]) -> None:
         ts = int(event.get("ts_ns") or time.time_ns())
@@ -284,9 +306,9 @@ class ImpalaWarehouse:
         tid = _sql_str(row.get("tx_id") or row.get("event_id"))
         self._execute(
             f"INSERT INTO {DATABASE}.{TIER0['hx_exchange']} "
-            f"(epoch_hour, product_id, tx_id, ts_ns, agent, role, message) VALUES ("
+            f"(epoch_hour, product_id, tx_id, ts_ns, agent, actor, message) VALUES ("
             f"{hour}, {_sql_str(row.get('product_id'))}, {tid}, {ts}, "
-            f"{_sql_str(row.get('agent'))}, {_sql_str(row.get('role'))}, "
+            f"{_sql_str(row.get('agent'))}, {_sql_str(row.get('actor'))}, "
             f"{_sql_str(row.get('message'))})"
         )
 

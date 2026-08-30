@@ -69,7 +69,7 @@ erDiagram
         string tx_id FK
         string product_id FK
         string agent
-        string role
+        string actor
         string message
     }
     HX_REASONING {

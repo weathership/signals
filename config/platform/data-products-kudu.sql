@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS signals_dataproducts.hx_exchange_tier0 (
   tx_id STRING,
   ts_ns BIGINT,
   agent STRING,
-  role STRING,
+  actor STRING,
   message STRING,
   PRIMARY KEY (epoch_hour, product_id, tx_id, ts_ns, agent)
 )

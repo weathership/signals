@@ -7,6 +7,7 @@
     uv run python -m signals.ops risk --state apps_completing
     uv run python -m signals.ops review-product ID [--kind updated] [--summary ...]
     uv run python -m signals.ops record-snapshot --flow NAME --run-id ID
+    uv run python -m signals.ops schema-apply
     uv run python -m signals.ops warehouse-apply
     uv run python -m signals.ops tier-upkeep
 """
@@ -53,8 +54,16 @@ def main(argv: list[str] | None = None) -> int:
     rev.add_argument("--kind", default="updated")
     rev.add_argument("--summary", default="")
     sub.add_parser(
+        "schema-apply",
+        help=(
+            "Create the data-product warehouse: tier0 Kudu DDL via HS2, "
+            "tier1 via Polaris (PyIceberg), then the merged views"
+        ),
+    )
+    sub.add_parser(
         "warehouse-apply",
-        help="Seed Iceberg details from JSON (RustFS SoR; never pglite)",
+        help="Seed data-product details facts from data-products.json "
+        "(does NOT create tables — see schema-apply)",
     )
     snap = sub.add_parser(
         "record-snapshot",
@@ -167,6 +176,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recorded {ev['product_id']} kind={ev['kind']}")
         print(f"brief {brief}")
         sys.stdout.write(brief.read_text(encoding="utf-8"))
+        return 0
+    if ns.cmd == "schema-apply":
+        from signals.ops.iceberg_register import register_tier1_tables
+        from signals.ops.warehouse import SCHEMA_SQL, ImpalaWarehouse
+
+        wh = ImpalaWarehouse()
+        try:
+            # Kudu tier0 first, then Polaris tier1, then views (views need both).
+            wh.apply_schema(SCHEMA_SQL[0])
+            for ident in register_tier1_tables():
+                print(f"tier1 {ident}")
+            wh.apply_schema(SCHEMA_SQL[1])
+        except Exception as e:
+            print(e, file=sys.stderr)
+            return 2
+        print("schema applied: tier0 + tier1 + views")
         return 0
     if ns.cmd == "warehouse-apply":
         try:
