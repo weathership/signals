@@ -68,10 +68,22 @@ When `-Dsignals.hms_free_mode=true` is set, the catalog server bypasses HMS enti
 | Operation | Standard Path | HMS-Free Path |
 |-----------|---------------|---------------|
 | CREATE TABLE (Kudu) | HMS → Kudu | KuduCatalogOpExecutor → Kudu + PG registry |
-| CREATE TABLE (Iceberg) | HMS → Polaris | IcebergCatalogOpExecutor → Polaris |
+| CREATE TABLE (Iceberg) | HMS → Polaris | IcebergCatalogOpExecutor → Polaris — **PENDING** (see below) |
 | DROP TABLE | HMS → storage | SignalsDdlExecutor → storage + PG registry |
 | Load metadata | HMS getTable() | TableLoader.loadHmsFree() → Kudu master |
 | CREATE/DROP DATABASE | HMS | KuduMetaProvider → PG registry |
+
+**Iceberg DDL/DML through Impala is PENDING — in-fork, gradual, with
+purpose.** The Phase-2 `IcebergRESTCatalog.createTable()` path exists but its
+created metadata cannot yet be loaded back by the `MultiMetaProvider`
+(2026-08-30 phantom-table incident, `#SL.00000027.SCHEMA2`), and upstream's
+REST-catalog support marks tables `ACCESSTYPE_READ` ("read-only … not
+supported *yet*", IMPALA-13586) so DML is gated at analysis. Doctrine: this
+fork will implement the Transparent Hierarchical Storage write path over
+Kudu and Iceberg through our own efforts. Until then the bridges are
+`signals.ops.iceberg_register` (PyIceberg → Polaris) for tier1 DDL and
+out-of-band settle (HDF5 + `IcebergHdf5Register`) for tier1 writes — bridges,
+not the architecture.
 
 ### Modified Components
 

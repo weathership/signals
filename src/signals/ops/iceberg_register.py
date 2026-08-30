@@ -13,7 +13,10 @@ Table locations derive from the Polaris catalog ``default-base-location``
 matching the working-table convention
 ``s3://signals-dataproducts/iceberg/signals_dataproducts/<table>``.
 
-Guru: #SL.00000027.SCHEMA2 (no HS2 Iceberg DDL on this stack).
+Guru: #SL.00000027.SCHEMA2 (HS2 Iceberg DDL is PENDING on this stack —
+upstream IMPALA-13586 is read-only "yet"; the in-fork Transparent
+Hierarchical Storage write path is the roadmap, and this Polaris
+registration is the bridge).
 """
 
 from __future__ import annotations

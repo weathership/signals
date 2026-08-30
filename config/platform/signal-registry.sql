@@ -2,7 +2,8 @@
 -- KuduMetaProvider/IcebergMetaProvider load tables ONLY from catalog_tables;
 -- a Kudu table that exists on the master but has no row here is invisible to
 -- HS2 (ALTER RANGE PARTITION, views, UNION). Kudu tables themselves are
--- created by scripts/signals_kudu_create.cc — never HS2 CREATE (#SL.00000027.SCHEMA2).
+-- created by scripts/signals_kudu_create.cc — HS2 CREATE is PENDING in-fork
+-- (#SL.00000027.SCHEMA2: not yet; upstream IMPALA-13586 read-only "yet").
 
 INSERT INTO catalog_databases (name, location)
 VALUES ('signals_dataproducts', 's3a://signals-dataproducts/iceberg')

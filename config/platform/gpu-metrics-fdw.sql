@@ -5,6 +5,8 @@
 --
 -- Transparent hierarchy: clients SELECT FROM gpu_metrics; they do not choose
 -- a store. Iceberg FTs must not use kudu_scan (SPEC lift: Iceberg ⇒ HS2).
+-- Iceberg DML through Impala is PENDING in-fork (upstream IMPALA-13586 is
+-- read-only "yet"); out-of-band settle is the bridge, not the architecture.
 
 CREATE SERVER IF NOT EXISTS impala_kudu_srv
   FOREIGN DATA WRAPPER impala_fdw

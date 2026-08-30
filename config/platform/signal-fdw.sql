@@ -2,7 +2,8 @@
 -- Apply to BOTH Postgres instances (signals :5455 and gaius :5444); impala_kudu_srv must exist.
 --
 --   *_tier0            Kudu, access kudu_scan   (INSERTable; hot tier)
---   signal_tier1       Iceberg+HDF5, impala_sql (settled hours)
+--   signal_tier1       Iceberg+HDF5, impala_sql (settled hours; Impala-side
+--                      Iceberg DML is PENDING in-fork — IMPALA-13586 "yet")
 --   signal             Impala UNION view, impala_sql — the transparent surface
 --   signal_series, clt_feature, clt_label  reference tables (Kudu, never tier)
 --
