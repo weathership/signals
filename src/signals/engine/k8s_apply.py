@@ -58,11 +58,35 @@ class ApplyConfig:
                 "SIGNALS_YK_CM_FALLBACK", "yunikorn-defaults"
             ),
             key=os.environ.get("SIGNALS_YK_CM_KEY", "queues.yaml"),
-            kubeconfig=os.environ.get("KUBECONFIG")
-            or os.environ.get("SIGNALS_YK_KUBECONFIG"),
+            kubeconfig=resolve_kubeconfig(),
             context=os.environ.get("SIGNALS_YK_KUBE_CONTEXT"),
             kubectl=os.environ.get("SIGNALS_YK_KUBECTL", "kubectl"),
         )
+
+
+def resolve_kubeconfig() -> str | None:
+    """First READABLE of SIGNALS_YK_KUBECONFIG, KUBECONFIG, ~/.kube/{rke2.yaml,config}.
+
+    An unreadable path must never win: a root-only /etc/rancher/rke2/rke2.yaml
+    leaked into the devenv daemon's environment silently broke every
+    PromoteScratch (and with it queue-share APPLIED) from 2026-08-28 to
+    2026-08-30. The explicit SIGNALS_YK_KUBECONFIG outranks the ambient
+    KUBECONFIG; both are skipped, loudly, when not readable.
+    """
+    candidates = (
+        ("SIGNALS_YK_KUBECONFIG", os.environ.get("SIGNALS_YK_KUBECONFIG")),
+        ("KUBECONFIG", os.environ.get("KUBECONFIG")),
+        ("default", os.path.expanduser("~/.kube/rke2.yaml")),
+        ("default", os.path.expanduser("~/.kube/config")),
+    )
+    for source, cand in candidates:
+        if not cand:
+            continue
+        if os.access(cand, os.R_OK):
+            return cand
+        if source != "default":
+            log.warning("%s=%s is not readable — skipping", source, cand)
+    return None  # let kubectl resolve; --kubeconfig is simply omitted
 
 
 def _kubectl_base(cfg: ApplyConfig) -> list[str]:

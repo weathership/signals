@@ -688,6 +688,11 @@ in
       export SIGNALS_YK_API_URL="''${SIGNALS_YK_API_URL:-http://127.0.0.1:30080}"
       export SIGNALS_REPO_ROOT="$PWD"
       export SIGNALS_YK_PROJECTION_ROOT="''${SIGNALS_YK_PROJECTION_ROOT:-$PWD/build/dev}"
+      # PromoteScratch's kubectl must never inherit a root-only kubeconfig
+      # leaked from the launching shell (2026-08-28..30 silent-apply-failure).
+      if [ -r "$HOME/.kube/rke2.yaml" ]; then
+        export SIGNALS_YK_KUBECONFIG="''${SIGNALS_YK_KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+      fi
       export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
       echo "signals-engine: Engine + Scheduler on :$SIGNALS_ENGINE_GRPC_PORT (YK REST private)"
       if command -v uv >/dev/null 2>&1; then
@@ -1751,7 +1756,9 @@ in
     "signals:airflow-platform" = {
       exec = ''
         set -euo pipefail
-        export KUBECONFIG="''${KUBECONFIG:-$HOME/.kube/rke2.yaml}";
+        # No KUBECONFIG default here: a login shell may carry the root-only
+        # /etc/rancher/rke2/rke2.yaml; the bootstrap script picks the first
+        # READABLE candidate itself.
         bash "$PWD/scripts/airflow_platform_bootstrap.sh"
       '';
       description = "Deploy platform Airflow 3 on RKE2 (LocalExecutor + host PG + NodePort 30800)";

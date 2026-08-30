@@ -12,6 +12,11 @@ export SIGNALS_REPO_ROOT="$ROOT"
 export SIGNALS_KRB_HOST="${SIGNALS_KRB_HOST:-tinybox.dev.vista.zndx.org}"
 export SIGNALS_ADVERTISE_HOST="${SIGNALS_ADVERTISE_HOST:-$SIGNALS_KRB_HOST}"
 export SIGNALS_YK_PROJECTION_ROOT="${SIGNALS_YK_PROJECTION_ROOT:-$ROOT/build/dev}"
+# PromoteScratch's kubectl needs a READABLE kubeconfig; a login shell may
+# leak the root-only /etc/rancher/rke2/rke2.yaml (2026-08-28..30 incident).
+if [ -r "$HOME/.kube/rke2.yaml" ]; then
+  export SIGNALS_YK_KUBECONFIG="${SIGNALS_YK_KUBECONFIG:-$HOME/.kube/rke2.yaml}"
+fi
 
 LOG_DIR="${SIGNALS_ENGINE_LOG_DIR:-/tmp/signals-engine}"
 PID_FILE="$LOG_DIR/unit_server.pid"

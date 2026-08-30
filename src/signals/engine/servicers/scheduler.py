@@ -699,8 +699,10 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
             self.store.write_config(body, root="scratch")
 
         def apply_fn() -> None:
+            # Runs on the applier thread after this RPC has returned — never
+            # hand it the (dead) request context.
             r = self.PromoteScratch(
-                scheduler_pb2.PromoteScratchRequest(dry_run=False), context
+                scheduler_pb2.PromoteScratchRequest(dry_run=False), None
             )
             if not r.ok:
                 raise RuntimeError(r.message or "PromoteScratch failed")

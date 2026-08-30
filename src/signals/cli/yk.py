@@ -128,6 +128,49 @@ def cmd_write_scratch(ns: argparse.Namespace) -> int:
 
 def cmd_diff(ns: argparse.Namespace) -> int:
     stub = _stub()
+    if ns.sor:
+        # SoR vs live: the one comparison the scratch/current projection
+        # cannot answer ("is the declared federation-queues.yaml actually
+        # promoted?" — the 2026-08-30 extract-floor finding). Both sides are
+        # canonicalized (declared keys only, sorted) for a semantic diff.
+        import difflib
+
+        import yaml as _yaml
+
+        from signals.engine.yk_client import normalize_declared_config
+
+        sor_path = (
+            Path(__file__).resolve().parents[3]
+            / "config"
+            / "scheduler"
+            / "federation-queues.yaml"
+        )
+        live = stub.GetDeclaredConfig(
+            scheduler_pb2.GetDeclaredConfigRequest(), timeout=15
+        )
+        live_body = live.document.body if live.document else ""
+
+        def _canon(body: str) -> list[str]:
+            data = _yaml.safe_load(normalize_declared_config(body)) or {}
+            return _yaml.safe_dump(
+                data, default_flow_style=False, sort_keys=True
+            ).splitlines(keepends=True)
+
+        lines = list(
+            difflib.unified_diff(
+                _canon(live_body),
+                _canon(sor_path.read_text(encoding="utf-8")),
+                fromfile="live (yunikorn)",
+                tofile=str(sor_path),
+            )
+        )
+        if lines:
+            sys.stdout.writelines(lines)
+            if not lines[-1].endswith("\n"):
+                sys.stdout.write("\n")
+            return 1
+        print("(live matches SoR federation-queues.yaml)")
+        return 0
     r = stub.DiffConfig(
         scheduler_pb2.DiffConfigRequest(include_live=ns.live),
         timeout=30,
@@ -334,11 +377,17 @@ def main(argv: list[str] | None = None) -> int:
     cq.add_argument("--stamp", default="")
     cq.set_defaults(func=cmd_collect_queues)
 
-    d = sub.add_parser("diff", help="Diff scratch vs current (optional vs live)")
+    d = sub.add_parser("diff", help="Diff scratch vs current (optional vs live/SoR)")
     d.add_argument(
         "--live",
         action="store_true",
         help="also diff live GetDeclaredConfig vs current",
+    )
+    d.add_argument(
+        "--sor",
+        action="store_true",
+        help="diff live config vs config/scheduler/federation-queues.yaml "
+        "(exit 1 when the declared SoR is not what is promoted)",
     )
     d.set_defaults(func=cmd_diff)
 

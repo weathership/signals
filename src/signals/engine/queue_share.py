@@ -36,7 +36,13 @@ LEFTOVER_QUEUES = frozenset(
     }
 )
 OCCUPANCY_QUEUES = LEFTOVER_QUEUES | {"root.internal.inference.heavy"}
-BASELINE = Path("config/scheduler/federation-queues.yaml")
+# Repo-anchored: the engine's cwd is not guaranteed (systemd vs devenv vs CLI).
+BASELINE = Path(
+    os.environ.get(
+        "SIGNALS_YK_BASELINE",
+        str(Path(__file__).resolve().parents[3] / "config/scheduler/federation-queues.yaml"),
+    )
+)
 
 _STATES = {
     "RECORDED": scheduler_pb2.QUEUE_SHARE_RECORDED,
@@ -198,14 +204,37 @@ def find_queue(doc: dict[str, Any], fqn: str) -> dict[str, Any] | None:
     return None
 
 
+def baseline_guarantees(yaml_body: str | None = None) -> dict[str, int]:
+    """Declared guaranteed GPU floors from the SoR federation-queues.yaml.
+
+    These are standing policy (e.g. extract's floor of 1 so article-curate
+    preempts an unguaranteed ask-sae) — peer occupancy can only RAISE a
+    queue above its declared floor, never erase it.
+    """
+    import yaml
+
+    body = yaml_body if yaml_body is not None else baseline_yaml()
+    doc = yaml.safe_load(body) or {}
+    out: dict[str, int] = {}
+    for q in OCCUPANCY_QUEUES:
+        node = find_queue(doc, q)
+        if node is None:
+            continue
+        g = (node.get("resources") or {}).get("guaranteed") or {}
+        out[q] = int(g.get(GPU, 0) or 0)
+    return out
+
+
 def patch_occupancy(
     yaml_body: str,
     floors: dict[str, int],
     *,
     shares: list[scheduler_pb2.QueueShare] | None = None,
+    baseline: dict[str, int] | None = None,
 ) -> str:
     import yaml
 
+    declared = baseline if baseline is not None else baseline_guarantees()
     doc = yaml.safe_load(yaml_body) or {}
     share_by_q = {s.queue: s for s in (shares or []) if s.queue}
     for q in OCCUPANCY_QUEUES:
@@ -214,7 +243,10 @@ def patch_occupancy(
             continue
         res = node.setdefault("resources", {})
         g = res.setdefault("guaranteed", {})
-        g[GPU] = str(int(floors.get(q, 0) or 0))
+        # A queue with no active peer floor falls back to its DECLARED floor,
+        # never to 0 — zeroing here silently erased the SoR extract floor on
+        # every ingest (2026-08-30 finding).
+        g[GPU] = str(max(int(declared.get(q, 0) or 0), int(floors.get(q, 0) or 0)))
         mx = res.setdefault("max", {})
         sh = share_by_q.get(q)
         if sh is not None:
@@ -243,7 +275,14 @@ class QueueShareService:
     def __init__(self, store: QueueShareStore):
         self.store = store
         self._mu = threading.Lock()
-        self._apply_mu = threading.Lock()  # serialize off-hot-path applies
+        # Coalescing applier state: one worker, a pending set of record ids
+        # whose floors are merged into the current scratch. Thread-per-request
+        # plus a flip gated on state==RECORDED made APPLIED unreachable under
+        # WRK churn (2758 records, 0 APPLIED on 2026-08-30).
+        self._apply_cv = threading.Condition()
+        self._apply_pending: set[str] = set()
+        self._apply_fn = None
+        self._apply_thread: threading.Thread | None = None
 
     def ingest(
         self,
@@ -327,7 +366,8 @@ class QueueShareService:
                 old.state = "SUPERSEDED"
                 self.store.put(old)
 
-        floors = merge_floors(active_records(self.store))
+        active = active_records(self.store)
+        floors = merge_floors(active)
         total = occupancy_sum(floors)
         if total > PARENT_GPU_MAX:
             rec.state = "REJECTED"
@@ -358,38 +398,64 @@ class QueueShareService:
             )
         # Apply OFF the RPC hot path: a cold YuniKorn REST / kubectl must never time
         # out the caller (the 2026-08-26 admission failure). Footprint-driven sizing
-        # is already written to scratch above; a background applier promotes it to YK
-        # and flips RECORDED -> APPLIED. Callers positively wait for APPLIED rather
-        # than trusting a fast accept.
-        self._schedule_apply(rid, apply_fn)
+        # is already written to scratch above; the coalescing applier promotes it to
+        # YK and flips every record merged into that scratch RECORDED -> APPLIED.
+        # Callers positively wait for APPLIED rather than trusting a fast accept.
+        self._queue_apply({r.request.request_id for r in active}, apply_fn)
         return scheduler_pb2.QueueShareResponse(
             accepted=True,
             request_id=rid,
             state=scheduler_pb2.QUEUE_SHARE_RECORDED,
         )
 
-    def _schedule_apply(self, rid: str, apply_fn) -> None:
-        """Promote the current scratch to YK/kubectl off the RPC path; flip to APPLIED.
+    def _queue_apply(self, merged_ids: set[str], apply_fn) -> None:
+        """Hand the scratch snapshot's record ids to the coalescing applier."""
+        with self._apply_cv:
+            self._apply_pending.update(merged_ids)
+            self._apply_fn = apply_fn
+            if self._apply_thread is None or not self._apply_thread.is_alive():
+                self._apply_thread = threading.Thread(
+                    target=self._apply_worker, name="qs-apply", daemon=True
+                )
+                self._apply_thread.start()
+            self._apply_cv.notify()
 
-        Applies are serialized (apply_fn re-reads the current scratch, so the latest
-        federated sizing wins) and never block or fail the caller — a failed apply
-        leaves the record RECORDED for the next request/applier to retry, which the
-        caller observes as "not yet APPLIED".
+    def _apply_worker(self) -> None:
+        """Promote scratch to YK/kubectl; flip merged records to APPLIED.
+
+        One worker drains the pending set: apply_fn re-promotes the CURRENT
+        scratch, which already reflects every pending record's merge (scratch
+        is cumulative), so a single successful apply covers the whole batch. A
+        record superseded before the apply stays SUPERSEDED — the flip only
+        touches records still RECORDED. Failures retry with backoff instead of
+        deferring forever (pre-2026-08-30 behavior left records RECORDED until
+        the next inbound request, i.e. potentially never).
         """
-        def _run() -> None:
-            with self._apply_mu:
-                try:
-                    apply_fn()
-                except Exception as e:  # noqa: BLE001 - deliberate: never crash the applier
-                    log.warning("queue apply deferred for %s: %s", rid, e)
-                    return
+        backoff = 5.0
+        while True:
+            with self._apply_cv:
+                while not self._apply_pending:
+                    if not self._apply_cv.wait(timeout=60.0) and not self._apply_pending:
+                        return  # idle: exit; the next ingest restarts the worker
+                batch = set(self._apply_pending)
+                fn = self._apply_fn
+            try:
+                if fn is not None:
+                    fn()
+            except Exception as e:  # noqa: BLE001 - deliberate: never crash the applier
+                log.warning("queue apply deferred (%d record(s)): %s", len(batch), e)
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 300.0)
+                continue
+            backoff = 5.0
             with self._mu:
-                r = self.store.get(rid)
-                if r is not None and r.state == "RECORDED":
-                    r.state = "APPLIED"
-                    self.store.put(r)
-
-        threading.Thread(target=_run, name="qs-apply", daemon=True).start()
+                for rid in sorted(batch):
+                    r = self.store.get(rid)
+                    if r is not None and r.state == "RECORDED":
+                        r.state = "APPLIED"
+                        self.store.put(r)
+            with self._apply_cv:
+                self._apply_pending.difference_update(batch)
 
     def list(
         self,
