@@ -41,6 +41,8 @@ class ServerQueryKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_QUERY_KIND_SURFACES: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_QUEUES: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_WORKLOADS: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_SOURCE_POSTURE: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_PRODUCTS: _ClassVar[ServerQueryKind]
 
 class ServingBackend(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -56,6 +58,21 @@ class ResourceClass(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RESOURCE_CLASS_MEDIUM: _ClassVar[ResourceClass]
     RESOURCE_CLASS_LIGHT: _ClassVar[ResourceClass]
     RESOURCE_CLASS_COMPUTE: _ClassVar[ResourceClass]
+
+class WorkloadPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    WORKLOAD_PHASE_UNSPECIFIED: _ClassVar[WorkloadPhase]
+    WORKLOAD_PHASE_SETTLED: _ClassVar[WorkloadPhase]
+    WORKLOAD_PHASE_TRANSITIONING: _ClassVar[WorkloadPhase]
+
+class WorkloadStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    WORKLOAD_STATUS_UNSPECIFIED: _ClassVar[WorkloadStatus]
+    WORKLOAD_STATUS_SERVING: _ClassVar[WorkloadStatus]
+    WORKLOAD_STATUS_STARTING: _ClassVar[WorkloadStatus]
+    WORKLOAD_STATUS_DEGRADED: _ClassVar[WorkloadStatus]
+    WORKLOAD_STATUS_FAILED: _ClassVar[WorkloadStatus]
+    WORKLOAD_STATUS_ABSENT: _ClassVar[WorkloadStatus]
 SIGNAL_KIND_UNSPECIFIED: SignalKind
 EXTERNAL_NAMESPACE_VIOLATION: SignalKind
 UNSATISFIABLE: SignalKind
@@ -79,6 +96,8 @@ SERVER_QUERY_KIND_NOTE: ServerQueryKind
 SERVER_QUERY_KIND_SURFACES: ServerQueryKind
 SERVER_QUERY_KIND_QUEUES: ServerQueryKind
 SERVER_QUERY_KIND_WORKLOADS: ServerQueryKind
+SERVER_QUERY_KIND_SOURCE_POSTURE: ServerQueryKind
+SERVER_QUERY_KIND_PRODUCTS: ServerQueryKind
 SERVING_BACKEND_UNSPECIFIED: ServingBackend
 SERVING_BACKEND_VLLM_LOCAL: ServingBackend
 SERVING_BACKEND_KSERVE_REMOTE: ServingBackend
@@ -88,6 +107,15 @@ RESOURCE_CLASS_HEAVY: ResourceClass
 RESOURCE_CLASS_MEDIUM: ResourceClass
 RESOURCE_CLASS_LIGHT: ResourceClass
 RESOURCE_CLASS_COMPUTE: ResourceClass
+WORKLOAD_PHASE_UNSPECIFIED: WorkloadPhase
+WORKLOAD_PHASE_SETTLED: WorkloadPhase
+WORKLOAD_PHASE_TRANSITIONING: WorkloadPhase
+WORKLOAD_STATUS_UNSPECIFIED: WorkloadStatus
+WORKLOAD_STATUS_SERVING: WorkloadStatus
+WORKLOAD_STATUS_STARTING: WorkloadStatus
+WORKLOAD_STATUS_DEGRADED: WorkloadStatus
+WORKLOAD_STATUS_FAILED: WorkloadStatus
+WORKLOAD_STATUS_ABSENT: WorkloadStatus
 
 class Candidate(_message.Message):
     __slots__ = ("iri", "label", "kind", "score")
@@ -185,8 +213,18 @@ class CompleteRequest(_message.Message):
     messages_json: str
     def __init__(self, capability: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., json_schema: _Optional[str] = ..., timezone: _Optional[str] = ..., clock_json: _Optional[str] = ..., tools_json: _Optional[str] = ..., tool_choice: _Optional[str] = ..., messages_json: _Optional[str] = ...) -> None: ...
 
+class ToolCall(_message.Message):
+    __slots__ = ("id", "name", "arguments_json")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ARGUMENTS_JSON_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    arguments_json: str
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., arguments_json: _Optional[str] = ...) -> None: ...
+
 class CompleteResponse(_message.Message):
-    __slots__ = ("text", "model", "prompt_tokens", "completion_tokens", "latency_ms", "reasoning_content", "finish_reason")
+    __slots__ = ("text", "model", "prompt_tokens", "completion_tokens", "latency_ms", "reasoning_content", "finish_reason", "tool_calls")
     TEXT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     PROMPT_TOKENS_FIELD_NUMBER: _ClassVar[int]
@@ -194,6 +232,7 @@ class CompleteResponse(_message.Message):
     LATENCY_MS_FIELD_NUMBER: _ClassVar[int]
     REASONING_CONTENT_FIELD_NUMBER: _ClassVar[int]
     FINISH_REASON_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CALLS_FIELD_NUMBER: _ClassVar[int]
     text: str
     model: str
     prompt_tokens: int
@@ -201,7 +240,8 @@ class CompleteResponse(_message.Message):
     latency_ms: float
     reasoning_content: str
     finish_reason: str
-    def __init__(self, text: _Optional[str] = ..., model: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., reasoning_content: _Optional[str] = ..., finish_reason: _Optional[str] = ...) -> None: ...
+    tool_calls: _containers.RepeatedCompositeFieldContainer[ToolCall]
+    def __init__(self, text: _Optional[str] = ..., model: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., reasoning_content: _Optional[str] = ..., finish_reason: _Optional[str] = ..., tool_calls: _Optional[_Iterable[_Union[ToolCall, _Mapping]]] = ...) -> None: ...
 
 class StatusRequest(_message.Message):
     __slots__ = ()
@@ -311,6 +351,56 @@ class WikiNote(_message.Message):
     origin_project: str
     def __init__(self, id: _Optional[str] = ..., title: _Optional[str] = ..., body: _Optional[str] = ..., links: _Optional[_Iterable[str]] = ..., origin_project: _Optional[str] = ...) -> None: ...
 
+class SubmodulePosture(_message.Message):
+    __slots__ = ("path", "name", "pinned_sha", "checked_out_sha", "dirty")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PINNED_SHA_FIELD_NUMBER: _ClassVar[int]
+    CHECKED_OUT_SHA_FIELD_NUMBER: _ClassVar[int]
+    DIRTY_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    name: str
+    pinned_sha: str
+    checked_out_sha: str
+    dirty: bool
+    def __init__(self, path: _Optional[str] = ..., name: _Optional[str] = ..., pinned_sha: _Optional[str] = ..., checked_out_sha: _Optional[str] = ..., dirty: _Optional[bool] = ...) -> None: ...
+
+class MigrationPosture(_message.Message):
+    __slots__ = ("source", "current", "unapplied")
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_FIELD_NUMBER: _ClassVar[int]
+    UNAPPLIED_FIELD_NUMBER: _ClassVar[int]
+    source: str
+    current: str
+    unapplied: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, source: _Optional[str] = ..., current: _Optional[str] = ..., unapplied: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class SourcePosture(_message.Message):
+    __slots__ = ("project", "checkout", "branch", "head", "running_sha", "dirty", "upstream", "ahead", "behind", "submodules", "migrations")
+    PROJECT_FIELD_NUMBER: _ClassVar[int]
+    CHECKOUT_FIELD_NUMBER: _ClassVar[int]
+    BRANCH_FIELD_NUMBER: _ClassVar[int]
+    HEAD_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_SHA_FIELD_NUMBER: _ClassVar[int]
+    DIRTY_FIELD_NUMBER: _ClassVar[int]
+    UPSTREAM_FIELD_NUMBER: _ClassVar[int]
+    AHEAD_FIELD_NUMBER: _ClassVar[int]
+    BEHIND_FIELD_NUMBER: _ClassVar[int]
+    SUBMODULES_FIELD_NUMBER: _ClassVar[int]
+    MIGRATIONS_FIELD_NUMBER: _ClassVar[int]
+    project: str
+    checkout: str
+    branch: str
+    head: str
+    running_sha: str
+    dirty: bool
+    upstream: str
+    ahead: int
+    behind: int
+    submodules: _containers.RepeatedCompositeFieldContainer[SubmodulePosture]
+    migrations: _containers.RepeatedCompositeFieldContainer[MigrationPosture]
+    def __init__(self, project: _Optional[str] = ..., checkout: _Optional[str] = ..., branch: _Optional[str] = ..., head: _Optional[str] = ..., running_sha: _Optional[str] = ..., dirty: _Optional[bool] = ..., upstream: _Optional[str] = ..., ahead: _Optional[int] = ..., behind: _Optional[int] = ..., submodules: _Optional[_Iterable[_Union[SubmodulePosture, _Mapping]]] = ..., migrations: _Optional[_Iterable[_Union[MigrationPosture, _Mapping]]] = ...) -> None: ...
+
 class ServerQueryRequest(_message.Message):
     __slots__ = ("kind", "ttl", "nonce", "origin_project", "note_id")
     KIND_FIELD_NUMBER: _ClassVar[int]
@@ -326,7 +416,7 @@ class ServerQueryRequest(_message.Message):
     def __init__(self, kind: _Optional[_Union[ServerQueryKind, str]] = ..., ttl: _Optional[int] = ..., nonce: _Optional[str] = ..., origin_project: _Optional[str] = ..., note_id: _Optional[str] = ...) -> None: ...
 
 class ServerQueryResponse(_message.Message):
-    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads")
+    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products")
     PROJECT_FIELD_NUMBER: _ClassVar[int]
     REMOTES_FIELD_NUMBER: _ClassVar[int]
     HEAD_FIELD_NUMBER: _ClassVar[int]
@@ -336,6 +426,8 @@ class ServerQueryResponse(_message.Message):
     SURFACES_FIELD_NUMBER: _ClassVar[int]
     QUEUES_FIELD_NUMBER: _ClassVar[int]
     WORKLOADS_FIELD_NUMBER: _ClassVar[int]
+    POSTURE_FIELD_NUMBER: _ClassVar[int]
+    PRODUCTS_FIELD_NUMBER: _ClassVar[int]
     project: str
     remotes: _containers.RepeatedCompositeFieldContainer[GitRemote]
     head: str
@@ -345,7 +437,35 @@ class ServerQueryResponse(_message.Message):
     surfaces: _containers.RepeatedCompositeFieldContainer[Surface]
     queues: _containers.RepeatedCompositeFieldContainer[QueueHint]
     workloads: _containers.RepeatedCompositeFieldContainer[WorkloadOffer]
-    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ...) -> None: ...
+    posture: SourcePosture
+    products: _containers.RepeatedCompositeFieldContainer[ProductHint]
+    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ...) -> None: ...
+
+class ProductHint(_message.Message):
+    __slots__ = ("product_id", "peer", "title", "kind", "leaf", "table_identifier", "data_uri", "flow", "step", "agent_focus", "history")
+    PRODUCT_ID_FIELD_NUMBER: _ClassVar[int]
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    LEAF_FIELD_NUMBER: _ClassVar[int]
+    TABLE_IDENTIFIER_FIELD_NUMBER: _ClassVar[int]
+    DATA_URI_FIELD_NUMBER: _ClassVar[int]
+    FLOW_FIELD_NUMBER: _ClassVar[int]
+    STEP_FIELD_NUMBER: _ClassVar[int]
+    AGENT_FOCUS_FIELD_NUMBER: _ClassVar[int]
+    HISTORY_FIELD_NUMBER: _ClassVar[int]
+    product_id: str
+    peer: str
+    title: str
+    kind: str
+    leaf: str
+    table_identifier: str
+    data_uri: str
+    flow: str
+    step: str
+    agent_focus: str
+    history: str
+    def __init__(self, product_id: _Optional[str] = ..., peer: _Optional[str] = ..., title: _Optional[str] = ..., kind: _Optional[str] = ..., leaf: _Optional[str] = ..., table_identifier: _Optional[str] = ..., data_uri: _Optional[str] = ..., flow: _Optional[str] = ..., step: _Optional[str] = ..., agent_focus: _Optional[str] = ..., history: _Optional[str] = ...) -> None: ...
 
 class ModelParallelism(_message.Message):
     __slots__ = ("tensor_parallel", "pipeline_parallel", "data_parallel")
@@ -444,3 +564,41 @@ class LineageResponse(_message.Message):
     accepted: bool
     error: str
     def __init__(self, accepted: _Optional[bool] = ..., error: _Optional[str] = ...) -> None: ...
+
+class WatchWorkloadRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class WorkloadIntent(_message.Message):
+    __slots__ = ("capability", "alias", "model", "port", "gpu_ids", "backend", "warmup_seconds", "actual")
+    CAPABILITY_FIELD_NUMBER: _ClassVar[int]
+    ALIAS_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    GPU_IDS_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_FIELD_NUMBER: _ClassVar[int]
+    WARMUP_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    ACTUAL_FIELD_NUMBER: _ClassVar[int]
+    capability: str
+    alias: str
+    model: str
+    port: int
+    gpu_ids: _containers.RepeatedScalarFieldContainer[int]
+    backend: ServingBackend
+    warmup_seconds: int
+    actual: WorkloadStatus
+    def __init__(self, capability: _Optional[str] = ..., alias: _Optional[str] = ..., model: _Optional[str] = ..., port: _Optional[int] = ..., gpu_ids: _Optional[_Iterable[int]] = ..., backend: _Optional[_Union[ServingBackend, str]] = ..., warmup_seconds: _Optional[int] = ..., actual: _Optional[_Union[WorkloadStatus, str]] = ...) -> None: ...
+
+class WorkloadProfile(_message.Message):
+    __slots__ = ("phase", "generation", "intents", "settled_at_unix_ms", "detail")
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    INTENTS_FIELD_NUMBER: _ClassVar[int]
+    SETTLED_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    phase: WorkloadPhase
+    generation: int
+    intents: _containers.RepeatedCompositeFieldContainer[WorkloadIntent]
+    settled_at_unix_ms: int
+    detail: str
+    def __init__(self, phase: _Optional[_Union[WorkloadPhase, str]] = ..., generation: _Optional[int] = ..., intents: _Optional[_Iterable[_Union[WorkloadIntent, _Mapping]]] = ..., settled_at_unix_ms: _Optional[int] = ..., detail: _Optional[str] = ...) -> None: ...

@@ -205,6 +205,63 @@ def configured_peers(contract: Path | None = None) -> list[tuple[str, str]]:
     return out
 
 
+# PRODUCTS answers come from the warehouse (the inventory of record) and are
+# briefly cached so ServerQuery fan-outs never hammer Impala; the JSON seed is
+# the honest degraded answer while the warehouse is unreachable.
+_PRODUCTS_CACHE: tuple[float, list] = (0.0, [])
+_PRODUCTS_TTL_S = 30.0
+
+
+def _product_hint(row: dict) -> engine_pb2.ProductHint:
+    return engine_pb2.ProductHint(
+        product_id=str(row.get("id") or row.get("product_id") or ""),
+        peer=str(row.get("peer") or ""),
+        title=str(row.get("title") or ""),
+        kind=str(row.get("kind") or ""),
+        leaf=str(row.get("leaf") or ""),
+        table_identifier=str(row.get("table_identifier") or ""),
+        data_uri=str(row.get("data_uri") or ""),
+        flow=str(row.get("flow_name") or ""),
+        step=str(row.get("step_name") or ""),
+        agent_focus=str(row.get("agent_focus") or ""),
+        history="details/tx/hx in signals_dataproducts (warehouse of record)",
+    )
+
+
+def local_products() -> list[engine_pb2.ProductHint]:
+    """Every product the warehouse inventories (own + peers'), as hints.
+
+    Signals is the warehouse of record, so its PRODUCTS answer is the full
+    federated catalog — each hint carries its producing peer. Discovery only:
+    the details/tx/hx views remain the inventory the agent observes.
+    """
+    global _PRODUCTS_CACHE
+    import time as _time
+
+    now = _time.monotonic()
+    stamp, cached = _PRODUCTS_CACHE
+    if cached and now - stamp < _PRODUCTS_TTL_S:
+        return list(cached)
+    rows: list[dict] = []
+    try:
+        from signals.ops.warehouse import default_warehouse
+
+        rows = default_warehouse().list_details()
+    except Exception:  # noqa: BLE001 — degraded answer below, never an abort
+        rows = []
+    if not rows:
+        try:
+            from signals.ops.history import products as seed_products
+
+            rows = seed_products()
+        except Exception:  # noqa: BLE001
+            rows = []
+    hints = [h for h in (_product_hint(r) for r in rows) if h.product_id]
+    if hints:
+        _PRODUCTS_CACHE = (now, hints)
+    return hints
+
+
 def local_response(
     kind: int,
     *,
@@ -228,5 +285,7 @@ def local_response(
         )
     if kind == engine_pb2.SERVER_QUERY_KIND_SURFACES:
         resp.surfaces.extend(local_surfaces())
+    if kind == engine_pb2.SERVER_QUERY_KIND_PRODUCTS:
+        resp.products.extend(local_products())
     # WORKLOADS: Signals is scheduler, not a model host — empty is honest.
     return resp

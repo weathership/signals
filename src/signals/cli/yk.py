@@ -150,8 +150,23 @@ def cmd_diff(ns: argparse.Namespace) -> int:
         )
         live_body = live.document.body if live.document else ""
 
+        def _semantic(node):
+            # Live GET drops false-default fields and re-types scalars
+            # (vcore: 16 vs '16') — compare meaning, not formatting.
+            if isinstance(node, dict):
+                return {
+                    k: _semantic(v)
+                    for k, v in node.items()
+                    if not (k == "create" and v is False)
+                }
+            if isinstance(node, list):
+                return [_semantic(v) for v in node]
+            if isinstance(node, bool) or node is None:
+                return node
+            return str(node)
+
         def _canon(body: str) -> list[str]:
-            data = _yaml.safe_load(normalize_declared_config(body)) or {}
+            data = _semantic(_yaml.safe_load(normalize_declared_config(body)) or {})
             return _yaml.safe_dump(
                 data, default_flow_style=False, sort_keys=True
             ).splitlines(keepends=True)
@@ -265,6 +280,68 @@ def cmd_collect_queues(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect_products(ns: argparse.Namespace) -> int:
+    """S2S: ServerQuery PRODUCTS on peers — discover federated data products.
+
+    Discovery only (spec: data_products.md) — the warehouse stays the
+    inventory of record; a hint is how any engine finds a product's Iceberg
+    table in the shared Polaris catalog without first reading Signals.
+    """
+    import json as _json
+
+    from zndx.engine.v1 import engine_pb2, engine_pb2_grpc
+
+    peers = ns.peer or ["127.0.0.1:50051"]
+    out: list[dict] = []
+    failures = 0
+    for target in peers:
+        ch = grpc.insecure_channel(target)
+        try:
+            estub = engine_pb2_grpc.EngineStub(ch)
+            resp = estub.ServerQuery(
+                engine_pb2.ServerQueryRequest(
+                    kind=engine_pb2.SERVER_QUERY_KIND_PRODUCTS,
+                    origin_project="signals",
+                ),
+                timeout=10,
+            )
+        except grpc.RpcError as e:
+            print(f"WARN {target}: {e.code()} {e.details()}", file=sys.stderr)
+            failures += 1
+            continue
+        finally:
+            ch.close()
+        for p in resp.products:
+            out.append(
+                {
+                    "target": target,
+                    "project": resp.project,
+                    "product_id": p.product_id,
+                    "peer": p.peer,
+                    "title": p.title,
+                    "kind": p.kind,
+                    "leaf": p.leaf,
+                    "table_identifier": p.table_identifier,
+                    "data_uri": p.data_uri,
+                    "flow": p.flow,
+                    "step": p.step,
+                    "history": p.history,
+                }
+            )
+        print(f"{target} project={resp.project} products={len(resp.products)}")
+    if ns.json:
+        _json.dump(out, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        for row in out:
+            table = row["table_identifier"] or "—"
+            print(
+                f"  {row['product_id']:<40} kind={row['kind']:<10} "
+                f"peer={row['peer']:<8} table={table}"
+            )
+    return 0 if (out or not failures) else 1
+
+
 def cmd_promote(ns: argparse.Namespace) -> int:
     stub = _stub()
     r = stub.PromoteScratch(
@@ -376,6 +453,19 @@ def main(argv: list[str] | None = None) -> int:
     cq.add_argument("--dry-run", action="store_true")
     cq.add_argument("--stamp", default="")
     cq.set_defaults(func=cmd_collect_queues)
+
+    cp = sub.add_parser(
+        "collect-products",
+        help="S2S ServerQuery PRODUCTS on peers — federated data-product hints",
+    )
+    cp.add_argument(
+        "--peer",
+        action="append",
+        default=[],
+        help="Engine target host:port (repeatable). Default 127.0.0.1:50051",
+    )
+    cp.add_argument("--json", action="store_true", help="emit hints as JSON")
+    cp.set_defaults(func=cmd_collect_products)
 
     d = sub.add_parser("diff", help="Diff scratch vs current (optional vs live/SoR)")
     d.add_argument(
