@@ -1,9 +1,17 @@
 -- Impala HMS-free catalog registry (database signals_catalog on :5455).
--- KuduMetaProvider/IcebergMetaProvider load tables ONLY from catalog_tables;
--- a Kudu table that exists on the master but has no row here is invisible to
--- HS2 (ALTER RANGE PARTITION, views, UNION). Kudu tables themselves are
--- created by scripts/signals_kudu_create.cc — HS2 CREATE is PENDING in-fork
--- (#SL.00000027.SCHEMA2: not yet; upstream IMPALA-13586 read-only "yet").
+-- KUDU/VIEW rows are load-bearing: KuduMetaProvider serves HS2 only from
+-- catalog_tables, so a Kudu table created OUTSIDE HS2 (signals_kudu_create.cc)
+-- is invisible without its row here. catalogd auto-registers its own HS2 DDL.
+-- ICEBERG rows are INERT: Iceberg tables are Polaris-discovered live (every
+-- registry read filters table_type IN ('KUDU','VIEW')).
+-- Two DISTINCT pendings — do not conflate:
+--   * signal Kudu tables come from scripts/signals_kudu_create.cc because HS2
+--     `CREATE ... STORED AS KUDU` crashed the tserver for THIS shape (see the
+--     .cc header); Kudu HS2 CREATE otherwise works (data-products-kudu.sql
+--     applies over HS2 and auto-registers).
+--   * Impala Iceberg DDL/DML is PENDING in-fork (#SL.00000027.SCHEMA2;
+--     upstream IMPALA-13586 read-only "yet") — Polaris registration and
+--     out-of-band settle are the bridge.
 
 INSERT INTO catalog_databases (name, location)
 VALUES ('signals_dataproducts', 's3a://signals-dataproducts/iceberg')
