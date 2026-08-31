@@ -190,3 +190,24 @@ def test_servicer_server_query_remotes() -> None:
     # Live checkout: origin is expected; do not invent extra remotes.
     assert "origin" in names
     assert all(r.url for r in resp.remotes)
+
+
+def test_server_query_cognition_and_contributions_empty_is_honest() -> None:
+    """Kinds 10/11 (added 2026-08-31): Signals answers with unset hints.
+
+    COGNITION — no cognition unit here. CONTRIBUTIONS — PENDING until
+    Atlas+OpenLineage (Marquez sources), Metaflow, and Airflow answer as
+    systems of record. Unset is honest; peers treat it as absence.
+    """
+    from signals.engine.generated.zndx.engine.v1 import engine_pb2 as pb
+    from signals.engine.s2s import local_response
+
+    for kind in (
+        pb.SERVER_QUERY_KIND_COGNITION,
+        pb.SERVER_QUERY_KIND_CONTRIBUTIONS,
+    ):
+        resp = local_response(int(kind))
+        assert resp.project == "signals"
+        assert not resp.HasField("cognition")
+        assert not resp.HasField("contributions")
+        assert not resp.surfaces and not resp.products

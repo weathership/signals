@@ -43,6 +43,8 @@ class ServerQueryKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_QUERY_KIND_WORKLOADS: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_SOURCE_POSTURE: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_PRODUCTS: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_COGNITION: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_CONTRIBUTIONS: _ClassVar[ServerQueryKind]
 
 class ServingBackend(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -98,6 +100,8 @@ SERVER_QUERY_KIND_QUEUES: ServerQueryKind
 SERVER_QUERY_KIND_WORKLOADS: ServerQueryKind
 SERVER_QUERY_KIND_SOURCE_POSTURE: ServerQueryKind
 SERVER_QUERY_KIND_PRODUCTS: ServerQueryKind
+SERVER_QUERY_KIND_COGNITION: ServerQueryKind
+SERVER_QUERY_KIND_CONTRIBUTIONS: ServerQueryKind
 SERVING_BACKEND_UNSPECIFIED: ServingBackend
 SERVING_BACKEND_VLLM_LOCAL: ServingBackend
 SERVING_BACKEND_KSERVE_REMOTE: ServingBackend
@@ -434,7 +438,7 @@ class ServerQueryRequest(_message.Message):
     def __init__(self, kind: _Optional[_Union[ServerQueryKind, str]] = ..., ttl: _Optional[int] = ..., nonce: _Optional[str] = ..., origin_project: _Optional[str] = ..., note_id: _Optional[str] = ...) -> None: ...
 
 class ServerQueryResponse(_message.Message):
-    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products")
+    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products", "cognition", "contributions")
     PROJECT_FIELD_NUMBER: _ClassVar[int]
     REMOTES_FIELD_NUMBER: _ClassVar[int]
     HEAD_FIELD_NUMBER: _ClassVar[int]
@@ -446,6 +450,8 @@ class ServerQueryResponse(_message.Message):
     WORKLOADS_FIELD_NUMBER: _ClassVar[int]
     POSTURE_FIELD_NUMBER: _ClassVar[int]
     PRODUCTS_FIELD_NUMBER: _ClassVar[int]
+    COGNITION_FIELD_NUMBER: _ClassVar[int]
+    CONTRIBUTIONS_FIELD_NUMBER: _ClassVar[int]
     project: str
     remotes: _containers.RepeatedCompositeFieldContainer[GitRemote]
     head: str
@@ -457,7 +463,85 @@ class ServerQueryResponse(_message.Message):
     workloads: _containers.RepeatedCompositeFieldContainer[WorkloadOffer]
     posture: SourcePosture
     products: _containers.RepeatedCompositeFieldContainer[ProductHint]
-    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ...) -> None: ...
+    cognition: CognitionHint
+    contributions: ContributionsHint
+    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ..., cognition: _Optional[_Union[CognitionHint, _Mapping]] = ..., contributions: _Optional[_Union[ContributionsHint, _Mapping]] = ...) -> None: ...
+
+class CognitionActivityBucket(_message.Message):
+    __slots__ = ("start_ms", "end_ms", "thoughts", "cycles")
+    START_MS_FIELD_NUMBER: _ClassVar[int]
+    END_MS_FIELD_NUMBER: _ClassVar[int]
+    THOUGHTS_FIELD_NUMBER: _ClassVar[int]
+    CYCLES_FIELD_NUMBER: _ClassVar[int]
+    start_ms: int
+    end_ms: int
+    thoughts: int
+    cycles: int
+    def __init__(self, start_ms: _Optional[int] = ..., end_ms: _Optional[int] = ..., thoughts: _Optional[int] = ..., cycles: _Optional[int] = ...) -> None: ...
+
+class CognitionStreamHint(_message.Message):
+    __slots__ = ("id", "thoughts")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    THOUGHTS_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    thoughts: int
+    def __init__(self, id: _Optional[str] = ..., thoughts: _Optional[int] = ...) -> None: ...
+
+class CognitionHint(_message.Message):
+    __slots__ = ("project", "unit", "running", "thoughts", "cycles", "last_cycle_ms", "interval", "range_start_ms", "range_end_ms", "buckets", "streams")
+    PROJECT_FIELD_NUMBER: _ClassVar[int]
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_FIELD_NUMBER: _ClassVar[int]
+    THOUGHTS_FIELD_NUMBER: _ClassVar[int]
+    CYCLES_FIELD_NUMBER: _ClassVar[int]
+    LAST_CYCLE_MS_FIELD_NUMBER: _ClassVar[int]
+    INTERVAL_FIELD_NUMBER: _ClassVar[int]
+    RANGE_START_MS_FIELD_NUMBER: _ClassVar[int]
+    RANGE_END_MS_FIELD_NUMBER: _ClassVar[int]
+    BUCKETS_FIELD_NUMBER: _ClassVar[int]
+    STREAMS_FIELD_NUMBER: _ClassVar[int]
+    project: str
+    unit: str
+    running: bool
+    thoughts: int
+    cycles: int
+    last_cycle_ms: int
+    interval: str
+    range_start_ms: int
+    range_end_ms: int
+    buckets: _containers.RepeatedCompositeFieldContainer[CognitionActivityBucket]
+    streams: _containers.RepeatedCompositeFieldContainer[CognitionStreamHint]
+    def __init__(self, project: _Optional[str] = ..., unit: _Optional[str] = ..., running: _Optional[bool] = ..., thoughts: _Optional[int] = ..., cycles: _Optional[int] = ..., last_cycle_ms: _Optional[int] = ..., interval: _Optional[str] = ..., range_start_ms: _Optional[int] = ..., range_end_ms: _Optional[int] = ..., buckets: _Optional[_Iterable[_Union[CognitionActivityBucket, _Mapping]]] = ..., streams: _Optional[_Iterable[_Union[CognitionStreamHint, _Mapping]]] = ...) -> None: ...
+
+class ContributionItem(_message.Message):
+    __slots__ = ("group", "id", "system", "total", "series")
+    GROUP_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
+    SYSTEM_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    SERIES_FIELD_NUMBER: _ClassVar[int]
+    group: str
+    id: str
+    system: str
+    total: int
+    series: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, group: _Optional[str] = ..., id: _Optional[str] = ..., system: _Optional[str] = ..., total: _Optional[int] = ..., series: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class ContributionsHint(_message.Message):
+    __slots__ = ("project", "interval", "range_start_ms", "range_end_ms", "buckets", "items")
+    PROJECT_FIELD_NUMBER: _ClassVar[int]
+    INTERVAL_FIELD_NUMBER: _ClassVar[int]
+    RANGE_START_MS_FIELD_NUMBER: _ClassVar[int]
+    RANGE_END_MS_FIELD_NUMBER: _ClassVar[int]
+    BUCKETS_FIELD_NUMBER: _ClassVar[int]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    project: str
+    interval: str
+    range_start_ms: int
+    range_end_ms: int
+    buckets: _containers.RepeatedCompositeFieldContainer[CognitionActivityBucket]
+    items: _containers.RepeatedCompositeFieldContainer[ContributionItem]
+    def __init__(self, project: _Optional[str] = ..., interval: _Optional[str] = ..., range_start_ms: _Optional[int] = ..., range_end_ms: _Optional[int] = ..., buckets: _Optional[_Iterable[_Union[CognitionActivityBucket, _Mapping]]] = ..., items: _Optional[_Iterable[_Union[ContributionItem, _Mapping]]] = ...) -> None: ...
 
 class ProductHint(_message.Message):
     __slots__ = ("product_id", "peer", "title", "kind", "leaf", "table_identifier", "data_uri", "flow", "step", "agent_focus", "history")

@@ -288,4 +288,8 @@ def local_response(
     if kind == engine_pb2.SERVER_QUERY_KIND_PRODUCTS:
         resp.products.extend(local_products())
     # WORKLOADS: Signals is scheduler, not a model host — empty is honest.
+    # COGNITION (10): Signals has no cognition unit — unset hint is honest.
+    # CONTRIBUTIONS (11): PENDING — Signals will answer from its systems of
+    # record (Atlas+OpenLineage via Marquez sources, Metaflow, Airflow) as
+    # each comes online; until then the unset hint is honest, never an error.
     return resp
