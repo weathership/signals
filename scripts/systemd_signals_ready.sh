@@ -12,6 +12,13 @@ SLEEP="${SIGNALS_READY_SYSTEMD_SLEEP:-10}"
 for i in $(seq 1 "$MAX"); do
   if just signals-ready; then
     echo "systemd-signals-ready: READY (attempt $i)"
+    # Warm the varnish-fronted waffle roster: the malloc store is empty
+    # after a restart. Fire-and-forget; the public route primes the cache.
+    (
+      sleep 5
+      curl -sf --max-time 60 -o /dev/null \
+        "http://127.0.0.1:9889/api/signals/v1/federation/surfaces" || true
+    ) >/dev/null 2>&1 &
     exit 0
   fi
   echo "systemd-signals-ready: waiting (attempt $i/$MAX)…"

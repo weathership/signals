@@ -454,6 +454,53 @@ in
     SIGNALS_PG_PORT = "5455";
   };
 
+  services.varnish = {
+    enable = true;
+    # 608x is Ranger territory (6080 HTTP, 6085 Tomcat shutdown socket) —
+    # the varnish lattice lives in the 609x decade: gaius 6091, signals 6092,
+    # aegir 6093, atelier 6094. strictPorts: 6092 MUST be free at eval.
+    listen = "127.0.0.1:6092";
+    # Federated menu pattern (gaius precedent): only the *_origin route is
+    # cached — ttl+grace serves the waffle instantly while a background
+    # fetch refreshes; per-browser session rebasing happens in signals-ui
+    # AFTER the cache. Everything else passes through untouched.
+    vcl = ''
+      vcl 4.1;
+
+      backend signals_ui {
+        .host = "127.0.0.1";
+        .port = "9889";
+        .connect_timeout = 2s;
+        .first_byte_timeout = 120s;
+      }
+
+      sub vcl_recv {
+        if (req.url ~ "^/api/signals/v1/federation/surfaces_origin") {
+          return (hash);
+        }
+        return (pass);
+      }
+
+      sub vcl_backend_response {
+        if (bereq.url ~ "^/api/signals/v1/federation/surfaces_origin") {
+          if (beresp.status >= 400) {
+            # A background refresh that fails must not displace the good
+            # stale object; a foreground error must not stick in cache.
+            if (bereq.is_bgfetch) {
+              return (abandon);
+            }
+            set beresp.ttl = 1s;
+            set beresp.grace = 0s;
+            set beresp.uncacheable = true;
+          } else {
+            set beresp.ttl = 60s;
+            set beresp.grace = 6h;
+          }
+        }
+      }
+    '';
+  };
+
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   # Port 5455 is *reserved for signals* on the shared lab host. Do not share
   # with aura2ranger or other devenvs; do not auto-bump (strictPorts in devenv.yaml).
