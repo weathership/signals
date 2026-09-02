@@ -216,7 +216,7 @@ def drop_days() -> int:
         "LEFT JOIN signal_settle_state s ON s.epoch_hour = t.epoch_hour "
         "GROUP BY 1 ORDER BY 1"
     )
-    rc = 0
+    dropped = 0
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) < 3:
@@ -255,8 +255,14 @@ def drop_days() -> int:
             tuples=False,
         )
         print(f"day {day0}: {present}/{present} present hours verified → dropped Kudu range")
-        rc += 1
-    return rc
+        dropped += 1
+    # Exit-code semantics, not a counter: this return value is the process
+    # exit status via main(). The old `return rc` (count of days dropped)
+    # made every SUCCESSFUL retirement exit non-zero — the 2026-09-02
+    # 00:20 settle "failure" was one day dropped cleanly. Failures raise;
+    # reaching here is success.
+    print(f"drop-days: retired {dropped} fully-verified day(s) from Kudu")
+    return 0
 
 
 def main() -> int:
