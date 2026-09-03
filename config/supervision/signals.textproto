@@ -63,14 +63,14 @@ processes { id: "signals-ui" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signal
 
 processes { id: "metaflow-service" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:30180/ping" poll_seconds: 60 } attrs { key: "note" value: "the federation's Metaflow service; store in postgres/metaflow" } }
 processes { id: "yunikorn" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:30080/ws/v1/queues" poll_seconds: 60 } attrs { key: "note" value: "admission/queues for sentinel claims (light/medium/heavy)" } }
-processes { id: "airflow" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "airflow" poll_seconds: 120 } attrs { key: "note" value: "signals-dags: scheduler, triggerer, dag-processor, api-server pods" } }
+processes { id: "airflow" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "airflow" poll_seconds: 120 via: "engine" } attrs { key: "note" value: "signals-dags: scheduler, triggerer, dag-processor, api-server pods" } }
 processes { id: "knative-serving" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "k8s://knative-serving" poll_seconds: 120 } }
 processes { id: "knative-eventing" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "k8s://knative-eventing" poll_seconds: 120 } }
 
 # ── Airflow DAGs (metadata DB) ─────────────────────────────────────────────────
 
-processes { id: "dag.signals_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_smoke" poll_seconds: 120 } attrs { key: "trigger" value: "manual" } }
-processes { id: "dag.signals_eventing_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_eventing_smoke" poll_seconds: 120 } attrs { key: "trigger" value: "eventing (knative)" } }
+processes { id: "dag.signals_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "manual" } }
+processes { id: "dag.signals_eventing_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_eventing_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "eventing (knative)" } }
 # signals_ci / signals_eventing_ci are paused CI gates — not supervised as cadence processes.
 
 # ── pg_cron (signals DB) ───────────────────────────────────────────────────────
@@ -86,8 +86,8 @@ processes { id: "settle.signal" kind: PROCESS_KIND_SCHEDULED_TASK parent: "cron.
 
 # ── Metaflow flows owned by signals ────────────────────────────────────────────
 
-processes { id: "flow.DataProductTierUpkeep" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "DataProductTierUpkeep" poll_seconds: 60 } reports_positions: true cadence { expected_period_seconds: 604800 net_seconds: 14400 } attrs { key: "note" value: "weekly tier upkeep: plan -> add_week -> settle" } }
-processes { id: "flow.GpuMetricsSettle" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "GpuMetricsSettle" poll_seconds: 60 } cadence { expected_period_seconds: 3600 net_seconds: 1800 } }
+processes { id: "flow.DataProductTierUpkeep" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "DataProductTierUpkeep" poll_seconds: 60 via: "engine" } reports_positions: true cadence { expected_period_seconds: 604800 net_seconds: 14400 } attrs { key: "note" value: "weekly tier upkeep: plan -> add_week -> settle" } }
+processes { id: "flow.GpuMetricsSettle" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "GpuMetricsSettle" poll_seconds: 60 via: "engine" } cadence { expected_period_seconds: 3600 net_seconds: 1800 } }
 
 # ── Machines ───────────────────────────────────────────────────────────────────
 
