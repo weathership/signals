@@ -1,0 +1,160 @@
+# proto-file: zndx/supervision/v1/supervision.proto
+# proto-message: zndx.supervision.v1.Supervisor
+#
+# Signals supervision instance — derived 2026-09-03 from the live stack
+# (devenv.nix processes, scripts/signals_ready.sh readiness targets, systemd
+# units, pg_cron on the signals DB, the Metaflow service store, the Airflow
+# metadata DB). Written against the shared grammar WITHOUT touching the proto:
+# this is the "no project package" proof. Every restart strategy is NONE for the
+# read-only adoption phase (nautilus_supervision.md §9).
+#
+# Residue worth naming: the hourly settle of the `signal` data product is
+# ORCHESTRATED FROM THE GAIUS ENGINE'S pg_cron (tier-settle-signal @ :20) and
+# executes signals/scripts/signal_settle.py — a cross-project ownership seam
+# the audit surfaced. It is modeled here as a machine observed through PG_CRON
+# with the foreign DB named in attrs (the instance interprets; the grammar does
+# not). Signals' own cron settles gpu_metrics.
+
+project: "signals"
+spec_version: "2026-09-03.1"
+engine_build: "trunk"
+engine_grpc: "127.0.0.1:50551"
+
+budgets {
+  recycle_k: 3
+  recycle_window_seconds: 3600
+  recycle_cooldown_seconds: 240
+  judge_consults_per_day: 6
+  rubric_judgments_per_day: 8
+}
+
+# ── Host units (root of the tree): the systemd critical plane ─────────────────
+
+processes { id: "signals.target" kind: PROCESS_KIND_SYSTEMD_UNIT restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals.target" poll_seconds: 15 } attrs { key: "note" value: "federation-wide target: foundation + engine + c2 + polaris + peers" } }
+processes { id: "signals.service" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals.service" poll_seconds: 15 } warmup_seconds: 600 attrs { key: "note" value: "foundation (devenv critical plane): kdc, postgres, rustfs, atlas, ranger, kudu, impala, polaris" } }
+processes { id: "signals-engine.service" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals-engine.service" poll_seconds: 15 } depends_on: "signals.service" }
+processes { id: "signals-c2.service" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals-c2.service" poll_seconds: 15 } depends_on: "signals-engine.service" }
+processes { id: "signals-polaris.service" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals-polaris.service" poll_seconds: 15 } depends_on: "signals.service" }
+processes { id: "signals-heal.timer" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals-heal.timer" poll_seconds: 60 } cadence { expected_period_seconds: 86400 net_seconds: 7200 } attrs { key: "note" value: "group self-heal: re-kick failed foundation until verified healthy; its actions are exactly what Nautilus must score" } }
+processes { id: "signals-ready.service" kind: PROCESS_KIND_SYSTEMD_UNIT parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_SYSTEMD locator: "signals-ready.service" poll_seconds: 60 } attrs { key: "note" value: "readiness oneshot (PASS/WARN/FAIL), not a smoke; its checks are the process list below" } }
+
+# ── Foundation (devenv process-compose under signals.service) ─────────────────
+
+processes { id: "kdc" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "tcp://127.0.0.1:8848" poll_seconds: 30 } attrs { key: "role" value: "Kerberos KDC (loopback)" } }
+processes { id: "postgres" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "tcp://127.0.0.1:5455" poll_seconds: 30 } attrs { key: "databases" value: "signals signals_catalog polaris ranger metaflow airflow" } attrs { key: "note" value: "supervisor bookkeeping target; write-ahead buffer covers its absence" } }
+processes { id: "rustfs" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "tcp://127.0.0.1:9010" poll_seconds: 30 } attrs { key: "role" value: "S3 object store for data products (signals-dataproducts)" } }
+processes { id: "atlas" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:21010/api/atlas/admin/status" poll_seconds: 60 } warmup_seconds: 300 depends_on: "postgres" }
+processes { id: "marquez-web" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:21011/" poll_seconds: 60 } depends_on: "atlas" }
+processes { id: "ranger-admin" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:6080/" poll_seconds: 60 } warmup_seconds: 300 depends_on: "postgres" attrs { key: "note" value: "608x decade is Ranger's (6080 HTTP, 6085 shutdown socket)" } }
+processes { id: "kudu-master" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:8051/" poll_seconds: 30 } depends_on: "kdc" }
+processes { id: "kudu-tserver" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:8050/" poll_seconds: 30 } depends_on: "kudu-master" }
+processes { id: "impala-statestore" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:25010/" poll_seconds: 30 } depends_on: "kdc" }
+processes { id: "impala-catalogd" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:25020/" poll_seconds: 30 } depends_on: "impala-statestore" }
+processes { id: "impala-impalad" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:25000/" poll_seconds: 30 } depends_on: "impala-catalogd" depends_on: "kudu-tserver" attrs { key: "hs2" value: "tcp://127.0.0.1:21050" } attrs { key: "note" value: "in-fork Impala: THS over Kudu+Iceberg (write path PENDING doctrine)" } }
+processes { id: "polaris" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals-polaris.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:8181/" poll_seconds: 30 } warmup_seconds: 120 depends_on: "postgres" attrs { key: "role" value: "Iceberg REST catalog" } }
+
+# ── Engine, C2, UI ─────────────────────────────────────────────────────────────
+
+processes { id: "engine" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals-engine.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_ENGINE_GRPC locator: "127.0.0.1:50551" poll_seconds: 0 } warmup_seconds: 60 depends_on: "postgres" reports_positions: true attrs { key: "capabilities" value: "engine scheduler" } attrs { key: "readiness" value: "zndx_engine_status.py --expect-project signals --expect-capability scheduler" } }
+processes { id: "signals-c2" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals-c2.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:50561/healthz" poll_seconds: 30 } depends_on: "engine" attrs { key: "role" value: "MiNiFi C2 HTTP -> Engine/Yield gRPC" } }
+processes { id: "signals-ui" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals-engine.service" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:9889/readyz" poll_seconds: 30 } depends_on: "engine" attrs { key: "role" value: "PRIMARY user surface: Kumo histograms + waterfall strip served from Kudu (signal_tier0) at 4 Hz" } }
+
+# ── Kubernetes-side dependencies (RKE2), observed not owned ────────────────────
+
+processes { id: "metaflow-service" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:30180/ping" poll_seconds: 60 } attrs { key: "note" value: "the federation's Metaflow service; store in postgres/metaflow" } }
+processes { id: "yunikorn" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "http://127.0.0.1:30080/ws/v1/queues" poll_seconds: 60 } attrs { key: "note" value: "admission/queues for sentinel claims (light/medium/heavy)" } }
+processes { id: "airflow" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "airflow" poll_seconds: 120 } attrs { key: "note" value: "signals-dags: scheduler, triggerer, dag-processor, api-server pods" } }
+processes { id: "knative-serving" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "k8s://knative-serving" poll_seconds: 120 } }
+processes { id: "knative-eventing" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "signals.target" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_HTTP_PROBE locator: "k8s://knative-eventing" poll_seconds: 120 } }
+
+# ── Airflow DAGs (metadata DB) ─────────────────────────────────────────────────
+
+processes { id: "dag.signals_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_smoke" poll_seconds: 120 } attrs { key: "trigger" value: "manual" } }
+processes { id: "dag.signals_eventing_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_eventing_smoke" poll_seconds: 120 } attrs { key: "trigger" value: "eventing (knative)" } }
+# signals_ci / signals_eventing_ci are paused CI gates — not supervised as cadence processes.
+
+# ── pg_cron (signals DB) ───────────────────────────────────────────────────────
+
+processes { id: "cron.gpu-metrics-settle" kind: PROCESS_KIND_PG_CRON_JOB parent: "postgres" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_PG_CRON locator: "gpu-metrics-settle" } cadence { cron: "5 * * * *" net_seconds: 1800 } attrs { key: "command" value: "SELECT public.gpu_metrics_settle()" } }
+
+# ── The `signal` product settle: orchestrated from gaius, executed here ────────
+# tier-settle-signal (gaius pg_cron, :20) -> gaius task tier_settle -> spawns
+# signals/scripts/signal_settle.py (--hour / --drop-days). Cross-project seam.
+
+processes { id: "cron.tier-settle-signal" kind: PROCESS_KIND_PG_CRON_JOB parent: "postgres" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_PG_CRON locator: "tier-settle-signal" } cadence { cron: "20 * * * *" net_seconds: 2700 } attrs { key: "db" value: "gaius@127.0.0.1:5444" } attrs { key: "note" value: "FOREIGN cron: orchestration lives in the gaius engine; execution is signals/scripts/signal_settle.py" } }
+processes { id: "settle.signal" kind: PROCESS_KIND_SCHEDULED_TASK parent: "cron.tier-settle-signal" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_TASK_QUEUE locator: "tier_settle" } cadence { cron: "20 * * * *" net_seconds: 2700 } depends_on: "impala-impalad" depends_on: "rustfs" depends_on: "polaris" attrs { key: "db" value: "gaius@127.0.0.1:5444" } attrs { key: "script" value: "scripts/signal_settle.py" } }
+
+# ── Metaflow flows owned by signals ────────────────────────────────────────────
+
+processes { id: "flow.DataProductTierUpkeep" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "DataProductTierUpkeep" poll_seconds: 60 } reports_positions: true cadence { expected_period_seconds: 604800 net_seconds: 14400 } attrs { key: "note" value: "weekly tier upkeep: plan -> add_week -> settle" } }
+processes { id: "flow.GpuMetricsSettle" kind: PROCESS_KIND_METAFLOW_FLOW parent: "engine" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_METAFLOW_STORE locator: "GpuMetricsSettle" poll_seconds: 60 } cadence { expected_period_seconds: 3600 net_seconds: 1800 } }
+
+# ── Machines ───────────────────────────────────────────────────────────────────
+
+machines {
+  id: "signal_settle_hour"
+  process: "settle.signal"
+  surfaced_result: "one settled hour of the `signal` product: verified in Impala, written as HDF5, uploaded to RustFS, registered in Polaris, queryable via the `signal` view (Kudu tier0 UNION Iceberg tier1)"
+  default_horizon { window_seconds: 3600 resolve_within_phase_only: true }
+  phases { id: "read" order: 1 steps: "ensure_state" steps: "read_hour"
+           gate { name: "hour_read" kind: GATE_KIND_POSITION_REPORTED tier: TIER_SILVER params { key: "phase" value: "read" } rationale: "the hour's Kudu rows were read into the settle buffer" } }
+  phases { id: "verify" order: 2 steps: "impala_count"
+           gate { name: "counts_agree" kind: GATE_KIND_FOOTPRINT_ADVANCED tier: TIER_SILVER params { key: "sql" value: "impala_count(hour) == buffer rows" } params { key: "min" value: "1" } rationale: "fail-closed: a count mismatch never settles (2026-08-28: verify correctly rejected the collapsed multi-GPU layout)" } }
+  phases { id: "materialize" order: 3 steps: "write_h5" steps: "upload" steps: "register"
+           gate { name: "registered" kind: GATE_KIND_FRESHNESS_WITHIN tier: TIER_SILVER params { key: "source" value: "polaris table metadata for the hour" } params { key: "within_seconds" value: "3600" } rationale: "HDF5 on RustFS + Iceberg registration = the hour exists in tier1" } }
+  phases { id: "settle" order: 4 steps: "settle" steps: "drop_days"
+           gate { name: "tier1_serves_hour" kind: GATE_KIND_FOOTPRINT_ADVANCED tier: TIER_SILVER params { key: "sql" value: "SELECT count(*) FROM signal_tier1 WHERE hour = $hour" } params { key: "min" value: "1" } rationale: "the objective's surface: the hour answers from Iceberg, so the Kudu copy may be dropped (24/24 verified)" }
+           horizon { window_seconds: 3600 resolve_within_phase_only: false } }
+}
+
+machines {
+  id: "tier_upkeep"
+  process: "flow.DataProductTierUpkeep"
+  surfaced_result: "next week's partitions exist for every tiered data product; settled weeks are compacted"
+  default_horizon { window_seconds: 14400 resolve_within_phase_only: true }
+  phases { id: "plan" order: 1 steps: "start" steps: "plan"
+           gate { name: "plan_built" kind: GATE_KIND_FLOW_REACHED_STEP tier: TIER_SILVER params { key: "step" value: "add_week" } rationale: "the upkeep plan enumerated products and weeks" } }
+  phases { id: "extend" order: 2 steps: "add_week"
+           gate { name: "week_added" kind: GATE_KIND_FLOW_REACHED_STEP tier: TIER_SILVER params { key: "step" value: "settle" } rationale: "partitions for the coming week exist before it starts" } }
+  phases { id: "settle" order: 3 steps: "settle" steps: "end"
+           gate { name: "upkeep_complete" kind: GATE_KIND_FLOW_REACHED_STEP tier: TIER_SILVER params { key: "step" value: "end" } rationale: "flow-level truth from the Metaflow store" }
+           horizon { window_seconds: 14400 resolve_within_phase_only: false } }
+}
+
+# ── Objectives on the final surfaced result ────────────────────────────────────
+
+objectives {
+  name: "signal_product_current"
+  surfaced_result: "the `signal` view a query answers from — Kudu tier0 for the live day, Iceberg tier1 for settled hours — with no gap between them"
+  machines: "signal_settle_hour"
+  cadence_cron: "38 1,7,13,19 * * *"
+  gates { name: "tier1_newest_hour_recent" kind: GATE_KIND_FRESHNESS_WITHIN tier: TIER_SILVER params { key: "source" value: "SELECT max(hour) FROM signal_tier1" } params { key: "within_seconds" value: "7200" } rationale: "hourly settle x 2: an hour older than that means settles are silently failing (signal_tier1 sat EMPTY until 2026-08-31 while gpu_metrics settled fine)" }
+  gates { name: "no_settle_gap" kind: GATE_KIND_FOOTPRINT_ADVANCED tier: TIER_SILVER params { key: "sql" value: "count of settled hours in the last 24h" } params { key: "min" value: "22" } rationale: "at most two missed hours per day before the surface has a hole a viewer can see" }
+  horizon { window_seconds: 7200 }
+}
+objectives {
+  name: "gpu_metrics_settled"
+  surfaced_result: "gpu_metrics history queryable across Iceberg + HDF5 for every settled hour"
+  machines: ""
+  cadence_cron: "38 1,7,13,19 * * *"
+  gates { name: "footprint_advanced" kind: GATE_KIND_FOOTPRINT_ADVANCED tier: TIER_SILVER params { key: "sql" value: "settled gpu_metrics hours in the last 24h" } params { key: "min" value: "22" } rationale: "the proven mechanism (493k rows served) must keep landing hourly" }
+  horizon { window_seconds: 7200 }
+}
+objectives {
+  name: "waterfall_live"
+  surfaced_result: "the waterfall strip and Kumo histograms a viewer sees in signals-ui — served from signal_tier0 (Kudu) at 4 Hz, not from a stale ring"
+  machines: ""
+  cadence_cron: "38 1,7,13,19 * * *"
+  gates { name: "ui_ready" kind: GATE_KIND_PROBE_PASS tier: TIER_SILVER params { key: "probe" value: "http://127.0.0.1:9889/readyz" } rationale: "the surface answers" }
+  gates { name: "tier0_tick_fresh" kind: GATE_KIND_FRESHNESS_WITHIN tier: TIER_SILVER params { key: "source" value: "SELECT max(ts) FROM signal_tier0" } params { key: "within_seconds" value: "60" } rationale: "4 Hz strip: a minute without a tick is a dead feed the viewer perceives immediately" }
+  gates { name: "strip_resolution" kind: GATE_KIND_PROBE_PASS tier: TIER_GOLD judge_final_call: true params { key: "rubric" value: "does the strip a viewer opens read at 4 Hz resolution for the hot window (not bucketed to 1 Hz) and show contiguous history across the tier0/tier1 boundary?" } params { key: "sample_max" value: "1" } rationale: "the 2026-08-28 read path bucketed 4 Hz Kudu down to 1 Hz — only a look at the rendered strip catches that class; Overwatch renders the call" }
+  horizon { window_seconds: 7200 }
+}
+objectives {
+  name: "platform_readiness"
+  surfaced_result: "signals_ready ALL-PASS: every foundation and platform surface answering after boot or heal — the precondition every other objective assumes"
+  machines: ""
+  cadence_cron: "38 1,7,13,19 * * *"
+  gates { name: "ready_all_pass" kind: GATE_KIND_PROBE_PASS tier: TIER_SILVER params { key: "probe" value: "scripts/signals_ready.sh exit 0 (FAILS==0)" } rationale: "the readiness oneshot is the declared contract; WARNs are surfaced, FAILs fail" }
+  horizon { window_seconds: 7200 }
+}
