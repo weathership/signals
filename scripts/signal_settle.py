@@ -138,14 +138,29 @@ def register(hour: int, s3a: str, size: int, records: int, local: Path) -> None:
     print(proc.stdout.strip())
 
 
+def _signals_python() -> list[str]:
+    """Interpreter for the impyla helper: the signals venv, never a syncing uv.
+
+    This script runs under the GAIUS venv (h5py, boto3) with the gaius
+    engine's environment. A plain `uv run` here honoured the leaked
+    UV_PROJECT_ENVIRONMENT and synced SIGNALS' lock INTO THE GAIUS VENV every
+    hourly settle (2026-09-03: torch 2.13→2.10, transformers 5.15→5.3 under
+    the live engine; torchvision lost its ops, every gaius child importing
+    transformers died). Use the signals venv directly; if it is missing,
+    `uv run --no-sync --frozen` with the project-environment leak removed.
+    """
+    py = ROOT / ".devenv" / "state" / "venv" / "bin" / "python"
+    if py.is_file():
+        return [str(py)]
+    return ["uv", "run", "--no-sync", "--frozen", "--quiet", "python"]
+
+
 def impala_count(hour: int) -> int:
-    # impala_query.py needs the signals venv (impyla); this script runs under
-    # the gaius venv (h5py, boto3). Bridge with `uv run` in the signals tree,
-    # with the env vars a gaius-launched shell leaks removed.
     env = {k: v for k, v in os.environ.items()
-           if k not in ("JAVA_HOME", "DEVENV_RUNTIME", "VIRTUAL_ENV")}
+           if k not in ("JAVA_HOME", "DEVENV_RUNTIME", "VIRTUAL_ENV",
+                        "UV_PROJECT_ENVIRONMENT")}
     proc = subprocess.run(
-        ["uv", "run", "--quiet", "python", "scripts/impala_query.py", "-q",
+        [*_signals_python(), "scripts/impala_query.py", "-q",
          f"SELECT count(*) FROM signals_dataproducts.signal_tier1 WHERE epoch_hour = {int(hour)}"],
         cwd=str(ROOT), capture_output=True, text=True, timeout=600, env=env,
     )
