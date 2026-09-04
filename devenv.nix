@@ -16,6 +16,9 @@ let
     "signals-backup"
     "signals-dataproducts"
     "metaflow"
+    # Every project's resident Nautilus journals write-ahead here (nisshi
+    # object-store log; key layout namespaced by cluster_id = project).
+    "signals-nautilus"
   ];
 
   # mc wrapper: alias "local" → lab RustFS (path-style S3). Port lattice leaves

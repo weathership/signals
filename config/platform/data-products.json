@@ -69,6 +69,14 @@
       "kind": "embeddings",
       "leaf": "root.internal.inference.embedding",
       "agent_focus": "Embedding quality, parquet schema lineage, row/column delta."
+    },
+    {
+      "id": "gaius.nautilus.backlog",
+      "peer": "gaius",
+      "title": "Operations Backlog (Nautilus, gaius)",
+      "kind": "ledger",
+      "leaf": "root.platform",
+      "agent_focus": "The Fibonacci-hour Backlog of gaius's cadenced workflows (signals_dataproducts.nautilus_backlog / nautilus_events / nautilus_positions, project = gaius): every hourly fill is an OL run; quality = slot-0 rows filled within the horizon for every declared workflow, lineage = the instance spec_version+engine_build epoch stamped on each cell, delta = items opened/resolved since the last review, nominal = no item past its horizon_slot unsurfaced."
     }
   ]
 }

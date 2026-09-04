@@ -188,6 +188,10 @@ def main(argv: list[str] | None = None) -> int:
             for ident in register_tier1_tables():
                 print(f"tier1 {ident}")
             wh.apply_schema(SCHEMA_SQL[1])
+            # Self-contained products (nautilus-kudu.sql, …): tier0 + their own views.
+            for extra in SCHEMA_SQL[2:]:
+                wh.apply_schema(extra)
+                print(f"product {extra.name}")
         except Exception as e:
             print(e, file=sys.stderr)
             return 2

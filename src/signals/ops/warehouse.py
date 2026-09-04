@@ -24,6 +24,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_SQL = (
     _REPO_ROOT / "config/platform/data-products-kudu.sql",
     _REPO_ROOT / "config/platform/data-products-views.sql",
+    # Nautilus data product (every project's Operations Backlog): plain scalar
+    # Kudu tier0 + tier0-only logical views until its Iceberg tier1 lands.
+    # Self-contained — applied after the views, needs no Polaris step.
+    _REPO_ROOT / "config/platform/nautilus-kudu.sql",
 )
 DATABASE = "signals_dataproducts"
 TABLES = ("tx", "details", "hx_exchange", "hx_reasoning")
