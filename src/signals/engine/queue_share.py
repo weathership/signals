@@ -442,18 +442,15 @@ class QueueShareService:
             if prior and prior.state in _LIVE:
                 prior.state = "SUPERSEDED"
                 self.store.put(prior)
-        new_leftover = leftover_queues_of(req)
-        if new_leftover:
-            for old in self.store.list_all():
-                if old.request.request_id == rid:
-                    continue
-                if (old.request.peer or "").strip().lower() != peer:
-                    continue
-                if old.state not in _LIVE:
-                    continue
-                if leftover_queues_of(old.request) and leftover_queues_of(old.request) != new_leftover:
-                    old.state = "SUPERSEDED"
-                    self.store.put(old)
+        # (2026-09-04) The "leftover exclusivity" rule is gone: it retired every
+        # live intent of the same peer on a DIFFERENT leftover leaf (extract vs
+        # light vs medium were once alternatives for the two leftover tokens).
+        # With declared floors merged per leaf and YuniKorn arbitrating across
+        # leaves by priority, intents on different leaves COEXIST — a prospects
+        # run's extract floor must survive the CLT probe's light request (the
+        # gaius queue_share_arbitration objective caught it at 10:17: every
+        # extract record SUPERSEDED, the run unprotected). Over-commitment is
+        # still refused below (merged floors > parent max → REJECTED).
         # (2026-09-04) Implicit supersession is keyed by (peer, queue, wrk, owner),
         # never by (peer, queue) alone: intents from different declarers for the
         # same leaf — or for the same SHARED workload (embedding held for an admit

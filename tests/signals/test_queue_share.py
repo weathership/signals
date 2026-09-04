@@ -136,7 +136,11 @@ def test_extract_floor_applies_under_parent_max(tmp_path: Path) -> None:
     assert "federation.zndx.org/gpu: '1'" in state["yaml"] or 'gpu: "1"' in state["yaml"] or "gpu: '1'" in state["yaml"]
 
 
-def test_same_peer_leftover_sae_supersedes_extract(tmp_path: Path) -> None:
+def test_same_peer_leaves_coexist_and_overcommit_is_rejected(tmp_path: Path) -> None:
+    """(2026-09-04) No implicit supersession ACROSS leaves: a peer's extract
+    floor survives its later medium request. The parent max still holds —
+    4 + 1 + 2 = 7 > 6, so the medium request is REJECTED, not the extract
+    record retired. (Formerly: same-peer SAE superseded extract.)"""
     svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
     kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
     ra = _req("gaius", GPU_Q["heavy"], 4)
@@ -145,15 +149,19 @@ def test_same_peer_leftover_sae_supersedes_extract(tmp_path: Path) -> None:
     rb = _req("gaius", GPU_Q["extract"], 1)
     svc.ingest(rb, **kwargs)
     _wait_state(svc, rb.request_id, "APPLIED")
-    # extract vs medium/SAE leftover: same peer SAE supersedes extract (4+2=6).
     rc = _req("gaius", GPU_Q["medium"], 2)
     c = svc.ingest(rc, **kwargs)
-    assert c.accepted
-    _wait_state(svc, rc.request_id, "APPLIED")
+    assert c.state == scheduler_pb2.QUEUE_SHARE_REJECTED
     listed = svc.list(peer="gaius")
     states = {rec.request.shares[0].queue: rec.state for rec in listed}
-    assert states[GPU_Q["extract"]] == "SUPERSEDED"
-    assert states[GPU_Q["medium"]] == "APPLIED"
+    assert states[GPU_Q["extract"]] == "APPLIED"
+    assert states[GPU_Q["heavy"]] == "APPLIED"
+    assert states[GPU_Q["medium"]] == "REJECTED"
+    # A light floor that FITS coexists with the extract floor (4 + 1 + 1 = 6).
+    rd = _req("gaius", GPU_Q["light"], 1)
+    assert svc.ingest(rd, **kwargs).accepted
+    _wait_state(svc, rd.request_id, "APPLIED")
+    assert svc.store.get(rb.request_id).state == "APPLIED"
 
 
 def test_supersede_during_apply_stays_superseded(tmp_path: Path) -> None:
@@ -170,8 +178,10 @@ def test_supersede_during_apply_stays_superseded(tmp_path: Path) -> None:
     kwargs = dict(apply_fn=slow_apply, read_yaml=read_yaml, write_scratch=write_scratch)
     ra = _req("gaius", GPU_Q["extract"], 1)
     svc.ingest(ra, **kwargs)
-    # Supersede ra while its apply is still blocked on the gate.
-    rb = _req("gaius", GPU_Q["medium"], 2)
+    # Supersede ra while its apply is still blocked on the gate: the same
+    # (peer, queue, wrk, owner) re-declared — the only implicit supersession
+    # left (2026-09-04: leaves coexist; a medium request no longer retires it).
+    rb = _req("gaius", GPU_Q["extract"], 1)
     svc.ingest(rb, **kwargs)
     gate.set()
     _wait_state(svc, rb.request_id, "APPLIED")
