@@ -30,6 +30,7 @@ def _share_state(name: str) -> int:
         "SUPERSEDED": scheduler_pb2.QUEUE_SHARE_SUPERSEDED,
         "APPLIED": scheduler_pb2.QUEUE_SHARE_APPLIED,
         "REJECTED": scheduler_pb2.QUEUE_SHARE_REJECTED,
+        "APPLYING": getattr(scheduler_pb2, "QUEUE_SHARE_APPLYING", 5),
     }.get(name, scheduler_pb2.QUEUE_SHARE_STATE_UNSPECIFIED)
 
 
@@ -698,14 +699,17 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         def write_scratch(body: str) -> None:
             self.store.write_config(body, root="scratch")
 
-        def apply_fn() -> None:
+        def apply_fn():
             # Runs on the applier thread after this RPC has returned — never
-            # hand it the (dead) request context.
+            # hand it the (dead) request context. Returns the promote response
+            # so the applier can log what was applied (its success path was
+            # silent before 2026-09-04).
             r = self.PromoteScratch(
                 scheduler_pb2.PromoteScratchRequest(dry_run=False), None
             )
             if not r.ok:
                 raise RuntimeError(r.message or "PromoteScratch failed")
+            return r
 
         try:
             return self.shares.ingest(
@@ -734,6 +738,9 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
                 request=rec.request,
                 recorded_at_ns=rec.recorded_at_ns,
                 state=_share_state(rec.state),
+                applied_at_ns=int(getattr(rec, "applied_at_ns", 0) or 0),
+                apply_ms=int(getattr(rec, "apply_ms", 0) or 0),
+                apply_error=str(getattr(rec, "apply_error", "") or ""),
             )
             out.records.append(item)
         return out

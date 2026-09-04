@@ -49,7 +49,13 @@ _STATES = {
     "SUPERSEDED": scheduler_pb2.QUEUE_SHARE_SUPERSEDED,
     "APPLIED": scheduler_pb2.QUEUE_SHARE_APPLIED,
     "REJECTED": scheduler_pb2.QUEUE_SHARE_REJECTED,
+    # Batch taken by the applier; kubectl apply in flight. Peers read this as
+    # progress. Older bindings without the name still see the wire value (5).
+    "APPLYING": getattr(scheduler_pb2, "QUEUE_SHARE_APPLYING", 5),
 }
+
+# States that still count toward the merged floors (the record is live).
+_LIVE = frozenset({"RECORDED", "APPLYING", "APPLIED"})
 
 
 class SharePersistError(Exception):
@@ -62,13 +68,20 @@ class SharePersistError(Exception):
 class ShareRecord:
     request: scheduler_pb2.QueueShareRequest
     recorded_at_ns: int
-    state: str  # RECORDED | SUPERSEDED | APPLIED | REJECTED
+    state: str  # RECORDED | APPLYING | SUPERSEDED | APPLIED | REJECTED
+    # Apply outcome (peers score the arbiter from these).
+    applied_at_ns: int = 0
+    apply_ms: int = 0
+    apply_error: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return {
             "request": MessageToDict(self.request, preserving_proto_field_name=True),
             "recorded_at_ns": self.recorded_at_ns,
             "state": self.state,
+            "applied_at_ns": self.applied_at_ns,
+            "apply_ms": self.apply_ms,
+            "apply_error": self.apply_error,
         }
 
     @classmethod
@@ -79,6 +92,9 @@ class ShareRecord:
             request=req,
             recorded_at_ns=int(doc.get("recorded_at_ns") or 0),
             state=str(doc.get("state") or "RECORDED"),
+            applied_at_ns=int(doc.get("applied_at_ns") or 0),
+            apply_ms=int(doc.get("apply_ms") or 0),
+            apply_error=str(doc.get("apply_error") or ""),
         )
 
 
@@ -146,7 +162,7 @@ def active_records(store: QueueShareStore, now_ns: int | None = None) -> list[Sh
     now = now_ns if now_ns is not None else time.time_ns()
     out = []
     for rec in store.list_all():
-        if rec.state not in {"RECORDED", "APPLIED"}:
+        if rec.state not in _LIVE:
             continue
         if _in_window(rec.request, now):
             out.append(rec)
@@ -338,7 +354,7 @@ class QueueShareService:
 
         if req.supersedes_request_id:
             prior = self.store.get(req.supersedes_request_id)
-            if prior and prior.state in {"RECORDED", "APPLIED"}:
+            if prior and prior.state in _LIVE:
                 prior.state = "SUPERSEDED"
                 self.store.put(prior)
         new_leftover = leftover_queues_of(req)
@@ -348,7 +364,7 @@ class QueueShareService:
                     continue
                 if (old.request.peer or "").strip().lower() != peer:
                     continue
-                if old.state not in {"RECORDED", "APPLIED"}:
+                if old.state not in _LIVE:
                     continue
                 if leftover_queues_of(old.request) and leftover_queues_of(old.request) != new_leftover:
                     old.state = "SUPERSEDED"
@@ -358,7 +374,7 @@ class QueueShareService:
                 continue
             if (old.request.peer or "").strip().lower() != peer:
                 continue
-            if old.state not in {"RECORDED", "APPLIED"}:
+            if old.state not in _LIVE:
                 continue
             old_qs = {s.queue for s in old.request.shares}
             new_qs = {s.queue for s in req.shares}
@@ -439,21 +455,53 @@ class QueueShareService:
                         return  # idle: exit; the next ingest restarts the worker
                 batch = set(self._apply_pending)
                 fn = self._apply_fn
-            try:
-                if fn is not None:
-                    fn()
-            except Exception as e:  # noqa: BLE001 - deliberate: never crash the applier
-                log.warning("queue apply deferred (%d record(s)): %s", len(batch), e)
-                time.sleep(backoff)
-                backoff = min(backoff * 2.0, 300.0)
-                continue
-            backoff = 5.0
+            # Progress is visible to peers: RECORDED -> APPLYING for the batch
+            # before the backend apply starts. A peer waiting for APPLIED resets
+            # its patience on this transition instead of timing out.
             with self._mu:
                 for rid in sorted(batch):
                     r = self.store.get(rid)
                     if r is not None and r.state == "RECORDED":
-                        r.state = "APPLIED"
+                        r.state = "APPLYING"
                         self.store.put(r)
+            t0 = time.monotonic()
+            try:
+                result = fn() if fn is not None else None
+            except Exception as e:  # noqa: BLE001 - deliberate: never crash the applier
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                log.warning(
+                    "queue share apply FAILED after %d ms (%d record(s), retry in %.0fs): %s",
+                    elapsed_ms, len(batch), backoff, e,
+                )
+                with self._mu:
+                    for rid in sorted(batch):
+                        r = self.store.get(rid)
+                        if r is not None and r.state == "APPLYING":
+                            r.state = "RECORDED"
+                            r.apply_error = str(e)[:400]
+                            self.store.put(r)
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 300.0)
+                continue
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            backoff = 5.0
+            applied_at = time.time_ns()
+            with self._mu:
+                for rid in sorted(batch):
+                    r = self.store.get(rid)
+                    if r is not None and r.state == "APPLYING":
+                        r.state = "APPLIED"
+                        r.applied_at_ns = applied_at
+                        r.apply_ms = elapsed_ms
+                        r.apply_error = ""
+                        self.store.put(r)
+            # The success path was silent before 2026-09-04: a two-minute apply
+            # and a backoff cycle were indistinguishable from outside.
+            log.info(
+                "queue share apply OK: %d record(s) APPLIED in %d ms%s",
+                len(batch), elapsed_ms,
+                f" — {getattr(result, 'message', '')}" if getattr(result, "message", "") else "",
+            )
             with self._apply_cv:
                 self._apply_pending.difference_update(batch)
 

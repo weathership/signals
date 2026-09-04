@@ -22,6 +22,7 @@ class QueueShareState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     QUEUE_SHARE_SUPERSEDED: _ClassVar[QueueShareState]
     QUEUE_SHARE_APPLIED: _ClassVar[QueueShareState]
     QUEUE_SHARE_REJECTED: _ClassVar[QueueShareState]
+    QUEUE_SHARE_APPLYING: _ClassVar[QueueShareState]
 PROJECTION_ROOT_UNSPECIFIED: ProjectionRoot
 CURRENT: ProjectionRoot
 SCRATCH: ProjectionRoot
@@ -31,6 +32,7 @@ QUEUE_SHARE_RECORDED: QueueShareState
 QUEUE_SHARE_SUPERSEDED: QueueShareState
 QUEUE_SHARE_APPLIED: QueueShareState
 QUEUE_SHARE_REJECTED: QueueShareState
+QUEUE_SHARE_APPLYING: QueueShareState
 
 class PolicyDocument(_message.Message):
     __slots__ = ("media_type", "body")
@@ -631,14 +633,20 @@ class ListQueueShareRequestsRequest(_message.Message):
     def __init__(self, peer: _Optional[str] = ..., queue: _Optional[str] = ..., since_ns: _Optional[int] = ..., limit: _Optional[int] = ...) -> None: ...
 
 class QueueShareRecord(_message.Message):
-    __slots__ = ("request", "recorded_at_ns", "state")
+    __slots__ = ("request", "recorded_at_ns", "state", "applied_at_ns", "apply_ms", "apply_error")
     REQUEST_FIELD_NUMBER: _ClassVar[int]
     RECORDED_AT_NS_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
+    APPLIED_AT_NS_FIELD_NUMBER: _ClassVar[int]
+    APPLY_MS_FIELD_NUMBER: _ClassVar[int]
+    APPLY_ERROR_FIELD_NUMBER: _ClassVar[int]
     request: QueueShareRequest
     recorded_at_ns: int
     state: QueueShareState
-    def __init__(self, request: _Optional[_Union[QueueShareRequest, _Mapping]] = ..., recorded_at_ns: _Optional[int] = ..., state: _Optional[_Union[QueueShareState, str]] = ...) -> None: ...
+    applied_at_ns: int
+    apply_ms: int
+    apply_error: str
+    def __init__(self, request: _Optional[_Union[QueueShareRequest, _Mapping]] = ..., recorded_at_ns: _Optional[int] = ..., state: _Optional[_Union[QueueShareState, str]] = ..., applied_at_ns: _Optional[int] = ..., apply_ms: _Optional[int] = ..., apply_error: _Optional[str] = ...) -> None: ...
 
 class ListQueueShareRequestsResponse(_message.Message):
     __slots__ = ("records",)
