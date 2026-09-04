@@ -319,3 +319,47 @@ def test_ingest_churn_preserves_extract_floor(tmp_path: Path) -> None:
     # The SoR baseline (extract=1) holds even though no peer shares extract.
     assert ext is not None
     assert ext["resources"]["guaranteed"][GPU] == "1"
+
+
+# ── (2026-09-04) supersession identity is (peer, queue, wrk, owner) ─────────────
+
+
+def _intent_req(peer: str, queue: str, g: int, *, wrk: str, owner: str = "", floor: int | None = None):
+    w = scheduler_pb2.WorkloadIntent(wrk=wrk, queue=queue, applications=1, owner=owner)
+    if floor is not None:
+        w.floor = floor
+    return scheduler_pb2.QueueShareRequest(
+        peer=peer, request_id=mint_uuidv7(), reason=f"test {wrk}@{owner}",
+        workloads=[w], shares=[_share(queue, g)],
+    )
+
+
+def test_different_declarers_on_one_leaf_coexist(tmp_path: Path) -> None:
+    """A probe's floor-0 request must not retire a run's floor-1 intent for a
+    SHARED workload on the same leaf — the 06:24 intents_honoured failure."""
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    kw = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    a = _intent_req("gaius", GPU_Q["light"], 1, wrk="embedding", owner="ambient-synthesis-28633", floor=1)
+    b = _intent_req("gaius", GPU_Q["light"], 0, wrk="clt-probe", owner="", floor=0)
+    c = _intent_req("gaius", GPU_Q["light"], 0, wrk="embedding", owner="clt-skos-admit-1", floor=0)
+    for r in (a, b, c):
+        assert svc.ingest(r, **kw).accepted
+    assert svc.store.get(a.request_id).state != "SUPERSEDED"
+    assert svc.store.get(b.request_id).state != "SUPERSEDED"
+    assert svc.store.get(c.request_id).state != "SUPERSEDED"
+    # A declarer re-stating its own intent replaces its prior record only.
+    a2 = _intent_req("gaius", GPU_Q["light"], 1, wrk="embedding", owner="ambient-synthesis-28633", floor=1)
+    assert svc.ingest(a2, **kw).accepted
+    assert svc.store.get(a.request_id).state == "SUPERSEDED"
+    assert svc.store.get(c.request_id).state != "SUPERSEDED"
+    assert svc.store.get(b.request_id).state != "SUPERSEDED"
+
+
+def test_legacy_requests_still_supersede_per_leaf(tmp_path: Path) -> None:
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    kw = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    x = _req("gaius", GPU_Q["extract"], 1)
+    y = _req("gaius", GPU_Q["extract"], 1)
+    assert svc.ingest(x, **kw).accepted and svc.ingest(y, **kw).accepted
+    assert svc.store.get(x.request_id).state == "SUPERSEDED"
+    assert svc.store.get(y.request_id).state != "SUPERSEDED"

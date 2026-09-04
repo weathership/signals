@@ -192,6 +192,22 @@ class QueueShareStore:
         return len(victims)
 
 
+def _intent_keys(req: scheduler_pb2.QueueShareRequest) -> set[tuple[str, str, str]]:
+    """(queue, wrk, owner) identities a request declares. A request with no
+    workloads[] (legacy) is keyed by its queues alone with empty wrk/owner, so
+    legacy requests still supersede each other per leaf."""
+    queues = {s.queue for s in req.shares}
+    if not req.workloads:
+        return {(q, "", "") for q in queues}
+    keys: set[tuple[str, str, str]] = set()
+    for w in req.workloads:
+        wrk = (w.wrk or "").strip()
+        owner = (getattr(w, "owner", "") or "").strip()
+        for q in ({w.queue} if w.queue else queues):
+            keys.add((q, wrk, owner))
+    return keys
+
+
 def gpu_qty(share: scheduler_pb2.QueueShare, field: str) -> int:
     m = share.guaranteed if field == "guaranteed" else share.max
     return int((m.quantities or {}).get(GPU, 0) or 0)
@@ -438,6 +454,15 @@ class QueueShareService:
                 if leftover_queues_of(old.request) and leftover_queues_of(old.request) != new_leftover:
                     old.state = "SUPERSEDED"
                     self.store.put(old)
+        # (2026-09-04) Implicit supersession is keyed by (peer, queue, wrk, owner),
+        # never by (peer, queue) alone: intents from different declarers for the
+        # same leaf — or for the same SHARED workload (embedding held for an admit
+        # flow and for an ambient run) — coexist and merge (max per leaf). Keyed
+        # by leaf, the CLT probe's floor-0 request retired a running flow's
+        # floor-1 embedding intent (gaius queue_share_arbitration objective,
+        # intents_honoured FAIL, 06:24). A declarer re-stating its intent for a
+        # workload replaces its own prior record; ends use supersedes_request_id.
+        new_keys = _intent_keys(req)
         for old in self.store.list_all():
             if old.request.request_id == rid:
                 continue
@@ -445,9 +470,7 @@ class QueueShareService:
                 continue
             if old.state not in _LIVE:
                 continue
-            old_qs = {s.queue for s in old.request.shares}
-            new_qs = {s.queue for s in req.shares}
-            if old_qs & new_qs:
+            if _intent_keys(old.request) & new_keys:
                 old.state = "SUPERSEDED"
                 self.store.put(old)
 

@@ -561,7 +561,7 @@ class RestoreArchiveToScratchResponse(_message.Message):
     def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
 
 class WorkloadIntent(_message.Message):
-    __slots__ = ("wrk", "queue", "applications", "capabilities", "requirements", "resource_class", "floor", "priority")
+    __slots__ = ("wrk", "queue", "applications", "capabilities", "requirements", "resource_class", "floor", "priority", "owner")
     WRK_FIELD_NUMBER: _ClassVar[int]
     QUEUE_FIELD_NUMBER: _ClassVar[int]
     APPLICATIONS_FIELD_NUMBER: _ClassVar[int]
@@ -570,6 +570,7 @@ class WorkloadIntent(_message.Message):
     RESOURCE_CLASS_FIELD_NUMBER: _ClassVar[int]
     FLOOR_FIELD_NUMBER: _ClassVar[int]
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
+    OWNER_FIELD_NUMBER: _ClassVar[int]
     wrk: str
     queue: str
     applications: int
@@ -578,7 +579,8 @@ class WorkloadIntent(_message.Message):
     resource_class: _engine_pb2.ResourceClass
     floor: int
     priority: int
-    def __init__(self, wrk: _Optional[str] = ..., queue: _Optional[str] = ..., applications: _Optional[int] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[_engine_pb2.WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[_engine_pb2.ResourceClass, str]] = ..., floor: _Optional[int] = ..., priority: _Optional[int] = ...) -> None: ...
+    owner: str
+    def __init__(self, wrk: _Optional[str] = ..., queue: _Optional[str] = ..., applications: _Optional[int] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[_engine_pb2.WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[_engine_pb2.ResourceClass, str]] = ..., floor: _Optional[int] = ..., priority: _Optional[int] = ..., owner: _Optional[str] = ...) -> None: ...
 
 class QueueShare(_message.Message):
     __slots__ = ("queue", "guaranteed", "max", "max_applications")
