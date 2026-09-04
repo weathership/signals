@@ -178,20 +178,40 @@ def merge_floors(records: list[ShareRecord]) -> dict[str, int]:
     churn) reconciles guarantees automatically. The caller's QueueShare.guaranteed
     is a fallback for intents that do not yet carry a footprint (transition).
     """
-    fp_floors: dict[str, int] = {}   # footprint-derived (authoritative)
-    sh_floors: dict[str, int] = {}   # caller QueueShare.guaranteed (fallback)
+    # Per record, the EFFECTIVE floor for a queue is: the declared floor
+    # (zndx.supervision.v1.ResourceIntent carried as WorkloadIntent.floor,
+    # 2026-09-04) when the intent declares one; else the footprint (legacy
+    # "authoritative"); else the caller's QueueShare.guaranteed (transition).
+    # Per queue, the merged floor is the MAX across live records — a declared
+    # 0 ("fully preemptible") lowers only the declaring WRK's contribution;
+    # a legacy holder keeps its protection until it migrates to intents.
+    # Before floors were declared, guaranteed = tokens at admit protected a
+    # probe's occupancy against the run that actually needed the GPU.
+    floors: dict[str, int] = {}
     for rec in records:
-        for wi in rec.request.workloads:
-            q = (wi.queue or "").strip()
-            gpu = int(wi.requirements.footprint.gpu or 0)
-            if q and gpu:
-                fp_floors[q] = max(fp_floors.get(q, 0), gpu)
+        per_rec: dict[str, int] = {}
         for sh in rec.request.shares:
             q = (sh.queue or "").strip()
             if q:
-                sh_floors[q] = max(sh_floors.get(q, 0), gpu_qty(sh, "guaranteed"))
-    floors = dict(sh_floors)
-    floors.update(fp_floors)  # footprint wins per-queue where present
+                per_rec[q] = max(per_rec.get(q, 0), gpu_qty(sh, "guaranteed"))
+        for wi in rec.request.workloads:
+            q = (wi.queue or "").strip()
+            if not q:
+                continue
+            # `floor` is proto3 `optional`: presence distinguishes a DECLARED 0
+            # from a legacy intent that never set it.
+            try:
+                declared_floor = wi.HasField("floor")
+            except ValueError:  # bindings older than the field
+                declared_floor = False
+            if declared_floor:
+                per_rec[q] = int(wi.floor)  # declared: overrides this record's share/footprint
+                continue
+            gpu = int(wi.requirements.footprint.gpu or 0)
+            if gpu:
+                per_rec[q] = gpu          # legacy footprint wins over the share guarantee
+        for q, v in per_rec.items():
+            floors[q] = max(floors.get(q, 0), v)
     return floors
 
 
