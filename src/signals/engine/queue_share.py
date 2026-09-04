@@ -25,6 +25,11 @@ log = logging.getLogger("signals.engine.queue_share")
 
 GURU_SHAREFAIL = "#YK.00000007.SHAREFAIL"
 GPU = "federation.zndx.org/gpu"
+# (2026-09-04) ListQueueShareRequests limit 0 = backend default (wire contract);
+# unbounded lists over a growing store saturated the servicer. Terminal
+# (SUPERSEDED / REJECTED) records are pruned past this horizon; live ones never.
+DEFAULT_LIST_LIMIT = 500
+PRUNE_HORIZON_S = 24 * 3600
 PARENT_GPU_MAX = 6
 ALLOWED_PEERS = frozenset({"gaius", "aegir", "atelier", "signals"})
 # Leftover pair beside standing thinking (4). Mutually exclusive floors.
@@ -99,23 +104,51 @@ class ShareRecord:
 
 
 class QueueShareStore:
+    """One JSON file per record (the durable log) behind an in-memory index.
+
+    (2026-09-04) ``list_all`` used to re-read every file on every call. With
+    ~2000 mostly-SUPERSEDED records a list took ~3.6 s; peers polling every
+    3 s with a 1.5 s deadline timed out client-side while this server kept
+    reading for the abandoned call, the Scheduler's thread pool saturated and
+    RequestQueueShare starved too (gaius deferrals after its 600 s net,
+    06:00–06:12). Reads now come from the index; files are written through.
+    ``prune`` retires terminal records past a horizon so the set stays small.
+    """
+
+    TERMINAL_STATES = ("SUPERSEDED", "REJECTED")
+
     def __init__(self, root: Path):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._mu = threading.Lock()
+        self._index: dict[str, ShareRecord] | None = None  # loaded on first use
 
     def _path(self, request_id: str) -> Path:
         safe = request_id.replace("/", "_")
         return self.root / f"{safe}.json"
 
+    def _load_index(self) -> dict[str, ShareRecord]:
+        idx: dict[str, ShareRecord] = {}
+        for p in self.root.glob("*.json"):
+            if p.name.endswith(".tmp"):
+                continue
+            try:
+                rec = ShareRecord.from_json(json.loads(p.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            idx[rec.request.request_id] = rec
+        log.info("queue share store indexed %d record(s) from %s", len(idx), self.root)
+        return idx
+
+    def _ensure_index(self) -> dict[str, ShareRecord]:
+        # Caller holds self._mu.
+        if self._index is None:
+            self._index = self._load_index()
+        return self._index
+
     def get(self, request_id: str) -> ShareRecord | None:
-        p = self._path(request_id)
-        if not p.is_file():
-            return None
-        try:
-            return ShareRecord.from_json(json.loads(p.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError, ValueError):
-            return None
+        with self._mu:
+            return self._ensure_index().get(request_id)
 
     def put(self, rec: ShareRecord) -> None:
         rid = rec.request.request_id
@@ -129,18 +162,34 @@ class QueueShareStore:
             os.replace(tmp, p)
         except OSError as e:
             raise SharePersistError(f"cannot persist {rid}: {e}") from e
+        with self._mu:
+            self._ensure_index()[rid] = rec
 
     def list_all(self) -> list[ShareRecord]:
-        out: list[ShareRecord] = []
-        for p in sorted(self.root.glob("*.json")):
-            if p.name.endswith(".tmp"):
-                continue
-            try:
-                out.append(ShareRecord.from_json(json.loads(p.read_text(encoding="utf-8"))))
-            except (OSError, json.JSONDecodeError, ValueError):
-                continue
+        with self._mu:
+            out = list(self._ensure_index().values())
         out.sort(key=lambda r: (r.recorded_at_ns, r.request.request_id))
         return out
+
+    def prune(self, *, older_than_ns: int, states: tuple[str, ...] = TERMINAL_STATES) -> int:
+        """Delete terminal records recorded before ``older_than_ns``. Live
+        (APPLIED / RECORDED / APPLYING) records are never pruned — an APPLIED
+        record with valid_until 0 is a standing floor until superseded."""
+        with self._mu:
+            idx = self._ensure_index()
+            victims = [
+                rid for rid, r in idx.items()
+                if r.state in states and r.recorded_at_ns < older_than_ns
+            ]
+            for rid in victims:
+                idx.pop(rid, None)
+                try:
+                    self._path(rid).unlink(missing_ok=True)
+                except OSError as e:  # noqa: PERF203 - one bad unlink must not stop the sweep
+                    log.warning("queue share prune: cannot unlink %s: %s", rid, e)
+        if victims:
+            log.info("queue share store pruned %d terminal record(s) older than horizon", len(victims))
+        return len(victims)
 
 
 def gpu_qty(share: scheduler_pb2.QueueShare, field: str) -> int:
@@ -522,6 +571,10 @@ class QueueShareService:
                 len(batch), elapsed_ms,
                 f" — {getattr(result, 'message', '')}" if getattr(result, "message", "") else "",
             )
+            try:
+                self.store.prune(older_than_ns=time.time_ns() - PRUNE_HORIZON_S * 1_000_000_000)
+            except Exception as e:  # noqa: BLE001 - housekeeping never fails an apply
+                log.warning("queue share prune skipped: %s", e)
             with self._apply_cv:
                 self._apply_pending.difference_update(batch)
 
@@ -535,6 +588,11 @@ class QueueShareService:
     ) -> list[ShareRecord]:
         peer = (peer or "").strip().lower()
         queue = (queue or "").strip()
+        # The wire contract says limit 0 = backend default. Unbounded was the
+        # default and it is what saturated the servicer; 500 newest covers every
+        # live record many times over (a peer's live set is a handful).
+        if not limit:
+            limit = DEFAULT_LIST_LIMIT
         rows = self.store.list_all()
         out: list[ShareRecord] = []
         for rec in reversed(rows):  # newest first
