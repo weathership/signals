@@ -63,6 +63,10 @@ Two operational modes drive development:
 - **External benchmarks** — [GitTables CTA](scripts/evaluate_gittables.py) (2517 columns, 122 DBpedia types) tests generalization on public data
 - **Internal synthetic data** — [70+ value generators](scripts/generate_meta_tagging_train.py) covering all SIGDG leaf categories train CatBoost for evaluation
 
+### Supervision: Nautilus (planned)
+
+Every Signals project that runs a signals-protocol engine is expected to host its own local [Nautilus](https://github.com/weathership/nautilus) instance — the model-free supervisor that validates the project's `zndx.supervision.v1` instance and observes its declared workflows from outside the engine's trust boundary (cadences, nets, resource intents, and the Operations Backlog state table in Fibonacci-hour slots). The engine communicates with its local Nautilus and Nautilus with its engine; the engine propagates Nautilus messages across the federated engine mesh over signals-protocol peer messaging, so peers observe peers without any cross-engine ledger writes. signals-360 does not host a Nautilus instance yet; the gaius instance is the reference deployment.
+
 ## Project Structure
 
 ```
