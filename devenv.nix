@@ -253,10 +253,16 @@ in
   # because concurrent devenv-tasks wrappers under process-compose deadlock on tasks.db.
   process.manager.implementation = "native";
 
-  # Run once before any process (avoid per-process oneshot races on tasks.db).
+  # Run once before the first process (postgres — everything else waits on it).
   # Kerberos full bootstrap needs KDC up — that is signals:kerberos-bootstrap
-  # (before kudu/impala). Here: data layout + best-effort early krb if KDC already live.
-  process.manager.before = ''
+  # (before kudu/impala). Here: data layout + port claim + stale postmaster.pid +
+  # best-effort early krb if KDC already live. This was `process.manager.before`
+  # until 2026-09-05; the newer devenv modules (pinned for services.rustfs) reject
+  # that hook under the native manager and want a task with process dependencies.
+  tasks."signals:pre-processes" = {
+    description = "Data layout, PG port claim, stale postmaster.pid, early kerberos (before postgres)";
+    before = [ "devenv:processes:postgres" ];
+    exec = ''
     set -euo pipefail
     # shellcheck source=/dev/null
     . "$PWD/scripts/signals_data_root.sh"
@@ -281,7 +287,8 @@ in
     else
       echo "process.manager.before: KDC not up yet — kerberos-bootstrap task will run before Kudu/Impala"
     fi
-  '';
+    '';
+  };
 
   # ── Packages ───────────────────────────────────────────────────────────────
   packages = with pkgs; [
@@ -878,47 +885,26 @@ in
   # Federated engines + Weathership memory/artifacts must not pile objects into
   # Postgres. Port lattice: 9010 API / 9011 console (9000 reserved for synth).
   # See docs/current/src/architecture/governance-scale-plane.md
-  processes.rustfs = {
-    ready = {
-      exec = "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9010'";
-      initial_delay = 2;
-      period = 5;
-      probe_timeout = 3;
-      failure_threshold = 12;
-    };
-    exec = ''
-      set -euo pipefail
-      # shellcheck source=/dev/null
-      . "$PWD/scripts/signals_data_root.sh"
-      signals_ensure_data_layout
-      DATA_DIR="''${SIGNALS_RUSTFS_DATA_DIR:-$SIGNALS_DATA_ROOT/rustfs}"
-      ADDRESS="''${RUSTFS_ADDRESS:-127.0.0.1:9010}"
-      CONSOLE="''${RUSTFS_CONSOLE_ADDRESS:-127.0.0.1:9011}"
-      ACCESS="''${RUSTFS_ACCESS_KEY:-rustfsadmin}"
-      SECRET="''${RUSTFS_SECRET_KEY:-rustfsadmin}"
-      mkdir -p "$DATA_DIR"
-      echo "Starting RustFS object store"
-      echo "  data    $DATA_DIR"
-      echo "  S3 API  http://$ADDRESS  (path-style; mc alias local)"
-      echo "  console http://$CONSOLE"
-      exec rustfs server \
-        --address "$ADDRESS" \
-        --console-address "$CONSOLE" \
-        --console-enable \
-        --access-key "$ACCESS" \
-        --secret-key "$SECRET" \
-        "$DATA_DIR"
-    '';
-    process-compose = {
-      readiness_probe = {
-        # TCP-level: S3 root may 403 without auth; process listening is enough for lab.
-        exec.command = "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9010'";
-        initial_delay_seconds = 2;
-        period_seconds = 5;
-        timeout_seconds = 3;
-        success_threshold = 1;
-        failure_threshold = 12;
-      };
+  # devenv-native service (2026-09-05; replaces the hand-rolled `processes.rustfs`
+  # exec). The module (devenv modules ≥ 2026-02-23) launches
+  # `rustfs "$RUSTFS_DATA_DIR"` with RUSTFS_ADDRESS/RUSTFS_CONSOLE_ADDRESS/
+  # RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY, probes GET /health, and takes the package
+  # from this project's pinned `rustfs` input. Its data-dir default is
+  # $DEVENV_STATE/rustfs/data; extraEnvironment wins on conflict, so the RAID
+  # layout ($SIGNALS_DATA_ROOT/rustfs, created by signals:data-layout /
+  # signals:rustfs-buckets, which still run `before devenv:processes:rustfs`)
+  # stays the data dir. Process name is unchanged (`rustfs`), so every
+  # `after`/`depends_on` reference holds.
+  services.rustfs = {
+    enable = true;
+    bind = "127.0.0.1";
+    port = 9010;
+    consolePort = 9011;
+    consoleEnable = true;
+    accessKey = "rustfsadmin";
+    secretKey = "rustfsadmin";
+    extraEnvironment = {
+      RUSTFS_DATA_DIR = signalsDataRoot + "/rustfs";
     };
   };
 
