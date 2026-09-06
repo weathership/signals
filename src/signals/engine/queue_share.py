@@ -31,7 +31,9 @@ GPU = "federation.zndx.org/gpu"
 DEFAULT_LIST_LIMIT = 500
 PRUNE_HORIZON_S = 24 * 3600
 PARENT_GPU_MAX = 6
-ALLOWED_PEERS = frozenset({"gaius", "aegir", "atelier", "signals"})
+# 2026-09-06: hermes added — its engine declares the interactive agent-rtc
+# session as a coordination Activity (and may request queue shares).
+ALLOWED_PEERS = frozenset({"gaius", "aegir", "atelier", "signals", "hermes"})
 # Leftover pair beside standing thinking (4). Mutually exclusive floors.
 LEFTOVER_QUEUES = frozenset(
     {

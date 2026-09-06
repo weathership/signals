@@ -125,6 +125,11 @@ volumeMounts:
     mountPath: /opt/airflow/dags/signals_eventing_smoke_dag.py
     subPath: signals_eventing_smoke_dag.py
     readOnly: true
+  # Coordination Activities (Signals-owned; peers reach it only via the engine)
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/coord_activity_dag.py
+    subPath: coord_activity_dag.py
+    readOnly: true
 
 # ── Components ────────────────────────────────────────────────────
 # Airflow 3: api-server (not webserver)

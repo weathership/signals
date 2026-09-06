@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 import grpc
 
+from signals.engine.activities import (
+    ActivityError,
+    ActivityService,
+    watch_event,
+)
+from signals.engine.airflow_api import AirflowClient, AirflowError
 from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2, scheduler_pb2_grpc
 from signals.engine.k8s_apply import ApplyConfig, ApplyError, apply_queues_yaml
 from signals.engine.projection import ProjectionStore
@@ -118,11 +125,22 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         yk: YkRestClient,
         store: ProjectionStore,
         apply_cfg: ApplyConfig | None = None,
+        activities: ActivityService | None = None,
     ):
         self.yk = yk
         self.store = store
         self.apply_cfg = apply_cfg or ApplyConfig.from_env()
         self.shares = QueueShareService(QueueShareStore(store.root / "shares"))
+        # Coordination Activities: constructed lazily so the engine boots with
+        # Airflow down; every RPC then surfaces the Airflow error itself.
+        self._activities: ActivityService | None = activities
+        self._activities_mu = threading.Lock()
+
+    def activities(self) -> ActivityService:
+        with self._activities_mu:
+            if self._activities is None:
+                self._activities = ActivityService(AirflowClient())
+            return self._activities
 
     def ListPartitions(self, request, context):  # noqa: N802
         try:
@@ -757,6 +775,79 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
             )
         except Exception as e:  # noqa: BLE001
             return scheduler_pb2.RestoreArchiveToScratchResponse(ok=False, message=str(e))
+
+    # ── Coordination Activities (intent with a lifetime; Airflow runs) ──────
+    # Refusals (unknown peer, bad horizon, ended activity) come back in-band as
+    # accepted=false + guru error; Airflow unavailability aborts UNAVAILABLE
+    # with the guru text (fail-fast — never a locally invented activity).
+
+    def DeclareActivity(self, request, context):  # noqa: N802
+        try:
+            rec = self.activities().declare(request)
+            return scheduler_pb2.ActivityResponse(accepted=True, activity=rec.to_proto())
+        except ActivityError as e:
+            log.warning("DeclareActivity refused peer=%s kind=%s: %s", request.peer, request.kind, e)
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+        except AirflowError as e:
+            log.error("DeclareActivity airflow: %s", e)
+            context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+
+    def RenewActivity(self, request, context):  # noqa: N802
+        try:
+            rec = self.activities().renew(request.peer, request.activity_id, int(request.horizon_ns))
+            return scheduler_pb2.ActivityResponse(accepted=True, activity=rec.to_proto())
+        except ActivityError as e:
+            log.warning("RenewActivity refused %s: %s", request.activity_id, e)
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+        except AirflowError as e:
+            log.error("RenewActivity airflow: %s", e)
+            context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+
+    def ReleaseActivity(self, request, context):  # noqa: N802
+        try:
+            rec = self.activities().release(request.peer, request.activity_id, request.outcome)
+            return scheduler_pb2.ActivityResponse(accepted=True, activity=rec.to_proto())
+        except ActivityError as e:
+            log.warning("ReleaseActivity refused %s: %s", request.activity_id, e)
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+        except AirflowError as e:
+            log.error("ReleaseActivity airflow: %s", e)
+            context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+            return scheduler_pb2.ActivityResponse(accepted=False, error=str(e))
+
+    def ListActivities(self, request, context):  # noqa: N802
+        try:
+            recs = self.activities().list(
+                peer=request.peer or "",
+                kind=request.kind or "",
+                active_only=bool(request.active_only),
+                since_ns=int(request.since_ns or 0),
+                limit=int(request.limit or 0),
+            )
+        except AirflowError as e:
+            log.error("ListActivities airflow: %s", e)
+            context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+            return scheduler_pb2.ListActivitiesResponse()
+        out = scheduler_pb2.ListActivitiesResponse(observed_ns=self.activities()._clock())
+        for r in recs:
+            out.activities.append(r.to_proto())
+        return out
+
+    def WatchActivities(self, request, context):  # noqa: N802
+        """Server stream: the full in-force set (+ recently ended) on change and
+        every heartbeat; ends when the peer disconnects or Airflow fails."""
+        peer = request.peer or "?"
+        log.info("WatchActivities: peer=%s subscribed", peer)
+        try:
+            for recs, observed in self.activities().watch(is_active=context.is_active):
+                yield watch_event(recs, observed)
+        except AirflowError as e:
+            log.error("WatchActivities peer=%s airflow: %s", peer, e)
+            context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+        finally:
+            log.info("WatchActivities: peer=%s stream closed", peer)
 
 
 def _root_name(enum_val: int) -> str:

@@ -134,6 +134,9 @@ info "applying CI DAG ConfigMap (signals_ci + legacy smoke dual-map + eventing D
 cm_args=(
   --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py"
   --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py"
+  # Coordination Activities: inter-project intent as runs of this DAG, driven
+  # only by the Signals engine (zndx.scheduler.v1 Declare/Renew/Release).
+  --from-file=coord_activity_dag.py="$MANIFEST_DIR/dags/coord_activity_dag.py"
 )
 EVENTING_DAGS="$ROOT/config/k8s/eventing/dags"
 for f in signals_eventing_ci_dag.py signals_eventing_smoke_dag.py; do

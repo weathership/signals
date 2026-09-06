@@ -45,6 +45,17 @@ class ServerQueryKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_QUERY_KIND_PRODUCTS: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_COGNITION: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_CONTRIBUTIONS: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_ACTIVITIES: _ClassVar[ServerQueryKind]
+
+class ActivityState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    ACTIVITY_STATE_UNSPECIFIED: _ClassVar[ActivityState]
+    ACTIVITY_QUEUED: _ClassVar[ActivityState]
+    ACTIVITY_RUNNING: _ClassVar[ActivityState]
+    ACTIVITY_RELEASED: _ClassVar[ActivityState]
+    ACTIVITY_EXPIRED: _ClassVar[ActivityState]
+    ACTIVITY_FAILED: _ClassVar[ActivityState]
+    ACTIVITY_SUPERSEDED: _ClassVar[ActivityState]
 
 class ServingBackend(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -102,6 +113,14 @@ SERVER_QUERY_KIND_SOURCE_POSTURE: ServerQueryKind
 SERVER_QUERY_KIND_PRODUCTS: ServerQueryKind
 SERVER_QUERY_KIND_COGNITION: ServerQueryKind
 SERVER_QUERY_KIND_CONTRIBUTIONS: ServerQueryKind
+SERVER_QUERY_KIND_ACTIVITIES: ServerQueryKind
+ACTIVITY_STATE_UNSPECIFIED: ActivityState
+ACTIVITY_QUEUED: ActivityState
+ACTIVITY_RUNNING: ActivityState
+ACTIVITY_RELEASED: ActivityState
+ACTIVITY_EXPIRED: ActivityState
+ACTIVITY_FAILED: ActivityState
+ACTIVITY_SUPERSEDED: ActivityState
 SERVING_BACKEND_UNSPECIFIED: ServingBackend
 SERVING_BACKEND_VLLM_LOCAL: ServingBackend
 SERVING_BACKEND_KSERVE_REMOTE: ServingBackend
@@ -438,7 +457,7 @@ class ServerQueryRequest(_message.Message):
     def __init__(self, kind: _Optional[_Union[ServerQueryKind, str]] = ..., ttl: _Optional[int] = ..., nonce: _Optional[str] = ..., origin_project: _Optional[str] = ..., note_id: _Optional[str] = ...) -> None: ...
 
 class ServerQueryResponse(_message.Message):
-    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products", "cognition", "contributions")
+    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products", "cognition", "contributions", "activities")
     PROJECT_FIELD_NUMBER: _ClassVar[int]
     REMOTES_FIELD_NUMBER: _ClassVar[int]
     HEAD_FIELD_NUMBER: _ClassVar[int]
@@ -452,6 +471,7 @@ class ServerQueryResponse(_message.Message):
     PRODUCTS_FIELD_NUMBER: _ClassVar[int]
     COGNITION_FIELD_NUMBER: _ClassVar[int]
     CONTRIBUTIONS_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
     project: str
     remotes: _containers.RepeatedCompositeFieldContainer[GitRemote]
     head: str
@@ -465,7 +485,59 @@ class ServerQueryResponse(_message.Message):
     products: _containers.RepeatedCompositeFieldContainer[ProductHint]
     cognition: CognitionHint
     contributions: ContributionsHint
-    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ..., cognition: _Optional[_Union[CognitionHint, _Mapping]] = ..., contributions: _Optional[_Union[ContributionsHint, _Mapping]] = ...) -> None: ...
+    activities: _containers.RepeatedCompositeFieldContainer[Activity]
+    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ..., cognition: _Optional[_Union[CognitionHint, _Mapping]] = ..., contributions: _Optional[_Union[ContributionsHint, _Mapping]] = ..., activities: _Optional[_Iterable[_Union[Activity, _Mapping]]] = ...) -> None: ...
+
+class ActivityClaim(_message.Message):
+    __slots__ = ("leaf", "gpu")
+    LEAF_FIELD_NUMBER: _ClassVar[int]
+    GPU_FIELD_NUMBER: _ClassVar[int]
+    leaf: str
+    gpu: int
+    def __init__(self, leaf: _Optional[str] = ..., gpu: _Optional[int] = ...) -> None: ...
+
+class Activity(_message.Message):
+    __slots__ = ("activity_id", "kind", "peer", "owner", "dag_id", "run_id", "state", "declared_ns", "horizon_ns", "renewed_ns", "ended_ns", "claims", "precludes", "postures", "reason", "note")
+    class PosturesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    ACTIVITY_ID_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    OWNER_FIELD_NUMBER: _ClassVar[int]
+    DAG_ID_FIELD_NUMBER: _ClassVar[int]
+    RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    DECLARED_NS_FIELD_NUMBER: _ClassVar[int]
+    HORIZON_NS_FIELD_NUMBER: _ClassVar[int]
+    RENEWED_NS_FIELD_NUMBER: _ClassVar[int]
+    ENDED_NS_FIELD_NUMBER: _ClassVar[int]
+    CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    PRECLUDES_FIELD_NUMBER: _ClassVar[int]
+    POSTURES_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    NOTE_FIELD_NUMBER: _ClassVar[int]
+    activity_id: str
+    kind: str
+    peer: str
+    owner: str
+    dag_id: str
+    run_id: str
+    state: ActivityState
+    declared_ns: int
+    horizon_ns: int
+    renewed_ns: int
+    ended_ns: int
+    claims: _containers.RepeatedCompositeFieldContainer[ActivityClaim]
+    precludes: _containers.RepeatedScalarFieldContainer[str]
+    postures: _containers.ScalarMap[str, str]
+    reason: str
+    note: str
+    def __init__(self, activity_id: _Optional[str] = ..., kind: _Optional[str] = ..., peer: _Optional[str] = ..., owner: _Optional[str] = ..., dag_id: _Optional[str] = ..., run_id: _Optional[str] = ..., state: _Optional[_Union[ActivityState, str]] = ..., declared_ns: _Optional[int] = ..., horizon_ns: _Optional[int] = ..., renewed_ns: _Optional[int] = ..., ended_ns: _Optional[int] = ..., claims: _Optional[_Iterable[_Union[ActivityClaim, _Mapping]]] = ..., precludes: _Optional[_Iterable[str]] = ..., postures: _Optional[_Mapping[str, str]] = ..., reason: _Optional[str] = ..., note: _Optional[str] = ...) -> None: ...
 
 class CognitionActivityBucket(_message.Message):
     __slots__ = ("start_ms", "end_ms", "thoughts", "cycles")
@@ -706,3 +778,25 @@ class WorkloadProfile(_message.Message):
     settled_at_unix_ms: int
     detail: str
     def __init__(self, phase: _Optional[_Union[WorkloadPhase, str]] = ..., generation: _Optional[int] = ..., intents: _Optional[_Iterable[_Union[WorkloadIntent, _Mapping]]] = ..., settled_at_unix_ms: _Optional[int] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class PeerAnnounce(_message.Message):
+    __slots__ = ("project", "engine_target", "surfaces", "ttl_seconds")
+    PROJECT_FIELD_NUMBER: _ClassVar[int]
+    ENGINE_TARGET_FIELD_NUMBER: _ClassVar[int]
+    SURFACES_FIELD_NUMBER: _ClassVar[int]
+    TTL_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    project: str
+    engine_target: str
+    surfaces: _containers.RepeatedCompositeFieldContainer[Surface]
+    ttl_seconds: int
+    def __init__(self, project: _Optional[str] = ..., engine_target: _Optional[str] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., ttl_seconds: _Optional[int] = ...) -> None: ...
+
+class AnnounceAck(_message.Message):
+    __slots__ = ("accepted", "ttl_seconds", "error")
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    TTL_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    accepted: bool
+    ttl_seconds: int
+    error: str
+    def __init__(self, accepted: _Optional[bool] = ..., ttl_seconds: _Optional[int] = ..., error: _Optional[str] = ...) -> None: ...

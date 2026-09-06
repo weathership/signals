@@ -659,3 +659,98 @@ class ListQueueShareRequestsResponse(_message.Message):
     RECORDS_FIELD_NUMBER: _ClassVar[int]
     records: _containers.RepeatedCompositeFieldContainer[QueueShareRecord]
     def __init__(self, records: _Optional[_Iterable[_Union[QueueShareRecord, _Mapping]]] = ...) -> None: ...
+
+class DeclareActivityRequest(_message.Message):
+    __slots__ = ("peer", "request_id", "kind", "owner", "horizon_ns", "claims", "precludes", "postures", "reason")
+    class PosturesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    OWNER_FIELD_NUMBER: _ClassVar[int]
+    HORIZON_NS_FIELD_NUMBER: _ClassVar[int]
+    CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    PRECLUDES_FIELD_NUMBER: _ClassVar[int]
+    POSTURES_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    request_id: str
+    kind: str
+    owner: str
+    horizon_ns: int
+    claims: _containers.RepeatedCompositeFieldContainer[_engine_pb2.ActivityClaim]
+    precludes: _containers.RepeatedScalarFieldContainer[str]
+    postures: _containers.ScalarMap[str, str]
+    reason: str
+    def __init__(self, peer: _Optional[str] = ..., request_id: _Optional[str] = ..., kind: _Optional[str] = ..., owner: _Optional[str] = ..., horizon_ns: _Optional[int] = ..., claims: _Optional[_Iterable[_Union[_engine_pb2.ActivityClaim, _Mapping]]] = ..., precludes: _Optional[_Iterable[str]] = ..., postures: _Optional[_Mapping[str, str]] = ..., reason: _Optional[str] = ...) -> None: ...
+
+class RenewActivityRequest(_message.Message):
+    __slots__ = ("peer", "activity_id", "horizon_ns")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITY_ID_FIELD_NUMBER: _ClassVar[int]
+    HORIZON_NS_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    activity_id: str
+    horizon_ns: int
+    def __init__(self, peer: _Optional[str] = ..., activity_id: _Optional[str] = ..., horizon_ns: _Optional[int] = ...) -> None: ...
+
+class ReleaseActivityRequest(_message.Message):
+    __slots__ = ("peer", "activity_id", "outcome")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITY_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    activity_id: str
+    outcome: str
+    def __init__(self, peer: _Optional[str] = ..., activity_id: _Optional[str] = ..., outcome: _Optional[str] = ...) -> None: ...
+
+class ActivityResponse(_message.Message):
+    __slots__ = ("accepted", "activity", "error")
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITY_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    accepted: bool
+    activity: _engine_pb2.Activity
+    error: str
+    def __init__(self, accepted: _Optional[bool] = ..., activity: _Optional[_Union[_engine_pb2.Activity, _Mapping]] = ..., error: _Optional[str] = ...) -> None: ...
+
+class ListActivitiesRequest(_message.Message):
+    __slots__ = ("peer", "kind", "active_only", "since_ns", "limit")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    SINCE_NS_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    kind: str
+    active_only: bool
+    since_ns: int
+    limit: int
+    def __init__(self, peer: _Optional[str] = ..., kind: _Optional[str] = ..., active_only: _Optional[bool] = ..., since_ns: _Optional[int] = ..., limit: _Optional[int] = ...) -> None: ...
+
+class ListActivitiesResponse(_message.Message):
+    __slots__ = ("activities", "observed_ns")
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_NS_FIELD_NUMBER: _ClassVar[int]
+    activities: _containers.RepeatedCompositeFieldContainer[_engine_pb2.Activity]
+    observed_ns: int
+    def __init__(self, activities: _Optional[_Iterable[_Union[_engine_pb2.Activity, _Mapping]]] = ..., observed_ns: _Optional[int] = ...) -> None: ...
+
+class WatchActivitiesRequest(_message.Message):
+    __slots__ = ("peer",)
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    def __init__(self, peer: _Optional[str] = ...) -> None: ...
+
+class ActivityWatchEvent(_message.Message):
+    __slots__ = ("activities", "observed_ns")
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_NS_FIELD_NUMBER: _ClassVar[int]
+    activities: _containers.RepeatedCompositeFieldContainer[_engine_pb2.Activity]
+    observed_ns: int
+    def __init__(self, activities: _Optional[_Iterable[_Union[_engine_pb2.Activity, _Mapping]]] = ..., observed_ns: _Optional[int] = ...) -> None: ...
