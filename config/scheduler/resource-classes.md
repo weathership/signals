@@ -23,6 +23,7 @@ GPU occupancy key: `federation.zndx.org/gpu`. Advertise node capacity with
 | `root.internal.inference.medium` | On-demand SAE TP=2 (max 2 GPUs, 1 app, **no guarantee**) | cpu/mem/gpu/apps | — |
 | `root.internal.inference.light` | Interactive Ask 1.7B (1 GPU/app, max 2 apps) | cpu/mem/gpu/apps | — |
 | `root.internal.inference.extract` | Offline OCR / docling / article-curate (**1 GPU guaranteed**, max 2, 2 apps). YK preempts medium (ask-sae, no floor) when extract work arrives. | cpu/mem/gpu/apps | — |
+| `root.internal.inference.agent-rtc` | Hermes WebRTC / Kyutai STT (**1 GPU guaranteed**, 1 app, fenced). Dash is a valid leaf name (`rate-metered`). | cpu/mem/gpu/apps | — |
 | `root.external.token-metered` | Pay-per-token APIs | apps (no GPU) | tokens |
 | `root.external.rate-metered` | RPM/TPM APIs | apps (no GPU) | rpm |
 | `root.external.subscription.rate-limited` | Grok ACP / xAI subscription | apps (no GPU) | subscription |

@@ -209,6 +209,28 @@ partitions:
                         federation.zndx.org/gpu: "2"
                     maxapplications: 2
 
+                  # Hermes WebRTC / Kyutai STT. Standing 1 GPU (Moshi stack).
+                  # Dash is fine (see external.rate-metered). Fence so light
+                  # does not walk this floor. Parent max is 6: heavy 4 +
+                  # extract 1 + agent-rtc 1.
+                  - name: agent-rtc
+                    submitacl: '*'
+                    properties:
+                      federation.class: internal.inference.agent-rtc
+                      federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
+                      federation.peer_meters: ""
+                      federation.examples: hermes.agent-rtc;kyutai-stt;moshi
+                      # Floor of 1 GPU. Same shape as extract: delay, then
+                      # preempt unguaranteed light/medium. Do not fence —
+                      # fence would block this leaf from taking its floor.
+                      preemption.delay: 5s
+                    resources:
+                      guaranteed:
+                        federation.zndx.org/gpu: "1"
+                      max:
+                        federation.zndx.org/gpu: "1"
+                    maxapplications: 1
+
           - name: external
             parent: true
             submitacl: '*'
