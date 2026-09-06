@@ -461,3 +461,35 @@ def test_applier_sheds_lowest_priority_floor_and_retries(tmp_path: Path) -> None
 
     light = find_queue(_yaml.safe_load(state["yaml"]), GPU_Q["light"])
     assert light["resources"]["guaranteed"][GPU] == "0"
+
+
+def test_resume_requeues_recorded_records_after_restart(tmp_path: Path) -> None:
+    """Records left RECORDED by a previous process reach the applier at boot."""
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    r = svc.ingest(_req("gaius", GPU_Q["extract"], 1), **kwargs)
+    _wait_state(svc, r.request_id, "APPLIED")
+    # simulate a restart: a fresh service over the same store with a RECORDED record
+    rec = svc.store.get(r.request_id)
+    rec.state = "RECORDED"
+    svc.store.put(rec)
+    svc2 = QueueShareService(QueueShareStore(tmp_path / "shares"))
+    n = svc2.resume(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    assert n == 1
+    _wait_state(svc2, r.request_id, "APPLIED")
+
+
+def test_ingest_sheds_older_culprit_not_the_newcomer(tmp_path: Path) -> None:
+    """A zero-floor newcomer arriving while an older low-priority floor over-commits
+    must not be the one REJECTED."""
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    lo = _req("gaius", GPU_Q["light"], 1)
+    lo.workloads[0].wrk = "embedding"
+    assert svc.ingest(lo, **kwargs).state == scheduler_pb2.QUEUE_SHARE_RECORDED
+    state["yaml"] = BASE_RTC  # the SoR grows agent-rtc: light 1 now over-commits
+    probe = _req("gaius", GPU_Q["light"], 0)
+    probe.workloads[0].wrk = "clt-probe"
+    r = svc.ingest(probe, **kwargs)
+    assert r.state == scheduler_pb2.QUEUE_SHARE_RECORDED, r.error
+    assert svc.store.get(lo.request_id).state == "REJECTED"

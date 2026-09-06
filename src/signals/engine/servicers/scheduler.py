@@ -140,6 +140,34 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         self.leases = leases or LeaseStore(store.root / "activities")
         self._activities: ActivityService | None = activities
         self._activities_mu = threading.Lock()
+        # 2026-09-06: records left RECORDED by the previous engine process never
+        # reached the applier (its pending set is in-memory) until the next
+        # ingest — gaius waited its 600 s net against a dark applier after every
+        # Signals restart. Re-queue them now; the applier converges on its own.
+        try:
+            self.shares.resume(
+                apply_fn=self._share_apply_fn,
+                read_yaml=self._share_read_yaml,
+                write_scratch=self._share_write_scratch,
+            )
+        except Exception as e:  # noqa: BLE001 — boot must not fail on the applier
+            log.warning("queue share resume skipped: %s", e)
+
+    # ── queue share I/O (shared by ingest and the boot-time resume) ────────
+    def _share_read_yaml(self) -> str | None:
+        return self.store.read_config("current") or self.store.read_config("scratch")
+
+    def _share_write_scratch(self, body: str) -> None:
+        self.store.write_config(body, root="scratch")
+
+    def _share_apply_fn(self):
+        # Runs on the applier thread after the RPC has returned — never hand it
+        # a (dead) request context. Returns the promote response so the applier
+        # can log what was applied (its success path was silent before 2026-09-04).
+        r = self.PromoteScratch(scheduler_pb2.PromoteScratchRequest(dry_run=False), None)
+        if not r.ok:
+            raise RuntimeError(r.message or "PromoteScratch failed")
+        return r
 
     def activities(self) -> ActivityService:
         with self._activities_mu:
@@ -715,31 +743,12 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
 
     def RequestQueueShare(self, request, context):  # noqa: N802
         """Persist WRK occupancy intent; apply merged floors via PromoteScratch."""
-
-        def read_yaml() -> str | None:
-            return self.store.read_config("current") or self.store.read_config("scratch")
-
-        def write_scratch(body: str) -> None:
-            self.store.write_config(body, root="scratch")
-
-        def apply_fn():
-            # Runs on the applier thread after this RPC has returned — never
-            # hand it the (dead) request context. Returns the promote response
-            # so the applier can log what was applied (its success path was
-            # silent before 2026-09-04).
-            r = self.PromoteScratch(
-                scheduler_pb2.PromoteScratchRequest(dry_run=False), None
-            )
-            if not r.ok:
-                raise RuntimeError(r.message or "PromoteScratch failed")
-            return r
-
         try:
             return self.shares.ingest(
                 request,
-                apply_fn=apply_fn,
-                read_yaml=read_yaml,
-                write_scratch=write_scratch,
+                apply_fn=self._share_apply_fn,
+                read_yaml=self._share_read_yaml,
+                write_scratch=self._share_write_scratch,
             )
         except SharePersistError as e:
             context.abort(grpc.StatusCode.INTERNAL, str(e))

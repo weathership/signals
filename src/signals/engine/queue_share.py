@@ -518,22 +518,33 @@ class QueueShareService:
         # parent as declared in the config being patched (agent-rtc included),
         # raised by the merged floors on the share-managed leaves.
         yaml_body = read_yaml() or baseline_yaml()
+        self._yaml_io = (read_yaml, write_scratch)
         total, parent_max = parent_budget(yaml_body, floors)
         if total > parent_max:
-            rec.state = "REJECTED"
-            rec.apply_error = f"parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}"
-            self.store.put(rec)
-            return scheduler_pb2.QueueShareResponse(
-                accepted=True,
-                request_id=rid,
-                state=scheduler_pb2.QUEUE_SHARE_REJECTED,
-                error=(
-                    f"overlapping guaranteed GPU {total} exceeds parent max "
-                    f"{parent_max}: {floors}"
-                ),
-            )
-        # The applier needs the same yaml I/O to shed over-commit after a failed apply.
-        self._yaml_io = (read_yaml, write_scratch)
+            # The newcomer is not automatically the culprit (a zero-floor "ended"
+            # record arriving while an older floor over-commits): shed by
+            # priority, then judge again. Only a newcomer that is itself the
+            # shed victim — or an over-commit no shedding can cure (declared
+            # SoR floors alone exceed the max) — comes back REJECTED.
+            self._shed_core(read_yaml, write_scratch)
+            rec_now = self.store.get(rid)
+            active = active_records(self.store)
+            floors = merge_floors(active)
+            total, parent_max = parent_budget(yaml_body, floors)
+            if (rec_now is not None and rec_now.state == "REJECTED") or total > parent_max:
+                if rec_now is not None and rec_now.state != "REJECTED":
+                    rec_now.state = "REJECTED"
+                    rec_now.apply_error = f"parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}"
+                    self.store.put(rec_now)
+                return scheduler_pb2.QueueShareResponse(
+                    accepted=True,
+                    request_id=rid,
+                    state=scheduler_pb2.QUEUE_SHARE_REJECTED,
+                    error=(
+                        f"overlapping guaranteed GPU {total} exceeds parent max "
+                        f"{parent_max}: {floors}"
+                    ),
+                )
         try:
             patched = patch_occupancy(yaml_body, floors, shares=list(req.shares))
             write_scratch(patched)
@@ -672,37 +683,65 @@ class QueueShareService:
         if io is None:
             return []
         read_yaml, write_scratch = io
+        with self._mu:
+            return self._shed_core(read_yaml, write_scratch)
+
+    def resume(self, *, apply_fn, read_yaml, write_scratch) -> int:
+        """Re-queue records left RECORDED/APPLYING by a previous engine process.
+
+        2026-09-06: the applier's pending set is in-memory, so after an engine
+        restart every live RECORDED record sat unapplied until the next ingest
+        happened to arrive — peers waited their nets against a dark applier.
+        Called once at servicer construction; returns how many were queued.
+        """
+        pending = [r for r in active_records(self.store) if r.state in ("RECORDED", "APPLYING")]
+        if not pending:
+            return 0
+        self._yaml_io = (read_yaml, write_scratch)
+        try:
+            self._shed_core(read_yaml, write_scratch)
+            survivors = merge_floors(active_records(self.store))
+            write_scratch(patch_occupancy(read_yaml() or baseline_yaml(), survivors))
+        except Exception as e:  # noqa: BLE001 — the applier retries; never fail boot on this
+            log.warning("queue share resume: scratch rewrite failed: %s", e)
+        ids = {r.request.request_id for r in pending if self.store.get(r.request.request_id).state != "REJECTED"}
+        if ids:
+            self._queue_apply(ids, apply_fn)
+        log.info("queue share resume: %d record(s) re-queued for apply after restart", len(ids))
+        return len(ids)
+
+    def _shed_core(self, read_yaml, write_scratch) -> list[str]:
+        """Lock-free core of the shed (callers hold `_mu` or are the ingest path)."""
         rejected: list[str] = []
         try:
-            with self._mu:
-                while True:
-                    active = active_records(self.store)
-                    floors = merge_floors(active)
-                    total, parent_max = parent_budget(read_yaml() or baseline_yaml(), floors)
-                    if total <= parent_max:
-                        break
-                    victims: list[tuple[int, int, ShareRecord]] = []
-                    for rec in active:
-                        per = merge_floors([rec])
-                        if not any(
-                            q in OCCUPANCY_QUEUES and q != HEAVY_QUEUE and v > 0 for q, v in per.items()
-                        ):
-                            continue
-                        prio = max((int(w.priority or 0) for w in rec.request.workloads), default=0)
-                        victims.append((prio, -int(rec.recorded_at_ns), rec))
-                    if not victims:
-                        break  # over-commit is declared policy (SoR floors alone exceed the max)
-                    victims.sort(key=lambda t: (t[0], t[1]))
-                    victim = victims[0][2]
-                    victim.state = "REJECTED"
-                    victim.apply_error = (
-                        f"shed: parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}; floors {floors}"
-                    )[:400]
-                    self.store.put(victim)
-                    rejected.append(victim.request.request_id)
-                if rejected:
-                    survivors = merge_floors(active_records(self.store))
-                    write_scratch(patch_occupancy(read_yaml() or baseline_yaml(), survivors))
+            while True:
+                active = active_records(self.store)
+                floors = merge_floors(active)
+                total, parent_max = parent_budget(read_yaml() or baseline_yaml(), floors)
+                if total <= parent_max:
+                    break
+                victims: list[tuple[int, int, ShareRecord]] = []
+                for rec in active:
+                    per = merge_floors([rec])
+                    if not any(
+                        q in OCCUPANCY_QUEUES and q != HEAVY_QUEUE and v > 0 for q, v in per.items()
+                    ):
+                        continue
+                    prio = max((int(w.priority or 0) for w in rec.request.workloads), default=0)
+                    victims.append((prio, -int(rec.recorded_at_ns), rec))
+                if not victims:
+                    break  # over-commit is declared policy (SoR floors alone exceed the max)
+                victims.sort(key=lambda t: (t[0], t[1]))
+                victim = victims[0][2]
+                victim.state = "REJECTED"
+                victim.apply_error = (
+                    f"shed: parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}; floors {floors}"
+                )[:400]
+                self.store.put(victim)
+                rejected.append(victim.request.request_id)
+            if rejected:
+                survivors = merge_floors(active_records(self.store))
+                write_scratch(patch_occupancy(read_yaml() or baseline_yaml(), survivors))
         except Exception as e:  # noqa: BLE001 — shedding is best effort; the retry loop continues
             log.warning("queue share shed failed: %s", e)
         return rejected
