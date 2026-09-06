@@ -246,7 +246,7 @@ partitions:
                   federation.class: external.token-metered
                   federation.yk_enforces: memory,vcore,maxapplications
                   federation.peer_meters: tokens
-                  federation.examples: openai-class;pay-per-token
+                  federation.examples: openai-class;pay-per-token;cerebras-thinking
                 maxapplications: 16
 
               - name: rate-metered

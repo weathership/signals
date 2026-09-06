@@ -124,10 +124,10 @@ Catalog prose: [`config/scheduler/resource-classes.md`](../../../config/schedule
 root.default                         leftover / unannotated (no GPU)
 root.platform                        Metaflow, Airflow, Eventing
 root.internal.compute                CPU burst / idle sentinels
-root.internal.inference.{reasoning,coding,orchestration,instruct,embedding,extract}
-root.external.token-metered          peer meters tokens
+root.internal.inference.{reasoning,coding,orchestration,instruct,embedding,extract,agent-rtc}
+root.external.token-metered          pay-per-token (Cerebras thinking, OpenAI-class)
 root.external.rate-metered           peer meters RPM
-root.external.subscription.rate-limited   Grok ACP / xAI subscription
+root.external.subscription.rate-limited   Grok ACP / Bytez / xAI subscription only
 ```
 
 Placement (without `provided`, annotations are ignored and everything lands on

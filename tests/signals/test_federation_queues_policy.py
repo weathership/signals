@@ -29,6 +29,7 @@ LEAF_CLASSES = {
     "root.internal.inference.heavy": "internal.inference.heavy",
     "root.internal.inference.medium": "internal.inference.medium",
     "root.internal.inference.light": "internal.inference.light",
+    "root.internal.inference.agent-rtc": "internal.inference.agent-rtc",
     "root.external.token-metered": "external.token-metered",
     "root.external.rate-metered": "external.rate-metered",
     "root.external.subscription.rate-limited": "external.subscription.rate-limited",
