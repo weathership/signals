@@ -286,6 +286,45 @@ def occupancy_sum(floors: dict[str, int]) -> int:
     return sum(int(floors.get(q, 0) or 0) for q in OCCUPANCY_QUEUES)
 
 
+INFERENCE_PARENT = "root.internal.inference"
+HEAVY_QUEUE = "root.internal.inference.heavy"
+
+
+def parent_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int, int]:
+    """(guaranteed GPU the inference parent's children carry AFTER patch_occupancy,
+    the parent's max) — computed the way YuniKorn validates it.
+
+    2026-09-06: the arbiter summed only the share-managed leaves
+    (OCCUPANCY_QUEUES) against PARENT_GPU_MAX while the SoR had grown a leaf it
+    does not manage — agent-rtc, guaranteed 1 for the Hermes interactive
+    session. Merges passed the arbiter at 6, YuniKorn saw 7, every apply batch
+    failed validation, nothing ever reached APPLIED, and every gaius thinking
+    preload sat out its full 600 s wait-for-APPLIED net (23:37→23:47 UTC).
+    Count EVERY child as declared in the config being patched, raised by the
+    merged floor where the share system manages the leaf.
+    """
+    import yaml
+
+    body = yaml_body if yaml_body is not None else baseline_yaml()
+    doc = yaml.safe_load(body) or {}
+    parent = find_queue(doc, INFERENCE_PARENT)
+    if parent is None:
+        return occupancy_sum(floors), PARENT_GPU_MAX
+    pmax_raw = ((parent.get("resources") or {}).get("max") or {}).get(GPU)
+    parent_max = int(pmax_raw) if pmax_raw not in (None, "") else PARENT_GPU_MAX
+    total = 0
+    for child in parent.get("queues") or []:
+        if not isinstance(child, dict) or not child.get("name"):
+            continue
+        fqn = f"{INFERENCE_PARENT}.{child['name']}"
+        declared = int((((child.get("resources") or {}).get("guaranteed") or {}).get(GPU, 0)) or 0)
+        if fqn in OCCUPANCY_QUEUES:
+            total += max(declared, int(floors.get(fqn, 0) or 0))
+        else:
+            total += declared
+    return total, parent_max
+
+
 def find_queue(doc: dict[str, Any], fqn: str) -> dict[str, Any] | None:
     parts = [p for p in fqn.split(".") if p]
     if not parts:
@@ -475,9 +514,14 @@ class QueueShareService:
 
         active = active_records(self.store)
         floors = merge_floors(active)
-        total = occupancy_sum(floors)
-        if total > PARENT_GPU_MAX:
+        # Judge the merge the way YuniKorn will: every child of the inference
+        # parent as declared in the config being patched (agent-rtc included),
+        # raised by the merged floors on the share-managed leaves.
+        yaml_body = read_yaml() or baseline_yaml()
+        total, parent_max = parent_budget(yaml_body, floors)
+        if total > parent_max:
             rec.state = "REJECTED"
+            rec.apply_error = f"parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}"
             self.store.put(rec)
             return scheduler_pb2.QueueShareResponse(
                 accepted=True,
@@ -485,11 +529,12 @@ class QueueShareService:
                 state=scheduler_pb2.QUEUE_SHARE_REJECTED,
                 error=(
                     f"overlapping guaranteed GPU {total} exceeds parent max "
-                    f"{PARENT_GPU_MAX}: {floors}"
+                    f"{parent_max}: {floors}"
                 ),
             )
+        # The applier needs the same yaml I/O to shed over-commit after a failed apply.
+        self._yaml_io = (read_yaml, write_scratch)
         try:
-            yaml_body = read_yaml() or baseline_yaml()
             patched = patch_occupancy(yaml_body, floors, shares=list(req.shares))
             write_scratch(patched)
         except SharePersistError:
@@ -571,6 +616,18 @@ class QueueShareService:
                             r.state = "RECORDED"
                             r.apply_error = str(e)[:400]
                             self.store.put(r)
+                # Converge instead of retrying the same over-commit forever
+                # (2026-09-06: "validation failed" every 5→300 s for hours while
+                # peers waited their nets): retire the floors that over-commit
+                # the parent, rewrite scratch from the survivors, retry now.
+                shed = self._shed_overcommit()
+                if shed:
+                    log.warning(
+                        "queue share apply: shed %d over-committing record(s) → REJECTED: %s; retrying now",
+                        len(shed), ", ".join(shed),
+                    )
+                    backoff = 5.0
+                    continue
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, 300.0)
                 continue
@@ -599,6 +656,56 @@ class QueueShareService:
                 log.warning("queue share prune skipped: %s", e)
             with self._apply_cv:
                 self._apply_pending.difference_update(batch)
+
+    def _shed_overcommit(self) -> list[str]:
+        """After a failed apply, retire the floors that over-commit the parent.
+
+        Victims: live records contributing a floor > 0 on a share-managed leaf
+        other than heavy (the standing 27B), lowest WorkloadIntent.priority
+        first (0 = unspecified = lowest), newest first within a priority. Each
+        becomes REJECTED with the reason in apply_error (peers waiting on it
+        end their wait at once — REJECTED is terminal on the wire), and scratch
+        is rewritten from the survivors so the retry can validate. Returns the
+        rejected request_ids. Never raises.
+        """
+        io = getattr(self, "_yaml_io", None)
+        if io is None:
+            return []
+        read_yaml, write_scratch = io
+        rejected: list[str] = []
+        try:
+            with self._mu:
+                while True:
+                    active = active_records(self.store)
+                    floors = merge_floors(active)
+                    total, parent_max = parent_budget(read_yaml() or baseline_yaml(), floors)
+                    if total <= parent_max:
+                        break
+                    victims: list[tuple[int, int, ShareRecord]] = []
+                    for rec in active:
+                        per = merge_floors([rec])
+                        if not any(
+                            q in OCCUPANCY_QUEUES and q != HEAVY_QUEUE and v > 0 for q, v in per.items()
+                        ):
+                            continue
+                        prio = max((int(w.priority or 0) for w in rec.request.workloads), default=0)
+                        victims.append((prio, -int(rec.recorded_at_ns), rec))
+                    if not victims:
+                        break  # over-commit is declared policy (SoR floors alone exceed the max)
+                    victims.sort(key=lambda t: (t[0], t[1]))
+                    victim = victims[0][2]
+                    victim.state = "REJECTED"
+                    victim.apply_error = (
+                        f"shed: parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}; floors {floors}"
+                    )[:400]
+                    self.store.put(victim)
+                    rejected.append(victim.request.request_id)
+                if rejected:
+                    survivors = merge_floors(active_records(self.store))
+                    write_scratch(patch_occupancy(read_yaml() or baseline_yaml(), survivors))
+        except Exception as e:  # noqa: BLE001 — shedding is best effort; the retry loop continues
+            log.warning("queue share shed failed: %s", e)
+        return rejected
 
     def list(
         self,

@@ -373,3 +373,91 @@ def test_legacy_requests_still_supersede_per_leaf(tmp_path: Path) -> None:
     assert svc.ingest(x, **kw).accepted and svc.ingest(y, **kw).accepted
     assert svc.store.get(x.request_id).state == "SUPERSEDED"
     assert svc.store.get(y.request_id).state != "SUPERSEDED"
+
+
+# ── 2026-09-06: count every child of the inference parent the way YuniKorn does ──
+
+BASE_RTC = BASE.replace(
+    """                  - name: extract
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "0"}
+                      max: {federation.zndx.org/gpu: "2"}
+                    maxapplications: 2
+""",
+    """                  - name: extract
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "1"}
+                      max: {federation.zndx.org/gpu: "2"}
+                    maxapplications: 2
+                  - name: agent-rtc
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "1"}
+                      max: {federation.zndx.org/gpu: "1"}
+                    maxapplications: 1
+""",
+)
+
+
+def test_parent_budget_counts_unmanaged_leaves() -> None:
+    from signals.engine.queue_share import parent_budget
+
+    assert "agent-rtc" in BASE_RTC
+    # heavy 4 + extract 1 + agent-rtc 1 (declared, not share-managed) = 6 of max 6
+    assert parent_budget(BASE_RTC, {}) == (6, 6)
+    # a light floor of 1 makes 7: the arbiter must see what YuniKorn will see
+    assert parent_budget(BASE_RTC, {GPU_Q["light"]: 1}) == (7, 6)
+    # the old sum ignored agent-rtc and passed at 6
+    assert occupancy_sum({GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1, GPU_Q["light"]: 1}) == 6
+
+
+def test_overcommit_via_unmanaged_leaf_is_rejected_at_ingest(tmp_path: Path) -> None:
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    state["yaml"] = BASE_RTC
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    r = svc.ingest(_req("gaius", GPU_Q["light"], 1), **kwargs)
+    assert r.state == scheduler_pb2.QUEUE_SHARE_REJECTED
+    assert "exceeds parent max 6" in r.error
+    assert state["applied"] == 0  # nothing queued for an over-committing merge
+
+
+def test_applier_sheds_lowest_priority_floor_and_retries(tmp_path: Path) -> None:
+    """A batch that fails validation converges: the lowest-priority floor is
+    REJECTED, scratch is rewritten from the survivors, the retry applies."""
+    svc, state, read_yaml, write_scratch, _ = _svc(tmp_path)
+    calls = {"n": 0}
+
+    def apply_fn():
+        calls["n"] += 1
+        # The backend sees the SoR (with agent-rtc) — the first apply fails the way
+        # YuniKorn's validation did on 2026-09-06; after the shed it passes.
+        from signals.engine.queue_share import merge_floors, active_records, parent_budget
+
+        total, pmax = parent_budget(BASE_RTC, merge_floors(active_records(svc.store)))
+        if total > pmax:
+            raise RuntimeError("validation failed")
+        state["applied"] += 1
+
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    # Ingest against a config WITHOUT agent-rtc (the arbiter's old blind spot), so both
+    # floors are accepted: extract 1 at priority 50, light 1 at priority 0.
+    hi = _req("gaius", GPU_Q["extract"], 1)
+    hi.workloads[0].priority = 50
+    lo = _req("gaius", GPU_Q["light"], 1)
+    lo.workloads[0].wrk = "embedding"
+    r1 = svc.ingest(hi, **kwargs)
+    r2 = svc.ingest(lo, **kwargs)
+    assert r1.state == scheduler_pb2.QUEUE_SHARE_RECORDED
+    assert r2.state == scheduler_pb2.QUEUE_SHARE_RECORDED
+    # Now the SoR grows agent-rtc underneath: the next apply fails validation.
+    state["yaml"] = BASE_RTC
+    _wait_state(svc, hi.request_id, "APPLIED", timeout=15.0)
+    lo_rec = svc.store.get(lo.request_id)
+    assert lo_rec.state == "REJECTED", lo_rec.state
+    assert "shed" in lo_rec.apply_error
+    assert state["applied"] >= 1 and calls["n"] >= 2
+    # the survivors' scratch carries the declared light floor (0), not the shed 1
+    import yaml as _yaml
+    from signals.engine.queue_share import find_queue
+
+    light = find_queue(_yaml.safe_load(state["yaml"]), GPU_Q["light"])
+    assert light["resources"]["guaranteed"][GPU] == "0"
