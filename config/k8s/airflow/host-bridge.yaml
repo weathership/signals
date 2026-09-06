@@ -80,3 +80,71 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
+---
+# Coordination Activities: the Airflow triggerer's SignalsActivitySensor polls
+# the Signals engine's lease view (control HTTP, loopback :50552) through this
+# bridge — Signals-internal topology; peers never see it (they speak gRPC).
+apiVersion: v1
+kind: Service
+metadata:
+  name: signals-engine-control
+  namespace: airflow
+  labels:
+    app: signals-engine-control
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: signals-engine-control-proxy
+  ports:
+    - name: http
+      port: 50552
+      targetPort: 15552
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signals-engine-control-proxy
+  namespace: airflow
+  labels:
+    app: signals-engine-control-proxy
+    app.kubernetes.io/part-of: signals-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signals-engine-control-proxy
+  template:
+    metadata:
+      labels:
+        app: signals-engine-control-proxy
+        app.kubernetes.io/part-of: signals-platform
+        zarf.dev/agent: ignore
+      annotations:
+        zarf.dev/agent: ignore
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: socat
+          # Alpine socat: TCP 15552 on host → 127.0.0.1:50552 (signals-engine control HTTP)
+          image: alpine/socat:1.8.0.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-d"
+            - "-d"
+            - "TCP-LISTEN:15552,fork,reuseaddr,bind=0.0.0.0"
+            - "TCP:127.0.0.1:50552"
+          ports:
+            - name: http
+              containerPort: 15552
+              hostPort: 15552
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

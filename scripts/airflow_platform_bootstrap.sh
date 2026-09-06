@@ -134,9 +134,13 @@ info "applying CI DAG ConfigMap (signals_ci + legacy smoke dual-map + eventing D
 cm_args=(
   --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py"
   --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py"
-  # Coordination Activities: inter-project intent as runs of this DAG, driven
-  # only by the Signals engine (zndx.scheduler.v1 Declare/Renew/Release).
+  # Coordination Activities: inter-project intent as runs of the coord_* DAGs,
+  # declared only by the Signals engine (zndx.scheduler.v1 Declare/Renew/Release)
+  # and OBSERVED by Airflow (SignalsActivitySensor → lease trigger). The
+  # sensor/trigger module is mounted into /opt/airflow/plugins (triggerer import).
   --from-file=coord_activity_dag.py="$MANIFEST_DIR/dags/coord_activity_dag.py"
+  --from-file=coord_signals.py="$MANIFEST_DIR/plugins/coord_signals.py"
+  --from-file=coord_lease.py="$MANIFEST_DIR/plugins/coord_lease.py"
 )
 EVENTING_DAGS="$ROOT/config/k8s/eventing/dags"
 for f in signals_eventing_ci_dag.py signals_eventing_smoke_dag.py; do

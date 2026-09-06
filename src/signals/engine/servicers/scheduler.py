@@ -11,6 +11,7 @@ import grpc
 from signals.engine.activities import (
     ActivityError,
     ActivityService,
+    LeaseStore,
     watch_event,
 )
 from signals.engine.airflow_api import AirflowClient, AirflowError
@@ -126,20 +127,24 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         store: ProjectionStore,
         apply_cfg: ApplyConfig | None = None,
         activities: ActivityService | None = None,
+        leases: LeaseStore | None = None,
     ):
         self.yk = yk
         self.store = store
         self.apply_cfg = apply_cfg or ApplyConfig.from_env()
         self.shares = QueueShareService(QueueShareStore(store.root / "shares"))
-        # Coordination Activities: constructed lazily so the engine boots with
-        # Airflow down; every RPC then surfaces the Airflow error itself.
+        # Coordination Activities: the lease store is shared with the control
+        # HTTP (the Airflow sensor observes it); the Airflow client is constructed
+        # lazily so the engine boots with Airflow down — every RPC then surfaces
+        # the Airflow error itself.
+        self.leases = leases or LeaseStore(store.root / "activities")
         self._activities: ActivityService | None = activities
         self._activities_mu = threading.Lock()
 
     def activities(self) -> ActivityService:
         with self._activities_mu:
             if self._activities is None:
-                self._activities = ActivityService(AirflowClient())
+                self._activities = ActivityService(AirflowClient(), self.leases)
             return self._activities
 
     def ListPartitions(self, request, context):  # noqa: N802

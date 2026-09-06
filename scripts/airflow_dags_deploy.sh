@@ -38,6 +38,8 @@ cm_args=(
   --from-file=signals_ci_dag.py="$MANIFEST_DIR/dags/signals_ci_dag.py"
   --from-file=signals_smoke_dag.py="$MANIFEST_DIR/dags/signals_smoke_dag.py"
   --from-file=coord_activity_dag.py="$MANIFEST_DIR/dags/coord_activity_dag.py"
+  --from-file=coord_signals.py="$MANIFEST_DIR/plugins/coord_signals.py"
+  --from-file=coord_lease.py="$MANIFEST_DIR/plugins/coord_lease.py"
 )
 for f in signals_eventing_ci_dag.py signals_eventing_smoke_dag.py; do
   [[ -f "$EVENTING_DAGS/$f" ]] && cm_args+=(--from-file="$f=$EVENTING_DAGS/$f")

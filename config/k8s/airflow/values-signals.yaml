@@ -125,10 +125,21 @@ volumeMounts:
     mountPath: /opt/airflow/dags/signals_eventing_smoke_dag.py
     subPath: signals_eventing_smoke_dag.py
     readOnly: true
-  # Coordination Activities (Signals-owned; peers reach it only via the engine)
+  # Coordination Activities (Signals-owned; peers reach it only via the engine).
+  # The sensor/trigger module and its stdlib lease reader live in the PLUGINS
+  # folder: it is on sys.path in every component (dag-processor, scheduler,
+  # task runner AND the triggerer, which must import the trigger class).
   - name: signals-dags
     mountPath: /opt/airflow/dags/coord_activity_dag.py
     subPath: coord_activity_dag.py
+    readOnly: true
+  - name: signals-dags
+    mountPath: /opt/airflow/plugins/coord_signals.py
+    subPath: coord_signals.py
+    readOnly: true
+  - name: signals-dags
+    mountPath: /opt/airflow/plugins/coord_lease.py
+    subPath: coord_lease.py
     readOnly: true
 
 # ── Components ────────────────────────────────────────────────────

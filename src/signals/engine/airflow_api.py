@@ -181,6 +181,43 @@ class AirflowClient:
             dag_id=dag_id,
         ).json()
 
+    # ── pools ───────────────────────────────────────────────────────────────
+    def get_pool(self, name: str) -> dict[str, Any] | None:
+        try:
+            return self._request("GET", f"/api/v2/pools/{name}").json()
+        except AirflowError as e:
+            if e.guru == GURU_API and "HTTP 404" in e.what:
+                return None
+            raise
+
+    def create_pool(
+        self, name: str, *, slots: int, include_deferred: bool = True, description: str = ""
+    ) -> dict[str, Any]:
+        body = {
+            "name": name,
+            "slots": int(slots),
+            "include_deferred": bool(include_deferred),
+            "description": description,
+        }
+        return self._request("POST", "/api/v2/pools", json=body).json()
+
+    def ensure_pool(
+        self, name: str, *, slots: int, include_deferred: bool = True, description: str = ""
+    ) -> dict[str, Any]:
+        """Create the pool once; an existing pool is left exactly as the operator set it."""
+        cur = self.get_pool(name)
+        if cur is not None:
+            return cur
+        log.info("airflow: creating pool %s slots=%s include_deferred=%s", name, slots, include_deferred)
+        try:
+            return self.create_pool(name, slots=slots, include_deferred=include_deferred, description=description)
+        except AirflowError as e:
+            if e.guru == GURU_API and "409" in e.what:  # raced with another creator
+                got = self.get_pool(name)
+                if got is not None:
+                    return got
+            raise
+
     # ── dag runs ────────────────────────────────────────────────────────────
     def trigger_dag_run(
         self,

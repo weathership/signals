@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from concurrent import futures
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from urllib.parse import urlparse
 import grpc
 from grpc_reflection.v1alpha import reflection
 
+from signals.engine.activities import ActivityError, LeaseStore
 from signals.engine.config import EngineConfig
 from signals.engine.generated.zndx.engine.v1 import engine_pb2, engine_pb2_grpc
 from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2, scheduler_pb2_grpc
@@ -24,8 +26,13 @@ from signals.engine.yk_client import YkRestClient
 log = logging.getLogger("signals.engine.server")
 
 
-def _start_control_http(cfg: EngineConfig, table: WorkloadTable) -> ThreadingHTTPServer:
-    """Loopback attach/list for the lab proof process (not C2, not lattice)."""
+def _start_control_http(
+    cfg: EngineConfig, table: WorkloadTable, leases: LeaseStore | None = None
+) -> ThreadingHTTPServer:
+    """Loopback attach/list for the lab proof process (not C2, not lattice) and
+    the coordination LEASE view the Airflow ``SignalsActivitySensor`` observes
+    (``GET /coord/activities[/<activity_id>]``; bridged into the cluster as
+    ``signals-engine-control`` — Signals-internal topology, never a peer's)."""
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args) -> None:
@@ -50,6 +57,21 @@ def _start_control_http(cfg: EngineConfig, table: WorkloadTable) -> ThreadingHTT
                     for r in table.list()
                 ]
                 self._json(200, {"workloads": rows})
+                return
+            if path.startswith("/coord/activities"):
+                if leases is None:
+                    self._json(503, {"error": "lease store not configured"})
+                    return
+                now_ns = time.time_ns()
+                rest = path[len("/coord/activities"):].strip("/")
+                try:
+                    if not rest:
+                        self._json(200, {"activities": leases.alive(now_ns), "now_ns": now_ns})
+                    else:
+                        view = leases.view(rest, now_ns)
+                        self._json(200 if view.get("state") != "unknown" else 404, view)
+                except ActivityError as e:
+                    self._json(400, {"error": str(e)})
                 return
             self._json(404, {"error": "not found"})
 
@@ -88,7 +110,10 @@ def _start_control_http(cfg: EngineConfig, table: WorkloadTable) -> ThreadingHTT
         )
         return None
     threading.Thread(target=httpd.serve_forever, name="engine-control", daemon=True).start()
-    log.info("engine control HTTP on %s (POST /workloads)", cfg.control_addr)
+    log.info(
+        "engine control HTTP on %s (POST /workloads; GET /coord/activities[/<id>] leases=%s)",
+        cfg.control_addr, leases.root if leases is not None else "off",
+    )
     return httpd
 
 
@@ -111,7 +136,10 @@ def serve(cfg: EngineConfig | None = None) -> None:
     yk = YkRestClient(cfg.yk_rest_url, timeout_s=cfg.yk_request_timeout_s)
     store = ProjectionStore(cfg.projection_root)
     workloads = WorkloadTable()
-    _start_control_http(cfg, workloads)
+    # One lease store for both faces: the Scheduler RPCs write it, the control
+    # HTTP serves it to the Airflow sensor's trigger.
+    leases = LeaseStore(store.root / "activities")
+    _start_control_http(cfg, workloads, leases)
     _start_telemetry_http()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
@@ -119,7 +147,7 @@ def serve(cfg: EngineConfig | None = None) -> None:
         SignalsEngineServicer(cfg.project, yk, workloads=workloads), server
     )
     scheduler_pb2_grpc.add_SchedulerServicer_to_server(
-        SchedulerServicer(yk, store, apply_cfg=cfg.apply), server
+        SchedulerServicer(yk, store, apply_cfg=cfg.apply, leases=leases), server
     )
 
     SERVICE_NAMES = (
