@@ -82,6 +82,15 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
   --timeout "${TIMEOUT}s" \
   --wait=false
 
+# subPath mounts of a ConfigMap are NEVER refreshed inside a running pod, and
+# the ConfigMap lives outside helm, so a content-only change leaves the pod
+# template untouched and `helm upgrade` rolls nothing (observed 2026-09-07:
+# the dag-processor kept the old coord_signals.py for a full deploy). Restart
+# every component that mounts the files so the new content is what runs.
+for d in airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer; do
+  info "rollout restart $d (subPath mounts need a new pod)"
+  kubectl -n "$NAMESPACE" rollout restart "deploy/$d"
+done
 for d in airflow-api-server airflow-scheduler airflow-dag-processor airflow-triggerer; do
   info "rollout $d"
   kubectl -n "$NAMESPACE" rollout status "deploy/$d" --timeout="${TIMEOUT}s"

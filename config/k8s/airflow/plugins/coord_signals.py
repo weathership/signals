@@ -54,6 +54,65 @@ def ended_asset_for(kind: str) -> Asset:
     return Asset(f"zndx.coord.{kind}.ended")
 
 
+AFTER_MODE_ALL = "all"
+AFTER_MODE_ANY = "any"
+
+
+def workload_schedule(
+    *,
+    cron: str = "",
+    after_kinds: list[str] | tuple[str, ...] = (),
+    after_mode: str = "",
+    timezone_name: str = "",
+) -> Any:
+    """The Airflow ``schedule`` for one catalogue entry (``ScheduleHint`` →
+    registry row → here). Built from the entry's ``cron`` / ``after`` /
+    ``after_mode`` (protocol ce31d5d):
+
+      * ``cron`` only                    → the cron string (time-scheduled);
+      * ``after`` + mode ``all`` (default) → the list of the named kinds' ended
+        Assets — AssetAll: the run fires once EVERY one of them has ended since
+        the last run (an ordered procession);
+      * ``after`` + mode ``any``          → ``AssetAny(...)``: the run fires when
+        ANY one of them ends — a digest refreshed whenever a producer finishes
+        (a project's agenda brief after a publish slot, a prospects update, a
+        cognition cycle …);
+      * ``cron`` + ``after`` (+ a mode)   → ``AssetOrTimeSchedule``: time OR
+        assets — the digest also rolls over on its clock when nothing was
+        produced;
+      * neither                          → ``None`` (manual / engine-triggered).
+
+    Parse-time cheap: no network, only object construction.
+    """
+    kinds = [k for k in after_kinds if k]
+    mode = (after_mode or "").strip().lower() or AFTER_MODE_ALL
+    if mode not in (AFTER_MODE_ALL, AFTER_MODE_ANY):
+        raise ValueError(f"after_mode {mode!r}: expected 'all' or 'any'")
+    cron = (cron or "").strip()
+    if kinds:
+        assets: Any
+        if mode == AFTER_MODE_ANY:
+            from airflow.sdk import AssetAny
+
+            assets = AssetAny(*[ended_asset_for(k) for k in kinds])
+        else:
+            assets = [ended_asset_for(k) for k in kinds]
+        if not cron:
+            return assets
+        # Airflow 3.1.7: airflow.timetables.assets.AssetOrTimeSchedule(timetable=, assets=)
+        # (not exported from airflow.sdk — verified in the dag-processor pod 2026-09-07).
+        from airflow.timetables.assets import AssetOrTimeSchedule
+        from airflow.timetables.trigger import CronTriggerTimetable
+
+        return AssetOrTimeSchedule(
+            timetable=CronTriggerTimetable(cron, timezone=timezone_name or "UTC"),
+            assets=assets,
+        )
+    if cron:
+        return cron
+    return None
+
+
 class SignalsLeaseTrigger(BaseTrigger):
     """Runs in the triggerer: poll the lease until it is released or lapsed."""
 
@@ -447,8 +506,10 @@ def make_workload_dag(
     hold (observe the lease the owner engine heartbeats) → close (emit
     ``zndx.coord.<kind>.ended`` so the next workload can schedule on it).
 
-    ``schedule`` is a cron string, a timedelta, an Asset (or list) — the last is
-    how "when one workload completes, the next runs" is expressed in Airflow.
+    ``schedule`` is a cron string, a timedelta, an Asset (or list = AssetAll,
+    ``AssetAny``, or an ``AssetOrTimeSchedule`` — see ``workload_schedule``) —
+    the asset forms are how "when one workload completes, the next runs" is
+    expressed in Airflow.
     ``paused`` = born paused (a catalogued workload that has not migrated yet:
     visible in Airflow, never scheduled until the catalogue enables it).
     """

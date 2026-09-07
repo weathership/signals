@@ -14,6 +14,9 @@ builds ONE workload DAG with ``coord_signals.make_workload_dag``:
   * ``after`` entries are **Asset-scheduled** on the named workloads' ended
     Assets (``zndx.coord.<kind>.ended``) — "when one workload completes, the
     next runs and asserts its queue configuration", in Airflow's own terms;
+    ``after_mode`` = ``all`` (default: every named workload ended since the
+    last run) or ``any`` (any one ended — a digest such as ``agenda_brief``);
+    ``cron`` + ``after`` with a mode = time OR assets (``AssetOrTimeSchedule``);
   * ``enabled = false`` entries are born PAUSED: catalogued and visible, never
     scheduled until the owner enables them (the procession is visible before it
     is live).
@@ -42,7 +45,7 @@ import pendulum
 # plain process while the Variable existed).
 from airflow.models import Variable
 
-from coord_signals import ended_asset_for, make_workload_dag
+from coord_signals import make_workload_dag, workload_schedule
 
 log = logging.getLogger("coord_workloads")
 
@@ -65,13 +68,13 @@ def _load_registry() -> dict[str, Any]:
 
 
 def _schedule_for(entry: dict[str, Any]) -> Any:
-    cron = (entry.get("cron") or "").strip()
-    after_kinds = [k for k in (entry.get("after_kinds") or []) if k]
-    if cron:
-        return cron
-    if after_kinds:
-        return [ended_asset_for(k) for k in after_kinds]
-    return None  # manual / engine-triggered only
+    """cron → time; after (mode all|any) → AssetAll list | AssetAny; both → time OR assets."""
+    return workload_schedule(
+        cron=str(entry.get("cron") or ""),
+        after_kinds=[k for k in (entry.get("after_kinds") or []) if k],
+        after_mode=str(entry.get("after_mode") or ""),
+        timezone_name=str(entry.get("timezone") or ""),
+    )
 
 
 def _start_date(entry: dict[str, Any]) -> datetime:

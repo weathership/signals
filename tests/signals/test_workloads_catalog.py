@@ -58,10 +58,10 @@ class Clock:
         return self.ns
 
 
-def _hint(id_, kind, *, cron="", after=(), claims=(), enabled=True, source="airflow", dag_id="", horizon_s=7200):
+def _hint(id_, kind, *, cron="", after=(), after_mode="", claims=(), enabled=True, source="airflow", dag_id="", horizon_s=7200):
     h = engine_pb2.ScheduleHint(
         id=id_, kind=kind, cron=cron, airflow_dag_id=dag_id, source=source, enabled=enabled,
-        horizon_s=horizon_s, after=list(after), runner="task", description=f"{kind} test",
+        horizon_s=horizon_s, after=list(after), after_mode=after_mode, runner="task", description=f"{kind} test",
     )
     for leaf, gpu in claims:
         h.claims.add(leaf=leaf, gpu=gpu)
@@ -139,6 +139,50 @@ def test_after_resolves_kinds_or_errors(tmp_path):
     # errored entries are recorded (ListWorkloads) but never published to Airflow
     assert {r["id"] for r in _registry(fake)["workloads"]} == {"task.article_curate", "task.publish_cards"}
     assert [r for r in _registry(fake)["workloads"] if r["id"] == "task.publish_cards"][0]["after_kinds"] == ["article_curate"]
+
+
+def test_after_mode_any_and_time_or_assets(tmp_path):
+    """protocol ce31d5d: after_mode all|any; cron + after allowed WITH a mode (time OR assets)."""
+    fake = FakeAirflow()
+    cat = _catalog(tmp_path, fake)
+    out = cat.sync(
+        "gaius",
+        [
+            _hint("task.publish_cards_morning", "publish_cards_morning", cron="0 9 * * *"),
+            _hint("task.cognition_cycle", "cognition_cycle", cron="43 */2 * * *"),
+            # the digest: any producer ended OR the day rolled over
+            _hint("task.agenda_brief", "agenda_brief", cron="0 0 * * *",
+                  after=["task.publish_cards_morning", "task.cognition_cycle"], after_mode="any"),
+            # explicit all + cron is legal too
+            _hint("task.both_all", "both_all", cron="0 6 * * *", after=["task.cognition_cycle"], after_mode="all"),
+            # mode without after: refused
+            _hint("task.mode_only", "mode_only", cron="0 1 * * *", after_mode="any"),
+            # unknown mode: refused
+            _hint("task.bad_mode", "bad_mode", after=["task.cognition_cycle"], after_mode="some"),
+            # ALL CAPS normalises
+            _hint("task.caps", "caps", after=["task.cognition_cycle"], after_mode="ANY"),
+        ],
+        replace=True,
+    )
+    by_id = {e.id: e for e in out}
+    brief = by_id["task.agenda_brief"]
+    assert brief.state == wc.STATE_MATERIALIZED and brief.after_mode == "any"
+    assert brief.after_kinds == ["publish_cards_morning", "cognition_cycle"] and brief.cron == "0 0 * * *"
+    assert by_id["task.both_all"].state == wc.STATE_MATERIALIZED and by_id["task.both_all"].after_mode == "all"
+    assert by_id["task.mode_only"].state == wc.STATE_ERROR and "after_mode set without after" in by_id["task.mode_only"].error
+    assert by_id["task.bad_mode"].state == wc.STATE_ERROR and "after_mode 'some'" in by_id["task.bad_mode"].error
+    assert by_id["task.caps"].state == wc.STATE_MATERIALIZED and by_id["task.caps"].after_mode == "any"
+    rows = {r["id"]: r for r in _registry(fake)["workloads"]}
+    assert rows["task.agenda_brief"]["after_mode"] == "any" and rows["task.agenda_brief"]["cron"] == "0 0 * * *"
+    assert rows["task.publish_cards_morning"]["after_mode"] == ""  # default → all in the DAG factory
+    assert "task.bad_mode" not in rows and "task.mode_only" not in rows
+    # ListWorkloads carries it back on the wire
+    assert brief.to_record().workload.after_mode == "any"
+    # the old rule is unchanged: cron + after WITHOUT a mode stays refused, pointing at after_mode
+    out2 = cat.sync("gaius", [_hint("task.cognition_cycle", "cognition_cycle", cron="43 */2 * * *"),
+                              _hint("task.plain_both", "plain_both", cron="* * * * *", after=["task.cognition_cycle"])], replace=True)
+    plain = {e.id: e for e in out2}["task.plain_both"]
+    assert plain.state == wc.STATE_ERROR and "after_mode" in plain.error
 
 
 def test_after_may_reference_another_peer(tmp_path):

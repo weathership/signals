@@ -178,3 +178,25 @@ def test_workload_and_chain_dags_construct():
     ids = [t.task_id for t in chain.tasks]
     assert {"declare_curate", "hold_curate", "close_curate", "declare_publish", "hold_publish", "close_publish"} <= set(ids)
     assert "declare_publish" in chain.get_task("close_curate").downstream_task_ids
+
+
+@pytest.mark.skipif("airflow" not in sys.modules and pytest.importorskip("airflow", reason="airflow not in the Signals venv") is None, reason="airflow absent")
+def test_workload_schedule_shapes():
+    """protocol ce31d5d after_mode: all → AssetAll list, any → AssetAny, cron+after → AssetOrTimeSchedule."""
+    import coord_signals as cs
+    from airflow.sdk import AssetAny
+    from airflow.timetables.assets import AssetOrTimeSchedule
+
+    assert cs.workload_schedule(cron="13 1 * * *") == "13 1 * * *"
+    assert cs.workload_schedule() is None
+    y = cs.workload_schedule(after_kinds=["a", "b"])
+    assert [a.name for a in y] == ["zndx.coord.a.ended", "zndx.coord.b.ended"]
+    z = cs.workload_schedule(after_kinds=["a", "b"], after_mode="any")
+    assert isinstance(z, AssetAny) and "any" in z.as_expression()
+    w = cs.workload_schedule(cron="0 0 * * *", after_kinds=["a", "b"], after_mode="any", timezone_name="America/Chicago")
+    assert isinstance(w, AssetOrTimeSchedule) and w.summary == "Asset or 0 0 * * *"
+    assert "any" in w.asset_condition.as_expression()
+    with pytest.raises(ValueError):
+        cs.workload_schedule(after_kinds=["a"], after_mode="some")
+    d = cs.make_workload_dag("wl_any", kind="agenda_brief", peer="gaius", claims=[], horizon_s=1800, schedule=w, reason="t", paused=True)
+    assert d.timetable.summary == "Asset or 0 0 * * *" and [t.task_id for t in d.tasks] == ["declare", "hold", "close"]

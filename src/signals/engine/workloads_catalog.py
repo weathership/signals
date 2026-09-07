@@ -21,9 +21,13 @@ queue configuration), postures, horizon, runner, source, enabled. Signals:
   * the dynamic DAG module ``coord_workloads_dag.py`` generates one workload DAG
     per registry entry that has a ``dag_id``: ``cron`` entries are
     time-scheduled, ``after`` entries are Asset-scheduled on the named kinds'
-    ended Assets (``zndx.coord.<kind>.ended``), disabled entries materialise
-    paused; ``source = engine`` entries (the interactive agent-rtc workflow) are
-    catalogued for visibility and declared by the engine itself.
+    ended Assets (``zndx.coord.<kind>.ended``) — ``after_mode`` says how:
+    ``all`` (default; every named workload ended since the last run) or ``any``
+    (any one of them ended — a digest such as a project's agenda brief, refreshed
+    whenever a producer finishes); ``cron`` + ``after`` with an ``after_mode`` is
+    time OR assets (the digest also rolls over on its clock); disabled entries
+    materialise paused; ``source = engine`` entries (the interactive agent-rtc
+    workflow) are catalogued for visibility and declared by the engine itself.
 
 Every run of a materialised DAG is an Activity (``coord_signals.make_workload_dag``):
 the owner engine runs the class while its lease is heartbeated and Signals
@@ -69,6 +73,10 @@ STATE_ERROR = "error"
 
 SOURCE_ENGINE = "engine"
 
+AFTER_MODE_ALL = "all"
+AFTER_MODE_ANY = "any"
+AFTER_MODES = frozenset({AFTER_MODE_ALL, AFTER_MODE_ANY})
+
 
 def _now_ns() -> int:
     return time.time_ns()
@@ -90,6 +98,11 @@ class CatalogEntry:
     timezone: str = ""
     after: list[str] = field(default_factory=list)          # catalogue ids this follows
     after_kinds: list[str] = field(default_factory=list)    # resolved kinds (the ended Assets)
+    # ScheduleHint.after_mode (protocol ce31d5d): "" → all (Airflow AssetAll: every
+    # named workload ended since the last run); "any" → AssetAny (any one of them
+    # ended — a digest such as a project's agenda brief). With `cron` as well the
+    # schedule is time OR assets (AssetOrTimeSchedule).
+    after_mode: str = ""
     claims: list[dict[str, Any]] = field(default_factory=list)
     precludes: list[str] = field(default_factory=list)
     postures: dict[str, str] = field(default_factory=dict)
@@ -116,6 +129,7 @@ class CatalogEntry:
             cron=(hint.cron or "").strip(),
             timezone=(hint.timezone or "").strip(),
             after=[a.strip() for a in hint.after if a.strip()],
+            after_mode=(hint.after_mode or "").strip().lower(),
             claims=[{"leaf": c.leaf, "gpu": int(c.gpu)} for c in hint.claims],
             precludes=[p for p in hint.precludes if p],
             postures=dict(hint.postures),
@@ -147,6 +161,7 @@ class CatalogEntry:
             precludes=list(self.precludes),
             horizon_s=int(self.horizon_s),
             after=list(self.after),
+            after_mode=self.after_mode,
             timezone=self.timezone,
             description=self.description,
             runner=self.runner,
@@ -178,6 +193,7 @@ class CatalogEntry:
             "timezone": self.timezone,
             "after": list(self.after),
             "after_kinds": list(self.after_kinds),
+            "after_mode": self.after_mode,
             "claims": [dict(c) for c in self.claims],
             "precludes": list(self.precludes),
             "postures": dict(self.postures),
@@ -300,10 +316,17 @@ class WorkloadCatalog:
                 problems.append(f"after {a!r}: referenced entry has no kind")
                 continue
             entry.after_kinds.append(ref.kind)
-        if entry.cron and entry.after:
-            # Both are allowed by Airflow (cron AND assets) but the semantics differ;
-            # keep the catalogue explicit: one or the other per entry.
-            problems.append("both cron and after set — choose time-scheduled or asset-scheduled")
+        if entry.after_mode and entry.after_mode not in AFTER_MODES:
+            problems.append(f"after_mode {entry.after_mode!r}: expected one of {sorted(AFTER_MODES)}")
+        if entry.after_mode and not entry.after:
+            problems.append("after_mode set without after — name the workloads it follows")
+        if entry.cron and entry.after and not entry.after_mode:
+            # Airflow allows time OR assets (AssetOrTimeSchedule) but the catalogue
+            # keeps it explicit: an entry that wants both says how `after` is read.
+            problems.append(
+                "both cron and after set — choose time-scheduled or asset-scheduled, "
+                "or set after_mode (all|any) for a time-OR-assets schedule"
+            )
         if problems:
             entry.state = STATE_ERROR
             entry.error = "; ".join(problems)
