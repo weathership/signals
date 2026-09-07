@@ -365,18 +365,43 @@ class PeerHint(_message.Message):
     def __init__(self, project: _Optional[str] = ..., target: _Optional[str] = ...) -> None: ...
 
 class ScheduleHint(_message.Message):
-    __slots__ = ("id", "cron", "airflow_dag_id", "source", "enabled")
+    __slots__ = ("id", "cron", "airflow_dag_id", "source", "enabled", "kind", "claims", "precludes", "postures", "horizon_s", "after", "timezone", "description", "runner")
+    class PosturesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     ID_FIELD_NUMBER: _ClassVar[int]
     CRON_FIELD_NUMBER: _ClassVar[int]
     AIRFLOW_DAG_ID_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     ENABLED_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    PRECLUDES_FIELD_NUMBER: _ClassVar[int]
+    POSTURES_FIELD_NUMBER: _ClassVar[int]
+    HORIZON_S_FIELD_NUMBER: _ClassVar[int]
+    AFTER_FIELD_NUMBER: _ClassVar[int]
+    TIMEZONE_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    RUNNER_FIELD_NUMBER: _ClassVar[int]
     id: str
     cron: str
     airflow_dag_id: str
     source: str
     enabled: bool
-    def __init__(self, id: _Optional[str] = ..., cron: _Optional[str] = ..., airflow_dag_id: _Optional[str] = ..., source: _Optional[str] = ..., enabled: _Optional[bool] = ...) -> None: ...
+    kind: str
+    claims: _containers.RepeatedCompositeFieldContainer[ActivityClaim]
+    precludes: _containers.RepeatedScalarFieldContainer[str]
+    postures: _containers.ScalarMap[str, str]
+    horizon_s: int
+    after: _containers.RepeatedScalarFieldContainer[str]
+    timezone: str
+    description: str
+    runner: str
+    def __init__(self, id: _Optional[str] = ..., cron: _Optional[str] = ..., airflow_dag_id: _Optional[str] = ..., source: _Optional[str] = ..., enabled: _Optional[bool] = ..., kind: _Optional[str] = ..., claims: _Optional[_Iterable[_Union[ActivityClaim, _Mapping]]] = ..., precludes: _Optional[_Iterable[str]] = ..., postures: _Optional[_Mapping[str, str]] = ..., horizon_s: _Optional[int] = ..., after: _Optional[_Iterable[str]] = ..., timezone: _Optional[str] = ..., description: _Optional[str] = ..., runner: _Optional[str] = ...) -> None: ...
 
 class WikiNote(_message.Message):
     __slots__ = ("id", "title", "body", "links", "origin_project")

@@ -754,3 +754,55 @@ class ActivityWatchEvent(_message.Message):
     activities: _containers.RepeatedCompositeFieldContainer[_engine_pb2.Activity]
     observed_ns: int
     def __init__(self, activities: _Optional[_Iterable[_Union[_engine_pb2.Activity, _Mapping]]] = ..., observed_ns: _Optional[int] = ...) -> None: ...
+
+class SyncWorkloadsRequest(_message.Message):
+    __slots__ = ("peer", "workloads", "replace", "engine_build")
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    WORKLOADS_FIELD_NUMBER: _ClassVar[int]
+    REPLACE_FIELD_NUMBER: _ClassVar[int]
+    ENGINE_BUILD_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    workloads: _containers.RepeatedCompositeFieldContainer[_engine_pb2.ScheduleHint]
+    replace: bool
+    engine_build: str
+    def __init__(self, peer: _Optional[str] = ..., workloads: _Optional[_Iterable[_Union[_engine_pb2.ScheduleHint, _Mapping]]] = ..., replace: _Optional[bool] = ..., engine_build: _Optional[str] = ...) -> None: ...
+
+class WorkloadRecord(_message.Message):
+    __slots__ = ("workload", "peer", "dag_id", "synced_ns", "state", "error")
+    WORKLOAD_FIELD_NUMBER: _ClassVar[int]
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    DAG_ID_FIELD_NUMBER: _ClassVar[int]
+    SYNCED_NS_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    workload: _engine_pb2.ScheduleHint
+    peer: str
+    dag_id: str
+    synced_ns: int
+    state: str
+    error: str
+    def __init__(self, workload: _Optional[_Union[_engine_pb2.ScheduleHint, _Mapping]] = ..., peer: _Optional[str] = ..., dag_id: _Optional[str] = ..., synced_ns: _Optional[int] = ..., state: _Optional[str] = ..., error: _Optional[str] = ...) -> None: ...
+
+class SyncWorkloadsResponse(_message.Message):
+    __slots__ = ("accepted", "records", "error")
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    RECORDS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    accepted: bool
+    records: _containers.RepeatedCompositeFieldContainer[WorkloadRecord]
+    error: str
+    def __init__(self, accepted: _Optional[bool] = ..., records: _Optional[_Iterable[_Union[WorkloadRecord, _Mapping]]] = ..., error: _Optional[str] = ...) -> None: ...
+
+class ListWorkloadsRequest(_message.Message):
+    __slots__ = ("peer",)
+    PEER_FIELD_NUMBER: _ClassVar[int]
+    peer: str
+    def __init__(self, peer: _Optional[str] = ...) -> None: ...
+
+class ListWorkloadsResponse(_message.Message):
+    __slots__ = ("records", "observed_ns")
+    RECORDS_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_NS_FIELD_NUMBER: _ClassVar[int]
+    records: _containers.RepeatedCompositeFieldContainer[WorkloadRecord]
+    observed_ns: int
+    def __init__(self, records: _Optional[_Iterable[_Union[WorkloadRecord, _Mapping]]] = ..., observed_ns: _Optional[int] = ...) -> None: ...
