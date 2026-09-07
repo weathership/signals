@@ -181,6 +181,34 @@ class AirflowClient:
             dag_id=dag_id,
         ).json()
 
+    # ── variables (the dynamic-DAG registry store) ──────────────────────────
+    def get_variable(self, key: str) -> str | None:
+        """The Variable's string value, or None when it does not exist."""
+        try:
+            data = self._request("GET", f"/api/v2/variables/{key}").json()
+        except AirflowError as e:
+            if e.guru == GURU_API and "HTTP 404" in e.what:
+                return None
+            raise
+        return str(data.get("value")) if isinstance(data, dict) and data.get("value") is not None else None
+
+    def set_variable(self, key: str, value: str, *, description: str = "") -> dict[str, Any]:
+        """Create-or-update, race-safe: PATCH; 404 → POST; POST 409 → PATCH again."""
+        body: dict[str, Any] = {"key": key, "value": value}
+        if description:
+            body["description"] = description
+        try:
+            return self._request("PATCH", f"/api/v2/variables/{key}", json=body).json()
+        except AirflowError as e:
+            if not (e.guru == GURU_API and "HTTP 404" in e.what):
+                raise
+        try:
+            return self._request("POST", "/api/v2/variables", json=body).json()
+        except AirflowError as e:
+            if e.guru == GURU_API and "409" in e.what:  # raced with another writer
+                return self._request("PATCH", f"/api/v2/variables/{key}", json=body).json()
+            raise
+
     # ── pools ───────────────────────────────────────────────────────────────
     def get_pool(self, name: str) -> dict[str, Any] | None:
         try:

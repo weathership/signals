@@ -30,6 +30,11 @@ from signals.engine.queue_share import (
     QueueShareStore,
     SharePersistError,
 )
+from signals.engine.workloads_catalog import (
+    GURU_CATALOG_AIRFLOW,
+    CatalogError,
+    WorkloadCatalog,
+)
 from signals.engine.yk_client import (
     YkRestClient,
     YkRestError,
@@ -153,6 +158,16 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         self.leases = leases or LeaseStore(store.root / "activities")
         self._activities: ActivityService | None = activities
         self._activities_mu = threading.Lock()
+        # Workload catalogue: engines SUBMIT their scheduled workloads; Signals
+        # materialises them as Airflow DAGs (dynamic registry in the Variable
+        # zndx_workloads). Airflow client lazy, like the activities.
+        self.catalog = WorkloadCatalog(
+            store.root / "workloads", lambda: AirflowClient(), leaf_max=self._leaf_max
+        )
+        try:
+            self.catalog.resume()
+        except Exception as e:  # noqa: BLE001 — boot must not fail on the registry
+            log.warning("workload catalogue resume skipped: %s", e)
         # 2026-09-06: records left RECORDED by the previous engine process never
         # reached the applier (its pending set is in-memory) until the next
         # ingest — gaius waited its 600 s net against a dark applier after every
@@ -981,6 +996,44 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
             context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
         finally:
             log.info("WatchActivities: peer=%s stream closed", peer)
+
+    # ── workload catalogue ────────────────────────────────────────────────
+    def SyncWorkloads(self, request, context):  # noqa: N802
+        """A peer engine submits its workload catalogue; Signals persists it and
+        publishes the federation registry to Airflow. Never aborts: Airflow
+        unreachable is reported in-band (the peer file is still written and the
+        publish retried at the next sync / boot)."""
+        try:
+            entries = self.catalog.sync(
+                request.peer,
+                list(request.workloads),
+                replace=bool(request.replace),
+                engine_build=request.engine_build or "",
+            )
+        except CatalogError as e:
+            log.warning("SyncWorkloads refused peer=%s: %s", request.peer, e)
+            return scheduler_pb2.SyncWorkloadsResponse(accepted=False, error=str(e))
+        except AirflowError as e:
+            log.error("SyncWorkloads peer=%s: registry publish failed: %s", request.peer, e)
+            recs = [x.to_record() for x in self.catalog.list(request.peer)]
+            return scheduler_pb2.SyncWorkloadsResponse(
+                accepted=False,
+                records=recs,
+                error=f"{GURU_CATALOG_AIRFLOW} catalogue stored; Airflow registry publish failed: {e}",
+            )
+        return scheduler_pb2.SyncWorkloadsResponse(
+            accepted=True, records=[x.to_record() for x in entries]
+        )
+
+    def ListWorkloads(self, request, context):  # noqa: N802
+        try:
+            entries = self.catalog.list(request.peer or "")
+        except CatalogError as e:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+            return scheduler_pb2.ListWorkloadsResponse()
+        return scheduler_pb2.ListWorkloadsResponse(
+            records=[x.to_record() for x in entries], observed_ns=time.time_ns()
+        )
 
 
 def _root_name(enum_val: int) -> str:

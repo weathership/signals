@@ -440,6 +440,7 @@ def make_workload_dag(
     start_date: datetime = datetime(2026, 1, 1),
     catchup: bool = False,
     poll_s: float = DEFAULT_POLL_S,
+    paused: bool = False,
 ) -> DAG:
     """ONE scheduled workload as an activity: declare (the run declares itself;
     its claims are its YuniKorn queue configuration, asserted at Signals) →
@@ -448,6 +449,8 @@ def make_workload_dag(
 
     ``schedule`` is a cron string, a timedelta, an Asset (or list) — the last is
     how "when one workload completes, the next runs" is expressed in Airflow.
+    ``paused`` = born paused (a catalogued workload that has not migrated yet:
+    visible in Airflow, never scheduled until the catalogue enables it).
     """
     default_args = {
         "owner": "signals",
@@ -464,7 +467,7 @@ def make_workload_dag(
         schedule=schedule,
         start_date=start_date,
         catchup=catchup,
-        is_paused_upon_creation=False,
+        is_paused_upon_creation=bool(paused),
         tags=list(tags or ["coordination", "workload", peer]),
         max_active_runs=1,
     ) as dag:

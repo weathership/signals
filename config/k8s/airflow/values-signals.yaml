@@ -141,10 +141,13 @@ volumeMounts:
     mountPath: /opt/airflow/plugins/coord_lease.py
     subPath: coord_lease.py
     readOnly: true
-  # Ordered workloads (the run IS the activity): first migrated class.
+  # The federation's WORKLOAD CATALOGUE as DAGs: dynamic generation from the
+  # Variable `zndx_workloads` the Signals engine writes on Scheduler/SyncWorkloads
+  # (one workload DAG per enabled entry; `after` → Asset-scheduled; disabled →
+  # paused but visible). Replaces hand-written per-class files.
   - name: signals-dags
-    mountPath: /opt/airflow/dags/gaius_article_curate_dag.py
-    subPath: gaius_article_curate_dag.py
+    mountPath: /opt/airflow/dags/coord_workloads_dag.py
+    subPath: coord_workloads_dag.py
     readOnly: true
 
 # ── Components ────────────────────────────────────────────────────
