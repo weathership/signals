@@ -288,3 +288,60 @@ def test_duplicate_ids_in_one_sync_error(tmp_path):
     cat = _catalog(tmp_path, fake)
     out = cat.sync("gaius", [_hint("task.a", "a", cron="0 1 * * *"), _hint("task.a", "a2", cron="0 2 * * *")], replace=True)
     assert any(e.state == wc.STATE_ERROR and "duplicate" in e.error for e in out)
+
+
+def test_enabled_since_is_the_enable_moment_kept_while_enabled(tmp_path):
+    """2026-09-07 21:22 incident: unpausing a DAG whose start_date lay in the past created one
+    catch-up run per DAG. The registry row now carries the enable moment; the DAG module uses
+    it as start_date. Rule: first enabled → now; stays enabled → kept; disabled/retired → 0;
+    enabled again → a fresh stamp."""
+    fake = FakeAirflow()
+    clock = Clock(1_000)
+    cat = wc.WorkloadCatalog(tmp_path / "workloads", fake, leaf_max=LEAF_MAX.get, clock_ns=clock)
+
+    def sync(enabled, extra=()):
+        return {e.id: e for e in cat.sync(
+            "gaius",
+            [_hint("task.a", "a", cron="0 0 * * *", enabled=enabled), *extra],
+            replace=True,
+        )}
+
+    a = sync(True)["task.a"]
+    assert a.enabled_since_ns == 1_000
+    assert _registry(fake)["workloads"][0]["enabled_since_ns"] == 1_000
+
+    clock.ns = 2_000
+    a = sync(True)["task.a"]
+    assert a.enabled_since_ns == 1_000, "the stamp does not move while the entry stays enabled"
+    assert wc.CatalogEntry.from_json(json.loads((tmp_path / "workloads" / "gaius.json").read_text())["entries"][0]).enabled_since_ns == 1_000
+
+    clock.ns = 3_000
+    a = sync(False)["task.a"]
+    assert a.enabled_since_ns == 0 and a.state == wc.STATE_PAUSED
+
+    clock.ns = 4_000
+    a = sync(True)["task.a"]
+    assert a.enabled_since_ns == 4_000, "disabled → enabled again stamps the new moment"
+
+    # Retired by a replace sync → paused with the stamp cleared; a new enabled entry gets now.
+    clock.ns = 5_000
+    out = {e.id: e for e in cat.sync("gaius", [_hint("task.b", "b", cron="0 1 * * *")], replace=True)}
+    assert out["task.a"].enabled_since_ns == 0 and out["task.a"].enabled is False
+    assert out["task.b"].enabled_since_ns == 5_000
+
+    # Legacy peer file (no stamp) with an enabled entry → the next sync stamps it with that sync.
+    p = tmp_path / "workloads" / "gaius.json"
+    doc = json.loads(p.read_text())
+    for row in doc["entries"]:
+        row.pop("enabled_since_ns", None)
+    p.write_text(json.dumps(doc))
+    clock.ns = 6_000
+    out = {e.id: e for e in cat.sync("gaius", [_hint("task.b", "b", cron="0 1 * * *")], replace=True)}
+    assert out["task.b"].enabled_since_ns == 6_000
+
+    # The pure rule, on its own.
+    prev = wc.CatalogEntry(peer="gaius", id="x", kind="x", enabled=True, enabled_since_ns=7)
+    cur = wc.CatalogEntry(peer="gaius", id="x", kind="x", enabled=True)
+    assert wc.enabled_since(prev, cur, 99) == 7
+    assert wc.enabled_since(None, cur, 99) == 99
+    assert wc.enabled_since(prev, wc.CatalogEntry(peer="gaius", id="x", kind="x", enabled=False), 99) == 0

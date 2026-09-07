@@ -27,7 +27,11 @@ queue configuration), postures, horizon, runner, source, enabled. Signals:
     whenever a producer finishes); ``cron`` + ``after`` with an ``after_mode`` is
     time OR assets (the digest also rolls over on its clock); disabled entries
     materialise paused; ``source = engine`` entries (the interactive agent-rtc
-    workflow) are catalogued for visibility and declared by the engine itself.
+    workflow) are catalogued for visibility and declared by the engine itself;
+  * every registry row carries ``enabled_since_ns`` — the moment the entry was
+    enabled — which the DAG module uses as the DAG's ``start_date`` so that
+    unpausing never yields a catch-up run for an interval already past
+    (``enabled_since()`` documents the stamp's rule).
 
 Every run of a materialised DAG is an Activity (``coord_signals.make_workload_dag``):
 the owner engine runs the class while its lease is heartbeated and Signals
@@ -113,6 +117,16 @@ class CatalogEntry:
     description: str = ""
     engine_build: str = ""
     synced_ns: int = 0
+    # The moment this entry became ENABLED (ns since the epoch; 0 while disabled).
+    # Stamped by `sync()` — first seen enabled, or disabled → enabled again — and
+    # KEPT while the entry stays enabled; cleared to 0 when it is disabled or
+    # retired. The dynamic DAG module uses it as the DAG's `start_date`: Airflow
+    # with catchup=False still creates ONE run for the most recent past interval
+    # when a DAG is unpaused (observed 2026-09-07 21:22: eight newly enabled gaius
+    # DAGs each declared a run for a slot already past — three spurious publish
+    # slots), unless no interval lies between start_date and now. Registry-only:
+    # `WorkloadRecord` has no slot for it (protos frozen).
+    enabled_since_ns: int = 0
     state: str = STATE_MATERIALIZED
     error: str = ""
 
@@ -201,9 +215,28 @@ class CatalogEntry:
             "runner": self.runner,
             "source": self.source,
             "enabled": bool(self.enabled),
+            "enabled_since_ns": int(self.enabled_since_ns),
             "description": self.description,
             "engine_build": self.engine_build,
         }
+
+
+def enabled_since(previous: "CatalogEntry | None", current: "CatalogEntry", now_ns: int) -> int:
+    """The `enabled_since_ns` an incoming entry carries after this sync.
+
+    Disabled → 0. Enabled and previously enabled with a stamp → the stamp is kept
+    (the DAG's start_date does not move while the entry stays enabled). Enabled
+    otherwise (first seen, disabled → enabled again, or a legacy file without the
+    stamp) → `now_ns`: the first sync after this rule ships stamps the entries
+    that are enabled today with that sync's time — their DAGs' start_date moves
+    forward to it, so the next run is the next fire; nothing already running is
+    touched.
+    """
+    if not current.enabled:
+        return 0
+    if previous is not None and previous.enabled and int(previous.enabled_since_ns or 0) > 0:
+        return int(previous.enabled_since_ns)
+    return int(now_ns)
 
 
 def default_dag_id(peer: str, kind: str) -> str:
@@ -361,6 +394,7 @@ class WorkloadCatalog:
                 if e.id in ids_seen:
                     e.state, e.error = STATE_ERROR, f"duplicate catalogue id {e.id!r} in one sync"
                 ids_seen.add(e.id)
+                e.enabled_since_ns = enabled_since(previous.get(e.id), e, now)
                 incoming.append(e)
             merged: dict[str, CatalogEntry] = dict(previous) if not replace else {}
             if replace:
@@ -369,6 +403,7 @@ class WorkloadCatalog:
                 for old_id, old in previous.items():
                     if old_id not in ids_seen:
                         old.enabled = False
+                        old.enabled_since_ns = 0
                         old.state = STATE_PAUSED if old.state != STATE_ERROR else STATE_ERROR
                         old.synced_ns = now
                         merged[old_id] = old

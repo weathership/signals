@@ -19,7 +19,10 @@ builds ONE workload DAG with ``coord_signals.make_workload_dag``:
     ``cron`` + ``after`` with a mode = time OR assets (``AssetOrTimeSchedule``);
   * ``enabled = false`` entries are born PAUSED: catalogued and visible, never
     scheduled until the owner enables them (the procession is visible before it
-    is live).
+    is live);
+  * ``start_date`` = the row's ``enabled_since_ns`` (the moment the owner enabled
+    it), so unpausing never produces a catch-up run for an interval already past
+    — the first run is the next cron fire or the next asset event.
 
 The workload's ``claims`` are its YuniKorn queue configuration: the run's
 ``declare`` hands them to Signals, which asserts them into the arbiter for the
@@ -36,8 +39,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
-
-import pendulum
+from zoneinfo import ZoneInfo
 
 # The metadata-DB accessor: the dag-processor (this deployment's LocalExecutor
 # pods) reads it at parse time. `airflow.sdk.Variable` only resolves inside a
@@ -51,7 +53,7 @@ log = logging.getLogger("coord_workloads")
 
 REGISTRY_KEY = "zndx_workloads"
 SOURCE_ENGINE = "engine"
-# Migration day: no back-interval run is created for a freshly materialised cron DAG.
+# Legacy rows only (registry rows written before `enabled_since_ns` existed).
 CATALOGUE_START = datetime(2026, 9, 7, tzinfo=timezone.utc)
 
 
@@ -77,11 +79,28 @@ def _schedule_for(entry: dict[str, Any]) -> Any:
     )
 
 
+def _tz(entry: dict[str, Any]) -> ZoneInfo:
+    return ZoneInfo((entry.get("timezone") or "").strip() or "UTC")
+
+
 def _start_date(entry: dict[str, Any]) -> datetime:
-    tz = (entry.get("timezone") or "").strip()
-    if not tz:
-        return CATALOGUE_START
-    return pendulum.datetime(2026, 9, 7, tz=tz)
+    """The DAG's start_date = the moment the entry became enabled.
+
+    Airflow's CronTriggerTimetable with catchup=False still schedules ONE run for
+    the most recent fire time when a DAG is unpaused — `next_dagrun_info` takes
+    max(align_to_prev(now), align_to_next(start_date)) — so a fixed past
+    start_date makes every unpause a catch-up run (2026-09-07 21:22: eight gaius
+    DAGs enabled at once each declared a run for a slot already past; three
+    spurious publish slots). With start_date = the enable moment the second
+    candidate is the NEXT fire and no run exists until it arrives. The same
+    restriction bounds the cron half of an AssetOrTimeSchedule; the asset half
+    has no intervals. Legacy rows without the stamp keep the old fixed date.
+    """
+    tz = _tz(entry)
+    since_ns = int(entry.get("enabled_since_ns") or 0)
+    if since_ns > 0:
+        return datetime.fromtimestamp(since_ns / 1_000_000_000, tz=tz)
+    return CATALOGUE_START.astimezone(tz)
 
 
 def build(registry: dict[str, Any]) -> dict[str, Any]:
