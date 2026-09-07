@@ -345,3 +345,172 @@ def test_declare_refuses_claims_beyond_the_leaf_max(tmp_path):
         svc.declare(req("r-second", 1))
     # an idempotent retry of the FIRST is not a second claim
     assert svc.declare(req("r-ok", 1)).activity_id == first.activity_id
+
+
+# ── 2026-09-07: the claims ARE the queue configuration ───────────────────────
+# Asserted into the arbiter once while RUNNING; retired once when the activity
+# ends; a REJECTED configuration is surfaced on Activity.note.
+
+
+class FakeArbiter:
+    """Captures QueueShareRequests; answers RECORDED (or REJECTED when told)."""
+
+    def __init__(self, reject: str | None = None):
+        self.requests: list = []
+        self.reject = reject
+
+    def __call__(self, req):
+        self.requests.append(req)
+        if self.reject:
+            return scheduler_pb2.QueueShareResponse(
+                accepted=True, request_id=req.request_id, state=scheduler_pb2.QUEUE_SHARE_REJECTED, error=self.reject
+            )
+        return scheduler_pb2.QueueShareResponse(
+            accepted=True, request_id=req.request_id, state=scheduler_pb2.QUEUE_SHARE_RECORDED
+        )
+
+
+def _arb_svc(fake, clock, leases, arbiter, **kw):
+    return _svc(
+        fake, clock, leases,
+        share_ingest=arbiter,
+        leaf_max={"root.internal.inference.agent-rtc": 1, "root.internal.inference.extract": 2}.get,
+        **kw,
+    )
+
+
+def test_running_activity_asserts_its_claims_once_and_retires_them_once_on_release(leases):
+    from signals.engine.queue_share import GPU
+    from signals.uuidv7 import is_uuidv7
+
+    fake, clock, arb = FakeAirflow(paused=False), Clock(1_000 * NS), FakeArbiter()
+    svc = _arb_svc(fake, clock, leases, arb)
+    a = svc.declare(_declare_req())  # FakeAirflow answers running → asserted at declare
+    assert len(arb.requests) == 1
+    req = arb.requests[0]
+    assert req.peer == "hermes" and is_uuidv7(req.request_id) and req.supersedes_request_id == ""
+    wi = req.workloads[0]
+    assert wi.wrk == "interactive_session" and wi.queue == "root.internal.inference.agent-rtc"
+    assert wi.HasField("floor") and wi.floor == 1 and wi.priority == 100 and wi.owner == a.activity_id
+    sh = req.shares[0]
+    assert sh.queue == wi.queue and sh.guaranteed.quantities[GPU] == 1 and sh.max.quantities[GPU] == 1 and sh.max_applications == 1
+    lease = leases.read(a.activity_id)
+    assert lease["share_request_id"] == req.request_id and lease["share_state"] == "RECORDED"
+    # a watch tick / list / renew does NOT re-assert
+    svc.list(); svc.in_force_plus_recent(); svc.renew("hermes", a.activity_id, 5_000 * NS)
+    assert len(arb.requests) == 1
+    # release → ONE zero-floor superseding retract, right away (not at the sensor's poll)
+    clock.ns = 1_500 * NS
+    svc.release("hermes", a.activity_id, "hangup")
+    assert len(arb.requests) == 2
+    ret = arb.requests[1]
+    assert ret.supersedes_request_id == req.request_id and ret.workloads[0].HasField("floor") and ret.workloads[0].floor == 0
+    assert ret.workloads[0].owner == a.activity_id and ret.shares[0].guaranteed.quantities[GPU] == 0
+    assert leases.read(a.activity_id)["share_retract_id"] == ret.request_id
+    # the sensor observes; later ticks retire nothing twice
+    fake.finish(a.run_id); svc.list(); svc.in_force_plus_recent()
+    assert len(arb.requests) == 2
+
+
+def test_expired_activity_retires_its_claims_once(leases):
+    fake, clock, arb = FakeAirflow(paused=False), Clock(1_000 * NS), FakeArbiter()
+    svc = _arb_svc(fake, clock, leases, arb)
+    a = svc.declare(_declare_req())
+    fake.finish(a.run_id)  # lapsed → run success with the lease unreleased → EXPIRED
+    recs = svc.in_force_plus_recent()
+    assert recs[0].state == engine_pb2.ACTIVITY_EXPIRED
+    assert len(arb.requests) == 2 and arb.requests[1].workloads[0].floor == 0
+    svc.list()
+    assert len(arb.requests) == 2
+
+
+def test_rejected_queue_configuration_is_surfaced_on_the_note(leases):
+    fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
+    arb = FakeArbiter(reject="guaranteed GPU over-commit — leaf guaranteed GPU 7 > physical GPUs 6")
+    svc = _arb_svc(fake, clock, leases, arb)
+    a = svc.declare(_declare_req())
+    assert a.in_force  # the workload still runs — WITHOUT its floor
+    lease = leases.read(a.activity_id)
+    assert lease["share_state"] == "REJECTED" and "physical GPUs 6" in lease["share_error"]
+    # the run note (Airflow UI) and Activity.note (peers, Backlog) both say so
+    assert fake.runs[a.run_id]["note"].startswith("queue config REJECTED:")
+    assert svc.latest(a.activity_id).note.startswith("queue config REJECTED:")
+    assert len(arb.requests) == 1  # not retried every tick
+
+
+def test_activity_without_claims_touches_the_arbiter_never(leases):
+    fake, clock, arb = FakeAirflow(paused=False), Clock(1_000 * NS), FakeArbiter()
+    svc = _arb_svc(fake, clock, leases, arb)
+    req = _declare_req(request_id="nc", kind="maintenance_pause")
+    del req.claims[:]
+    a = svc.declare(req)
+    svc.release("hermes", a.activity_id, "done")
+    assert arb.requests == []
+
+
+# ── 2026-09-07: a scheduled Airflow run IS an activity ───────────────────────
+
+
+def test_declare_scheduled_writes_a_lease_against_the_calling_run_and_asserts(leases):
+    fake, clock, arb = FakeAirflow(paused=False), Clock(1_000 * NS), FakeArbiter()
+    svc = _arb_svc(fake, clock, leases, arb)
+    # the scheduled run exists in Airflow with an EMPTY conf (nobody triggered it with a declaration)
+    fake.runs["scheduled__2026-09-07T09:07"] = {
+        "dag_id": "gaius_article_curate", "dag_run_id": "scheduled__2026-09-07T09:07",
+        "state": "running", "conf": {}, "note": None, "end_date": None,
+    }
+    view = svc.declare_scheduled(
+        kind="article_curate", peer="gaius", dag_id="gaius_article_curate", run_id="scheduled__2026-09-07T09:07",
+        task_id="declare", claims=[{"leaf": "root.internal.inference.extract", "gpu": 1}], horizon_s=7200,
+        reason="daily curation",
+    )
+    aid = act.scheduled_activity_id_for("gaius", "gaius_article_curate", "scheduled__2026-09-07T09:07", "declare")
+    assert view["activity_id"] == aid and view["state"] == "alive" and view["lease_url"].endswith(f"/coord/activities/{aid}")
+    assert view["activity_state"] == "running" and view["dag_id"] == "gaius_article_curate"
+    assert not [c for c in fake.calls if c[0] == "trigger"]  # the calling run IS the activity
+    lease = leases.read(aid)
+    assert lease["dag_id"] == "gaius_article_curate" and lease["run_id"] == "scheduled__2026-09-07T09:07"
+    assert lease["horizon_ns"] == 1_000 * NS + 7200 * NS and lease["claims"] == [{"leaf": "root.internal.inference.extract", "gpu": 1}]
+    # its claim is asserted (extract floor 1, priority default 50, owner = activity)
+    assert len(arb.requests) == 1
+    wi = arb.requests[0].workloads[0]
+    assert wi.wrk == "article_curate" and wi.queue == "root.internal.inference.extract" and wi.floor == 1 and wi.priority == 50 and wi.owner == aid
+    # idempotent: a retry of the declare task changes nothing
+    again = svc.declare_scheduled(
+        kind="article_curate", peer="gaius", dag_id="gaius_article_curate", run_id="scheduled__2026-09-07T09:07",
+        task_id="declare", claims=[{"leaf": "root.internal.inference.extract", "gpu": 1}], horizon_s=7200,
+    )
+    assert again["activity_id"] == aid and len(arb.requests) == 1 and leases.read(aid)["heartbeat_ns"] == 1_000 * NS
+    # it shows in list/watch like any activity — the LEASES are the index, not the coord DAGs
+    recs = svc.list(peer="gaius", active_only=True)
+    assert [r.activity_id for r in recs] == [aid] and recs[0].kind == "article_curate" and recs[0].run_id == "scheduled__2026-09-07T09:07"
+    assert recs[0].to_proto().claims[0].leaf == "root.internal.inference.extract"
+    # the owner engine releases via gRPC when the curation completes → retract
+    clock.ns = 2_000 * NS
+    svc.release("gaius", aid, "curation complete")
+    assert len(arb.requests) == 2 and arb.requests[1].workloads[0].floor == 0
+    fake.finish("scheduled__2026-09-07T09:07")
+    assert svc.latest(aid).state == engine_pb2.ACTIVITY_RELEASED
+
+
+def test_declare_scheduled_refusals_and_http_shape(leases):
+    fake, clock, arb = FakeAirflow(paused=False), Clock(1_000 * NS), FakeArbiter()
+    svc = _arb_svc(fake, clock, leases, arb)
+    fake.runs["r1"] = {"dag_id": "d", "dag_run_id": "r1", "state": "running", "conf": {}, "note": None, "end_date": None}
+    code, body = act.scheduled_declare_http(svc, {"kind": "x", "peer": "stranger", "dag_id": "d", "run_id": "r1", "horizon_s": 10})
+    assert code == 400 and body["guru"] == act.GURU_UNKNOWNPEER
+    code, body = act.scheduled_declare_http(svc, {"kind": "x", "peer": "gaius", "dag_id": "d", "run_id": "r1"})
+    assert code == 400 and body["guru"] == act.GURU_HORIZON
+    code, body = act.scheduled_declare_http(
+        svc, {"kind": "x", "peer": "gaius", "dag_id": "d", "run_id": "r1", "horizon_s": 10,
+              "claims": [{"leaf": "root.internal.inference.extract", "gpu": 3}]},
+    )
+    assert code == 400 and body["guru"] == act.GURU_OVERCLAIM
+    code, body = act.scheduled_declare_http(svc, "not an object")
+    assert code == 400
+    code, body = act.scheduled_declare_http(
+        svc, {"kind": "x", "peer": "gaius", "dag_id": "d", "run_id": "r1", "horizon_s": 10,
+              "claims": [{"leaf": "root.internal.inference.extract", "gpu": 1}]},
+    )
+    assert code == 200 and body["state"] == "alive" and body["lease_url"].endswith(body["activity_id"])
+    assert not list(leases.root.glob("*.json")) == []  # a lease exists now

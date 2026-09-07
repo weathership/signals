@@ -48,9 +48,25 @@ from typing import Any, Callable, Iterator
 from signals.engine.airflow_api import AirflowClient, AirflowError
 from signals.engine.generated.zndx.engine.v1 import engine_pb2
 from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2
-from signals.engine.queue_share import ALLOWED_PEERS
+from signals.engine.queue_share import ALLOWED_PEERS, GPU
+from signals.uuidv7 import mint as mint_uuidv7
 
 log = logging.getLogger("signals.engine.activities")
+
+# ── the claims ARE the workload's YuniKorn queue configuration ───────────────
+# User (2026-09-07): "workloads would be ordered within Airflow such that when
+# one workload (with its associated YK queue config) is completed then the next
+# scheduled workload indicate to our Signals arbiter that it must assert the new
+# workload YK queue configuration." While an activity is RUNNING, Signals
+# asserts its claims into the queue-share arbiter as an intent OWNED by the
+# activity (floor = claimed GPU on the leaf); when it ends, the intent is
+# retired with a zero-floor superseding request — exactly how a peer engine
+# retires its own intents. The arbiter judges each assertion against the
+# physical capacity; a REJECTED configuration is surfaced on Activity.note so
+# peers and the Backlog can see the workload runs without its floor.
+PRIORITY_BY_KIND: dict[str, int] = {"interactive_session": 100}
+DEFAULT_SHARE_PRIORITY = 50
+GURU_DECLAREHTTP = "#CO.0000000A.DECLAREHTTP"
 
 # Generic coordination DAG; kinds with their own resource shape get their own
 # DAG so the leaf claim can be expressed as an Airflow pool on the hold task.
@@ -126,6 +142,13 @@ def _ns_to_iso(ns: int) -> str:
 
 def activity_id_for(peer: str, request_id: str) -> str:
     return str(uuid.uuid5(NAMESPACE, f"{peer}:{request_id}"))
+
+
+def scheduled_activity_id_for(peer: str, dag_id: str, run_id: str, task_id: str = "") -> str:
+    """A schedule-declared activity's identity: the run that IS the activity
+    (plus the declaring task when one run carries several workloads — a chain)."""
+    key = f"{peer}:{dag_id}:{run_id}" + (f":{task_id}" if task_id else "")
+    return str(uuid.uuid5(NAMESPACE, key))
 
 
 def run_id_for(activity_id: str) -> str:
@@ -283,9 +306,17 @@ class ActivityRecord:
 
     @classmethod
     def from_run(cls, run: dict[str, Any], lease: dict[str, Any] | None = None) -> "ActivityRecord | None":
+        """A record from an Airflow run + the lease. Declared runs carry the
+        declaration in ``conf``; a SCHEDULE-declared run (the run IS the
+        activity, declared by its own task) has an empty conf and the lease is
+        the declaration."""
         conf = run.get("conf") or {}
-        if not isinstance(conf, dict) or not conf.get("activity_id"):
-            return None
+        if not isinstance(conf, dict):
+            conf = {}
+        if not conf.get("activity_id"):
+            if not lease or not lease.get("activity_id"):
+                return None
+            conf = {**lease, **conf}
         src: dict[str, Any] = dict(conf)
         if lease:
             src.update({k: v for k, v in lease.items() if k in ("horizon_ns", "renewed_ns", "ended_ns")})
@@ -293,13 +324,18 @@ class ActivityRecord:
         ended = 0
         if st not in IN_FORCE:
             ended = int(src.get("ended_ns") or 0) or _iso_to_ns(run.get("end_date"))
+        note = str(run.get("note") or "")
+        if not note and lease and lease.get("share_state") == "REJECTED":
+            # The workload runs WITHOUT its queue configuration — say so where
+            # every peer and the Backlog read it.
+            note = f"queue config REJECTED: {lease.get('share_error') or 'over-commit'}"
         return cls(
             activity_id=str(conf["activity_id"]),
             kind=str(conf.get("kind") or ""),
             peer=str(conf.get("peer") or ""),
             owner=str(conf.get("owner") or ""),
-            dag_id=str(run.get("dag_id") or DAG_ID),
-            run_id=str(run.get("dag_run_id") or ""),
+            dag_id=str(run.get("dag_id") or conf.get("dag_id") or DAG_ID),
+            run_id=str(run.get("dag_run_id") or conf.get("run_id") or ""),
             request_id=str(conf.get("request_id") or ""),
             state=st,
             declared_ns=int(conf.get("declared_ns") or 0),
@@ -310,7 +346,7 @@ class ActivityRecord:
             precludes=[str(p) for p in (conf.get("precludes") or [])],
             postures={str(k): str(v) for k, v in (conf.get("postures") or {}).items()},
             reason=str(conf.get("reason") or ""),
-            note=str(run.get("note") or ""),
+            note=note,
         )
 
     def conf(self, lease_url: str) -> dict[str, Any]:
@@ -405,6 +441,8 @@ class ActivityService:
         clock_ns: Callable[[], int] = _now_ns,
         sleep: Callable[[float], None] = time.sleep,
         leaf_max: Callable[[str], int | None] | None = None,
+        share_ingest: Callable[[scheduler_pb2.QueueShareRequest], scheduler_pb2.QueueShareResponse] | None = None,
+        mint_request_id: Callable[[], str] = mint_uuidv7,
     ):
         self.airflow = airflow
         self.leases = leases
@@ -413,6 +451,11 @@ class ActivityService:
         # invariant the federation owns (user, 2026-09-07). None = no gate
         # (tests); the servicer always passes the current config's reader.
         self._leaf_max = leaf_max
+        # The queue-share arbiter's ingest: an activity's claims are asserted
+        # there while it RUNS and retired when it ends. None = the arbiter is
+        # not wired (tests) — claims stay informational.
+        self._share_ingest = share_ingest
+        self._mint = mint_request_id
         self.lease_url_base = lease_url_base.rstrip("/")
         self.allowed_peers = allowed_peers
         self.poll_s = poll_s
@@ -461,10 +504,11 @@ class ActivityService:
             )
 
     # ── reads ────────────────────────────────────────────────────────────────
-    def _record(self, run: dict[str, Any]) -> ActivityRecord | None:
-        conf = run.get("conf") or {}
-        aid = str(conf.get("activity_id") or "") if isinstance(conf, dict) else ""
-        lease = self.leases.read(aid) if aid else None
+    def _record(self, run: dict[str, Any], lease: dict[str, Any] | None = None) -> ActivityRecord | None:
+        if lease is None:
+            conf = run.get("conf") or {}
+            aid = str(conf.get("activity_id") or "") if isinstance(conf, dict) else ""
+            lease = self.leases.read(aid) if aid else None
         rec = ActivityRecord.from_run(run, lease)
         if rec is None:
             return None
@@ -477,33 +521,150 @@ class ActivityService:
             rec.ended_ns = int(lease["ended_ns"])
         return rec
 
-    def _records(self) -> list[ActivityRecord]:
+    def _lease_recent(self, lease: dict[str, Any], now_ns: int) -> bool:
+        ended = int(lease.get("ended_ns") or 0)
+        return not ended or (now_ns - ended) <= self.ended_window_ns
+
+    def _records(self, *, recent_only: bool = False) -> list[ActivityRecord]:
+        """Every activity Signals knows. The LEASES are the index — an activity
+        may live on any DAG (a schedule-declared run is one) — so each lease's
+        run is fetched; the coordination DAGs' runs are then swept for
+        pre-lease history. ``recent_only`` skips leases that ended outside the
+        trailing window (the watch path's cost bound)."""
+        now = self._clock()
         recs: dict[str, ActivityRecord] = {}
-        for dag_id in DAG_IDS:
+        leases = self.leases.all()
+        if recent_only:
+            leases = [l for l in leases if self._lease_recent(l, now)]
+        for lease in leases:
+            aid = str(lease.get("activity_id") or "")
+            dag_id, run_id = str(lease.get("dag_id") or ""), str(lease.get("run_id") or "")
+            if not (aid and dag_id and run_id):
+                continue
             try:
-                runs = self.airflow.list_dag_runs(dag_id, limit=self.list_limit, order_by="-run_after")
+                run = self.airflow.get_dag_run(dag_id, run_id)
             except AirflowError as e:
-                if e.guru == "#AF.00000003.DAGMISSING":
-                    continue  # a DAG not yet deployed has no runs to read
-                raise
-            for run in runs:
-                r = self._record(run)
-                if r is None:
+                if e.guru == "#AF.00000003.DAGMISSING" or "HTTP 404" in str(e):
+                    log.warning("activity %s: run %s/%s is gone from Airflow — %s", aid, dag_id, run_id, e.guru)
                     continue
-                cur = recs.get(r.activity_id)
-                if cur is None or r.declared_ns > cur.declared_ns:
+                raise
+            r = self._record(run, lease)
+            if r is not None:
+                recs[r.activity_id] = r
+        if not recent_only:
+            for dag_id in DAG_IDS:
+                try:
+                    runs = self.airflow.list_dag_runs(dag_id, limit=self.list_limit, order_by="-run_after")
+                except AirflowError as e:
+                    if e.guru == "#AF.00000003.DAGMISSING":
+                        continue  # a DAG not yet deployed has no runs to read
+                    raise
+                for run in runs:
+                    r = self._record(run)
+                    if r is None or r.activity_id in recs:
+                        continue
                     recs[r.activity_id] = r
-        return sorted(recs.values(), key=lambda r: r.declared_ns)
+        out = sorted(recs.values(), key=lambda r: r.declared_ns)
+        self._reconcile_shares(out)
+        return out
 
     def latest(self, activity_id: str) -> ActivityRecord | None:
         lease = self.leases.read(activity_id)
         if lease is not None:
             run = self.airflow.get_dag_run(str(lease["dag_id"]), str(lease["run_id"]))
-            return self._record(run)
+            rec = self._record(run, lease)
+            if rec is not None:
+                self._reconcile_shares([rec])
+            return rec
         for r in self._records():
             if r.activity_id == activity_id:
                 return r
         return None
+
+    # ── the claims ARE the queue configuration ───────────────────────────────
+    def _share_request(self, rec: ActivityRecord, lease: dict[str, Any], *, retract: bool) -> scheduler_pb2.QueueShareRequest:
+        req = scheduler_pb2.QueueShareRequest(
+            peer=rec.peer,
+            request_id=self._mint(),
+            reason=(
+                f"activity {rec.kind} {rec.activity_id} ended — retire its queue configuration"
+                if retract
+                else f"activity {rec.kind} {rec.activity_id} in force — its claims are its queue configuration"
+            ),
+            supersedes_request_id=str(lease.get("share_request_id") or "") if retract else "",
+        )
+        priority = PRIORITY_BY_KIND.get(rec.kind, DEFAULT_SHARE_PRIORITY)
+        for c in rec.claims:
+            leaf = str(c.get("leaf") or "").strip()
+            if not leaf:
+                continue
+            gpu = 0 if retract else int(c.get("gpu") or 0)
+            wi = scheduler_pb2.WorkloadIntent(
+                wrk=rec.kind, queue=leaf, applications=1, priority=priority, owner=rec.activity_id
+            )
+            wi.floor = gpu  # DECLARED (proto3 optional): a 0 is "fully preemptible", not legacy
+            req.workloads.append(wi)
+            mx = self._leaf_max(leaf) if self._leaf_max is not None else None
+            req.shares.append(
+                scheduler_pb2.QueueShare(
+                    queue=leaf,
+                    guaranteed=scheduler_pb2.ResourceMap(quantities={GPU: gpu}),
+                    max=scheduler_pb2.ResourceMap(quantities={GPU: int(mx if mx is not None else max(int(c.get("gpu") or 0), 1))}),
+                    max_applications=1,
+                )
+            )
+        return req
+
+    def _reconcile_shares(self, records: list[ActivityRecord]) -> None:
+        """Assert a RUNNING activity's claims into the arbiter once; retire them
+        once when it ends. Lease bookkeeping: share_request_id / share_state /
+        share_error / share_retract_id. Never raises — the arbiter answers
+        in-band and a persist failure is logged; the next tick retries."""
+        if self._share_ingest is None:
+            return
+        for rec in records:
+            if not rec.claims:
+                continue
+            lease = self.leases.read(rec.activity_id)
+            if lease is None:
+                continue
+            try:
+                if rec.state == engine_pb2.ACTIVITY_RUNNING and not lease.get("share_request_id"):
+                    req = self._share_request(rec, lease, retract=False)
+                    resp = self._share_ingest(req)
+                    lease["share_request_id"] = req.request_id
+                    lease["share_state"] = scheduler_pb2.QueueShareState.Name(resp.state).replace("QUEUE_SHARE_", "") if resp.accepted else "REFUSED"
+                    lease["share_error"] = str(resp.error or "")
+                    self.leases.write(lease)
+                    if lease["share_state"] == "REJECTED" or not resp.accepted:
+                        log.warning(
+                            "activity %s (%s): queue configuration %s — %s; the workload runs WITHOUT its floor",
+                            rec.activity_id, rec.kind, lease["share_state"], resp.error,
+                        )
+                        try:
+                            self.airflow.patch_dag_run(
+                                rec.dag_id, rec.run_id, note=f"queue config REJECTED: {resp.error}"[:1000]
+                            )
+                        except AirflowError as e:
+                            log.warning("activity %s: run note not written: %s", rec.activity_id, e)
+                    else:
+                        log.info(
+                            "activity %s (%s): queue configuration asserted %s — %s",
+                            rec.activity_id, rec.kind, lease["share_state"],
+                            ", ".join(f"{c.get('leaf')}={c.get('gpu')}" for c in rec.claims),
+                        )
+                elif not rec.in_force and lease.get("share_request_id") and not lease.get("share_retract_id"):
+                    req = self._share_request(rec, lease, retract=True)
+                    resp = self._share_ingest(req)
+                    lease["share_retract_id"] = req.request_id
+                    lease["share_retract_state"] = scheduler_pb2.QueueShareState.Name(resp.state).replace("QUEUE_SHARE_", "") if resp.accepted else "REFUSED"
+                    self.leases.write(lease)
+                    log.info(
+                        "activity %s (%s): queue configuration retired (%s) — %s",
+                        rec.activity_id, rec.kind, lease["share_retract_state"], STATE_NAMES.get(rec.state),
+                    )
+            except Exception as e:  # noqa: BLE001 — bookkeeping; the next tick retries
+                log.warning("activity %s: queue configuration reconcile failed: %s", rec.activity_id, e)
 
     def list(
         self,
@@ -532,7 +693,7 @@ class ActivityService:
     def in_force_plus_recent(self, now_ns: int | None = None) -> list[ActivityRecord]:
         now = now_ns if now_ns is not None else self._clock()
         out = []
-        for r in self._records():
+        for r in self._records(recent_only=True):
             if r.in_force or (r.ended_ns and now - r.ended_ns <= self.ended_window_ns):
                 out.append(r)
         return out
@@ -549,7 +710,7 @@ class ActivityService:
             )
         aid = activity_id_for(req.peer, req.request_id)
         dag_id = dag_id_for(req.kind)
-        self._check_claims(aid, req)
+        self._check_claims(aid, [{"leaf": c.leaf, "gpu": int(c.gpu)} for c in req.claims])
         existing = self.leases.read(aid)
         if existing is not None:
             # Idempotent retry: the lease exists → the run exists (or Airflow
@@ -591,20 +752,95 @@ class ActivityService:
             aid, rec.kind, rec.peer, rec.owner, dag_id, got.run_id, STATE_NAMES.get(got.state),
             _ns_to_iso(rec.horizon_ns), self.leases.ttl_s,
         )
+        self._reconcile_shares([got])
         return got
 
-    def _check_claims(self, aid: str, req: scheduler_pb2.DeclareActivityRequest) -> None:
+    def declare_scheduled(
+        self,
+        *,
+        kind: str,
+        peer: str,
+        dag_id: str,
+        run_id: str,
+        task_id: str = "",
+        owner: str = "",
+        claims: list[dict[str, Any]] | None = None,
+        precludes: list[str] | None = None,
+        postures: dict[str, str] | None = None,
+        horizon_s: float = 0.0,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """A scheduled Airflow run declares ITSELF as an activity (from its own
+        ``declare`` task, Signals-internal: Airflow → this engine's control HTTP).
+
+        No run is triggered — the calling run IS the activity; the lease is
+        written against its dag_id/run_id and the run's ``hold`` sensor observes
+        that lease like any other. The owner ENGINE (peer) sees its own activity
+        in force on WatchActivities, starts the workload, heartbeats, and
+        releases when done; a lease nobody heartbeats lapses (TTL) and the run
+        completes EXPIRED. Idempotent per (peer, dag_id, run_id, task_id).
+        Returns the lease view + lease_url for the run's XCom.
+        """
+        self._check_peer(peer)
+        kind = (kind or "").strip()
+        dag_id, run_id = (dag_id or "").strip(), (run_id or "").strip()
+        if not kind or not dag_id or not run_id:
+            raise ActivityError(GURU_BADREQUEST, "kind, dag_id and run_id are required")
+        horizon_s = float(horizon_s or 0)
+        if horizon_s <= 0:
+            raise ActivityError(GURU_HORIZON, f"horizon_s {horizon_s} must be positive")
+        norm_claims = [
+            {"leaf": str(c.get("leaf") or "").strip(), "gpu": int(c.get("gpu") or 0)}
+            for c in (claims or [])
+            if isinstance(c, dict)
+        ]
+        aid = scheduled_activity_id_for(peer, dag_id, run_id, task_id)
+        existing = self.leases.read(aid)
+        if existing is None:
+            self._check_claims(aid, norm_claims)
+            now = self._clock()
+            rec = ActivityRecord(
+                activity_id=aid,
+                kind=kind,
+                peer=peer,
+                owner=owner or f"{dag_id}/{run_id}",
+                dag_id=dag_id,
+                run_id=run_id,
+                request_id=f"{dag_id}/{run_id}" + (f"#{task_id}" if task_id else ""),
+                state=engine_pb2.ACTIVITY_RUNNING,
+                declared_ns=now,
+                horizon_ns=now + int(horizon_s * 1_000_000_000),
+                claims=norm_claims,
+                precludes=[str(p) for p in (precludes or [])],
+                postures={str(k): str(v) for k, v in (postures or {}).items()},
+                reason=reason,
+            )
+            self.leases.write(rec.lease(heartbeat_ns=now, ttl_s=self.leases.ttl_s))
+            log.info(
+                "activity declared by schedule %s kind=%s peer=%s dag=%s run=%s horizon=%ss claims=%s",
+                aid, kind, peer, dag_id, run_id, int(horizon_s), norm_claims,
+            )
+        # The run is running (its own task is calling): assert the claims now.
+        rec_now = self.latest(aid)
+        view = self.leases.view(aid, self._clock())
+        view["lease_url"] = self.lease_url(aid)
+        view["dag_id"], view["run_id"] = dag_id, run_id
+        view["activity_state"] = STATE_NAMES.get(rec_now.state, "unspecified") if rec_now else "unknown"
+        view["note"] = rec_now.note if rec_now else ""
+        return view
+
+    def _check_claims(self, aid: str, claims: list[dict[str, Any]]) -> None:
         """Claims must fit the leaf: each ≤ the leaf's declared max, and the sum of
         claims over in-force activities on that leaf ≤ the leaf's max. Refused
         in-band with #CO.00000009.OVERCLAIM — YuniKorn could never honour it."""
-        if self._leaf_max is None or not req.claims:
+        if self._leaf_max is None or not claims:
             return
         wanted: dict[str, int] = {}
-        for c in req.claims:
-            leaf = (c.leaf or "").strip()
+        for c in claims:
+            leaf = str(c.get("leaf") or "").strip()
             if not leaf:
                 raise ActivityError(GURU_BADREQUEST, "claim without a leaf")
-            wanted[leaf] = wanted.get(leaf, 0) + int(c.gpu)
+            wanted[leaf] = wanted.get(leaf, 0) + int(c.get("gpu") or 0)
         held: dict[str, int] = {}
         now = self._clock()
         for lease in self.leases.all():  # raw leases carry claims; the HTTP view does not
@@ -667,6 +903,9 @@ class ActivityService:
             reason=str(lease.get("reason") or ""),
         )
         log.debug("activity heartbeat %s horizon=%s", activity_id, _ns_to_iso(int(horizon_ns)))
+        # A heartbeat is the owner saying the workload is live: if the claims
+        # were not asserted yet (the run was still queued at declare), do it now.
+        self._reconcile_shares([rec])
         return rec
 
     def release(self, peer: str, activity_id: str, outcome: str) -> ActivityRecord:
@@ -699,6 +938,9 @@ class ActivityService:
             rec.state = engine_pb2.ACTIVITY_RELEASED
         rec.note = note
         rec.ended_ns = now
+        # The owner ended the workload: retire its queue configuration now —
+        # the NEXT workload's assertion must not wait for the sensor's poll.
+        self._reconcile_shares([rec])
         log.info("activity released %s run=%s outcome=%s", activity_id, rec.run_id, outcome)
         return rec
 
@@ -721,6 +963,38 @@ class ActivityService:
                 step = min(1.0, remaining)
                 self._sleep(step)
                 remaining -= step
+
+
+def scheduled_declare_http(service: ActivityService, payload: Any) -> tuple[int, dict[str, Any]]:
+    """The control HTTP ``POST /coord/activities`` body → (status, JSON body).
+
+    Airflow's ``declare`` task (SignalsDeclareOperator) is the only caller —
+    Signals-internal topology; peers never see this route. Refusals are 400
+    with the guru; Airflow trouble is 503; a well-formed declaration is 200.
+    """
+    if not isinstance(payload, dict):
+        return 400, {"error": f"{GURU_BADREQUEST} body must be a JSON object"}
+    try:
+        view = service.declare_scheduled(
+            kind=str(payload.get("kind") or ""),
+            peer=str(payload.get("peer") or ""),
+            dag_id=str(payload.get("dag_id") or ""),
+            run_id=str(payload.get("run_id") or ""),
+            task_id=str(payload.get("task_id") or ""),
+            owner=str(payload.get("owner") or ""),
+            claims=[c for c in (payload.get("claims") or []) if isinstance(c, dict)],
+            precludes=[str(p) for p in (payload.get("precludes") or [])],
+            postures={str(k): str(v) for k, v in (payload.get("postures") or {}).items()},
+            horizon_s=float(payload.get("horizon_s") or 0),
+            reason=str(payload.get("reason") or ""),
+        )
+        return 200, view
+    except ActivityError as e:
+        return 400, {"error": str(e), "guru": e.guru}
+    except AirflowError as e:
+        return 503, {"error": str(e), "guru": e.guru}
+    except (TypeError, ValueError) as e:
+        return 400, {"error": f"{GURU_BADREQUEST} malformed declaration: {e}"}
 
 
 def watch_event(recs: list[ActivityRecord], observed_ns: int) -> scheduler_pb2.ActivityWatchEvent:

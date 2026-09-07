@@ -26,7 +26,7 @@ from typing import Any, AsyncIterator
 from airflow import DAG
 from airflow.exceptions import AirflowException
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.sdk import Asset
+from airflow.sdk import Asset, BaseOperator
 from airflow.sdk.bases.sensor import BaseSensorOperator, PokeReturnValue
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
@@ -35,12 +35,23 @@ import coord_lease
 log = logging.getLogger("coord_signals")
 
 GURU_BADEVENT = "#CO.00000008.BADEVENT"
+GURU_DECLAREHTTP = "#CO.0000000A.DECLAREHTTP"
 
 ACTIVITY_STARTED = Asset("zndx.coord.activity")
 ACTIVITY_ENDED = Asset("zndx.coord.activity.ended")
 
 DEFAULT_POLL_S = 5.0
 DEFAULT_HOLD_TIMEOUT = timedelta(hours=24)  # outer net only; the lease decides
+
+# The Signals engine's control HTTP as the cluster reaches it (host bridge
+# Service in the airflow namespace → socat → 127.0.0.1:50552). Signals-internal
+# topology: a peer never holds this; Airflow talks to Signals and to nobody else.
+SIGNALS_CONTROL_BASE = "http://signals-engine-control.airflow.svc.cluster.local:50552"
+
+
+def ended_asset_for(kind: str) -> Asset:
+    """Per-kind end Asset — what the NEXT workload's DAG schedules on."""
+    return Asset(f"zndx.coord.{kind}.ended")
 
 
 class SignalsLeaseTrigger(BaseTrigger):
@@ -177,6 +188,98 @@ class SignalsActivitySensor(BaseSensorOperator):
         return outcome
 
 
+class SignalsDeclareOperator(BaseOperator):
+    """A scheduled run declares ITSELF as a Coordination Activity.
+
+    The run IS the activity: this task POSTs the declaration — kind, peer,
+    owner, claims (the workload's YuniKorn queue configuration), precludes,
+    postures, horizon, reason — with its own dag_id/run_id/task_id to the
+    Signals engine's control HTTP. Signals writes the lease, asserts the claims
+    into its queue-share arbiter (the "next workload indicates to the arbiter
+    that it must assert the new configuration"), and answers the lease view.
+    ``activity_id`` and ``lease_url`` go to XCom for the ``hold`` sensor.
+
+    The owner ENGINE (peer) sees its own activity in force on
+    ``Scheduler/WatchActivities``, starts the workload, heartbeats the lease and
+    releases it when done; a lease nobody heartbeats lapses and the run ends
+    EXPIRED with its configuration retired. Nobody outside Signals is called.
+    """
+
+    ui_color = "#ffe8a8"
+
+    def __init__(
+        self,
+        *,
+        kind: str,
+        peer: str,
+        claims: list[dict[str, Any]] | None = None,
+        horizon_s: float,
+        reason: str = "",
+        owner: str | None = None,
+        precludes: list[str] | None = None,
+        postures: dict[str, str] | None = None,
+        control_base: str = SIGNALS_CONTROL_BASE,
+        timeout_s: float = 15.0,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        self.kind = kind
+        self.peer = peer
+        self.claims = [dict(c) for c in (claims or [])]
+        self.horizon_s = float(horizon_s)
+        self.reason = reason
+        self.activity_owner = owner
+        self.precludes = list(precludes or [])
+        self.postures = dict(postures or {})
+        self.control_base = control_base.rstrip("/")
+        self.timeout_s = float(timeout_s)
+
+    def execute(self, context: Any) -> dict[str, Any]:
+        dag_run = context["dag_run"]
+        ti = context["ti"]
+        dag_id = str(getattr(dag_run, "dag_id", None) or context["dag"].dag_id)
+        run_id = str(getattr(dag_run, "run_id", None) or context.get("run_id") or "")
+        task_id = str(getattr(ti, "task_id", None) or self.task_id)
+        payload = {
+            "kind": self.kind,
+            "peer": self.peer,
+            "owner": self.activity_owner or f"{dag_id}/{run_id}",
+            "claims": self.claims,
+            "precludes": self.precludes,
+            "postures": self.postures,
+            "horizon_s": self.horizon_s,
+            "reason": self.reason,
+            "dag_id": dag_id,
+            "run_id": run_id,
+            "task_id": task_id,
+        }
+        url = f"{self.control_base}/coord/activities"
+        self.log.info("declaring %s/%s as activity kind=%s peer=%s claims=%s → %s", dag_id, run_id, self.kind, self.peer, self.claims, url)
+        try:
+            view = coord_lease.post_json(url, payload, self.timeout_s)
+        except coord_lease.DeclareRefused as e:
+            raise AirflowException(
+                f"{GURU_DECLAREHTTP} Signals refused the declaration of {dag_id}/{run_id} ({e})\n"
+                "  Try: the guru in the body names the cause (peer allowlist, claims vs leaf max, horizon)"
+            ) from e
+        except coord_lease.LeaseUnreachable as e:
+            raise AirflowException(
+                f"{GURU_DECLAREHTTP} Signals control HTTP unreachable at {url}: {e}\n"
+                "  Try: kubectl -n airflow get deploy signals-engine-control-proxy; the signals-engine process"
+            ) from e
+        activity_id = str(view.get("activity_id") or "")
+        lease_url = str(view.get("lease_url") or "")
+        if not activity_id or not lease_url:
+            raise AirflowException(f"{GURU_DECLAREHTTP} Signals answered without activity_id/lease_url: {view!r}")
+        ti.xcom_push(key="activity_id", value=activity_id)
+        ti.xcom_push(key="lease_url", value=lease_url)
+        self.log.info(
+            "activity %s declared: state=%s lease=%s note=%r",
+            activity_id, view.get("activity_state"), lease_url, view.get("note") or "",
+        )
+        return view
+
+
 def _declare(**context: Any) -> str:
     conf = dict(context["dag_run"].conf or {})
     print(
@@ -248,4 +351,188 @@ def make_coord_dag(
         hold = SignalsActivitySensor(**hold_kwargs)
         close = PythonOperator(task_id="close", python_callable=_close, outlets=[ACTIVITY_ENDED])
         declare >> hold >> close
+    return dag
+
+
+# ── ordered workloads: the run IS the activity ───────────────────────────────
+
+
+def _close_workload(hold_task_id: str, kind: str, **context: Any) -> str:
+    outcome = context["ti"].xcom_pull(task_ids=hold_task_id)
+    if outcome not in coord_lease.TERMINAL:
+        raise AirflowException(f"{GURU_BADEVENT} {hold_task_id} returned {outcome!r} for workload {kind}")
+    print(
+        f"workload close: kind={kind} outcome={outcome} "
+        f"({'owner released it' if outcome == 'released' else 'heartbeats stopped or horizon passed'}) — "
+        f"queue configuration retired at Signals; Asset zndx.coord.{kind}.ended emitted"
+    )
+    return str(outcome)
+
+
+def _workload_tasks(
+    *,
+    name: str,
+    kind: str,
+    peer: str,
+    claims: list[dict[str, Any]],
+    horizon_s: float,
+    reason: str,
+    precludes: list[str] | None,
+    postures: dict[str, str] | None,
+    owner: str | None,
+    pool: str | None,
+    poll_s: float,
+    suffix: str,
+) -> tuple[BaseOperator, BaseOperator, BaseOperator]:
+    declare_id, hold_id, close_id = f"declare{suffix}", f"hold{suffix}", f"close{suffix}"
+    declare = SignalsDeclareOperator(
+        task_id=declare_id,
+        kind=kind,
+        peer=peer,
+        claims=claims,
+        horizon_s=horizon_s,
+        reason=reason,
+        precludes=precludes,
+        postures=postures,
+        owner=owner,
+        outlets=[ACTIVITY_STARTED],
+    )
+    hold_kwargs: dict[str, Any] = dict(
+        task_id=hold_id,
+        activity_id="{{ ti.xcom_pull(task_ids='" + declare_id + "', key='activity_id') }}",
+        lease_url="{{ ti.xcom_pull(task_ids='" + declare_id + "', key='lease_url') }}",
+        poll_s=poll_s,
+        deferrable=True,
+        # The lease's own horizon is the workload's bound; the sensor timeout is
+        # only the outer net beyond it (a dark Signals is not a lapse).
+        timeout=float(horizon_s) + 3600.0,
+        mode="reschedule",
+        poke_interval=poll_s,
+    )
+    if pool:
+        hold_kwargs["pool"] = pool
+    hold = SignalsActivitySensor(**hold_kwargs)
+    close = PythonOperator(
+        task_id=close_id,
+        python_callable=_close_workload,
+        op_kwargs={"hold_task_id": hold_id, "kind": kind},
+        outlets=[ACTIVITY_ENDED, ended_asset_for(kind)],
+    )
+    declare >> hold >> close
+    return declare, hold, close
+
+
+def make_workload_dag(
+    dag_id: str,
+    *,
+    kind: str,
+    peer: str,
+    claims: list[dict[str, Any]],
+    horizon_s: float,
+    schedule: Any,
+    reason: str,
+    precludes: list[str] | None = None,
+    postures: dict[str, str] | None = None,
+    owner: str | None = None,
+    pool: str | None = None,
+    tags: list[str] | None = None,
+    description: str | None = None,
+    start_date: datetime = datetime(2026, 1, 1),
+    catchup: bool = False,
+    poll_s: float = DEFAULT_POLL_S,
+) -> DAG:
+    """ONE scheduled workload as an activity: declare (the run declares itself;
+    its claims are its YuniKorn queue configuration, asserted at Signals) →
+    hold (observe the lease the owner engine heartbeats) → close (emit
+    ``zndx.coord.<kind>.ended`` so the next workload can schedule on it).
+
+    ``schedule`` is a cron string, a timedelta, an Asset (or list) — the last is
+    how "when one workload completes, the next runs" is expressed in Airflow.
+    """
+    default_args = {
+        "owner": "signals",
+        "depends_on_past": False,
+        "email_on_failure": False,
+        "email_on_retry": False,
+        "retries": 0,
+        "retry_delay": timedelta(minutes=1),
+    }
+    with DAG(
+        dag_id=dag_id,
+        description=description or f"Workload {kind} ({peer}) as a Coordination Activity — claims are its YK queue config",
+        default_args=default_args,
+        schedule=schedule,
+        start_date=start_date,
+        catchup=catchup,
+        is_paused_upon_creation=False,
+        tags=list(tags or ["coordination", "workload", peer]),
+        max_active_runs=1,
+    ) as dag:
+        _workload_tasks(
+            name=kind, kind=kind, peer=peer, claims=claims, horizon_s=horizon_s, reason=reason,
+            precludes=precludes, postures=postures, owner=owner, pool=pool, poll_s=poll_s, suffix="",
+        )
+    return dag
+
+
+def make_chain_dag(
+    dag_id: str,
+    workloads: list[dict[str, Any]],
+    *,
+    schedule: Any,
+    tags: list[str] | None = None,
+    description: str | None = None,
+    start_date: datetime = datetime(2026, 1, 1),
+    catchup: bool = False,
+    poll_s: float = DEFAULT_POLL_S,
+) -> DAG:
+    """Several workloads ORDERED in one run: declare_a → hold_a → close_a →
+    declare_b → hold_b → close_b … Each declare asserts that workload's queue
+    configuration at Signals; each close (the previous workload's end) is what
+    lets the next declare run — "when one workload is completed then the next
+    scheduled workload indicates to the arbiter that it must assert the new
+    configuration". Each workload dict: name, kind, peer, claims, horizon_s,
+    reason, optional precludes/postures/owner/pool.
+    """
+    if not workloads:
+        raise ValueError(f"{dag_id}: a chain needs at least one workload")
+    default_args = {
+        "owner": "signals",
+        "depends_on_past": False,
+        "email_on_failure": False,
+        "email_on_retry": False,
+        "retries": 0,
+        "retry_delay": timedelta(minutes=1),
+    }
+    with DAG(
+        dag_id=dag_id,
+        description=description or f"Ordered workloads: {' → '.join(str(w.get('name') or w['kind']) for w in workloads)}",
+        default_args=default_args,
+        schedule=schedule,
+        start_date=start_date,
+        catchup=catchup,
+        is_paused_upon_creation=False,
+        tags=list(tags or ["coordination", "workload", "chain"]),
+        max_active_runs=1,
+    ) as dag:
+        prev_close: BaseOperator | None = None
+        for w in workloads:
+            name = str(w.get("name") or w["kind"])
+            declare, _hold, close = _workload_tasks(
+                name=name,
+                kind=str(w["kind"]),
+                peer=str(w["peer"]),
+                claims=[dict(c) for c in (w.get("claims") or [])],
+                horizon_s=float(w["horizon_s"]),
+                reason=str(w.get("reason") or ""),
+                precludes=w.get("precludes"),
+                postures=w.get("postures"),
+                owner=w.get("owner"),
+                pool=w.get("pool"),
+                poll_s=poll_s,
+                suffix=f"_{name}",
+            )
+            if prev_close is not None:
+                prev_close >> declare
+            prev_close = close
     return dag

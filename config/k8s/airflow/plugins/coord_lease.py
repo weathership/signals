@@ -74,3 +74,42 @@ def outcome_for(state: str) -> str | None:
 def poll(url: str, timeout_s: float = 5.0) -> tuple[str, dict[str, Any]]:
     payload = fetch(url, timeout_s)
     return classify(payload), payload
+
+
+class DeclareRefused(RuntimeError):
+    """Signals answered the declaration with a refusal (4xx + guru) or an outage (5xx)."""
+
+    def __init__(self, status: int, body: dict[str, Any]):
+        self.status = status
+        self.body = body
+        super().__init__(f"HTTP {status}: {body.get('error') or body}")
+
+
+def post_json(url: str, payload: dict[str, Any], timeout_s: float = 10.0) -> dict[str, Any]:
+    """POST a JSON object; a JSON object back. Used by SignalsDeclareOperator to
+    declare the run ITSELF as an activity (``POST /coord/activities``). Any
+    non-2xx is ``DeclareRefused`` with the body (guru inside) — never a silent
+    run without its declaration."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310 — cluster-internal URL
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode() or "{}")
+        except (ValueError, OSError):
+            body = {}
+        raise DeclareRefused(e.code, body if isinstance(body, dict) else {"error": str(body)}) from e
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        raise LeaseUnreachable(f"{url}: {e}") from e
+    try:
+        body = json.loads(raw.decode() or "{}")
+    except ValueError as e:
+        raise LeaseUnreachable(f"{url}: non-JSON body") from e
+    if not isinstance(body, dict):
+        raise LeaseUnreachable(f"{url}: JSON body is not an object")
+    return body

@@ -141,6 +141,11 @@ volumeMounts:
     mountPath: /opt/airflow/plugins/coord_lease.py
     subPath: coord_lease.py
     readOnly: true
+  # Ordered workloads (the run IS the activity): first migrated class.
+  - name: signals-dags
+    mountPath: /opt/airflow/dags/gaius_article_curate_dag.py
+    subPath: gaius_article_curate_dag.py
+    readOnly: true
 
 # ── Components ────────────────────────────────────────────────────
 # Airflow 3: api-server (not webserver)

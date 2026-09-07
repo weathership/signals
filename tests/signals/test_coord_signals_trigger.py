@@ -107,3 +107,74 @@ def test_trigger_and_sensor_construct():
     dag = coord_signals.make_coord_dag("coord_test", description="t", pool="agent_rtc")
     hold = dag.get_task("hold")
     assert hold.pool == "agent_rtc" and hold.deferrable and "lease_url" in hold.template_fields
+
+
+# ── 2026-09-07: the run declares ITSELF (POST /coord/activities) ─────────────
+
+
+class _Declare(BaseHTTPRequestHandler):
+    posted: list = []
+
+    def log_message(self, *a):  # quiet
+        pass
+
+    def do_POST(self):  # noqa: N802
+        n = int(self.headers.get("Content-Length") or 0)
+        payload = json.loads(self.rfile.read(n).decode() or "{}")
+        _Declare.posted.append((self.path, payload))
+        if payload.get("peer") == "stranger":
+            body = json.dumps({"error": "#CO.00000001.UNKNOWNPEER peer 'stranger'", "guru": "#CO.00000001.UNKNOWNPEER"}).encode()
+            self.send_response(400)
+        else:
+            aid = "22222222-3333-4444-5555-666666666666"
+            body = json.dumps({"activity_id": aid, "state": "alive", "lease_url": f"http://h/coord/activities/{aid}", "activity_state": "running"}).encode()
+            self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture(scope="module")
+def declare_server():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Declare)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+
+
+def test_post_json_declares_and_surfaces_refusals(declare_server):
+    view = coord_lease.post_json(f"{declare_server}/coord/activities", {"kind": "k", "peer": "gaius", "dag_id": "d", "run_id": "r"})
+    assert view["activity_id"] and view["lease_url"].endswith(view["activity_id"])
+    assert _Declare.posted[-1][0] == "/coord/activities" and _Declare.posted[-1][1]["peer"] == "gaius"
+    with pytest.raises(coord_lease.DeclareRefused) as e:
+        coord_lease.post_json(f"{declare_server}/coord/activities", {"kind": "k", "peer": "stranger"})
+    assert e.value.status == 400 and "UNKNOWNPEER" in e.value.body["guru"]
+    with pytest.raises(coord_lease.LeaseUnreachable):
+        coord_lease.post_json("http://127.0.0.1:9/coord/activities", {}, timeout_s=0.5)
+
+
+@pytest.mark.skipif("airflow" not in sys.modules and pytest.importorskip("airflow", reason="airflow not in the Signals venv") is None, reason="airflow absent")
+def test_workload_and_chain_dags_construct():
+    import coord_signals
+
+    wl = coord_signals.make_workload_dag(
+        "wl_test", kind="article_curate", peer="gaius",
+        claims=[{"leaf": "root.internal.inference.extract", "gpu": 1}], horizon_s=7200, schedule="7 9 * * *", reason="t",
+    )
+    assert [t.task_id for t in wl.tasks] == ["declare", "hold", "close"]
+    assert isinstance(wl.get_task("declare"), coord_signals.SignalsDeclareOperator)
+    assert "xcom_pull(task_ids='declare'" in wl.get_task("hold").lease_url
+    assert any(a.name == "zndx.coord.article_curate.ended" for a in wl.get_task("close").outlets)
+    chain = coord_signals.make_chain_dag(
+        "chain_test",
+        [
+            {"name": "curate", "kind": "article_curate", "peer": "gaius", "claims": [{"leaf": "root.internal.inference.extract", "gpu": 1}], "horizon_s": 7200},
+            {"name": "publish", "kind": "publish_cards", "peer": "gaius", "claims": [], "horizon_s": 3600},
+        ],
+        schedule=None,
+    )
+    ids = [t.task_id for t in chain.tasks]
+    assert {"declare_curate", "hold_curate", "close_curate", "declare_publish", "hold_publish", "close_publish"} <= set(ids)
+    assert "declare_publish" in chain.get_task("close_curate").downstream_task_ids

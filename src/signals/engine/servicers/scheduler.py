@@ -246,9 +246,22 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         with self._activities_mu:
             if self._activities is None:
                 self._activities = ActivityService(
-                    AirflowClient(), self.leases, leaf_max=self._leaf_max
+                    AirflowClient(),
+                    self.leases,
+                    leaf_max=self._leaf_max,
+                    # The claims ARE the queue configuration: asserted into the
+                    # arbiter while the activity runs, retired when it ends.
+                    share_ingest=self._share_ingest_for_activity,
                 )
             return self._activities
+
+    def _share_ingest_for_activity(self, req: scheduler_pb2.QueueShareRequest) -> scheduler_pb2.QueueShareResponse:
+        return self.shares.ingest(
+            req,
+            apply_fn=self._share_apply_fn,
+            read_yaml=self._share_read_yaml,
+            write_scratch=self._share_write_scratch,
+        )
 
     def _leaf_max(self, fqn: str) -> int | None:
         """Declared max GPU of a YK leaf in the CURRENT config (None = unknown leaf)."""
