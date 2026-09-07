@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 import threading
 from typing import Any
 
@@ -19,7 +21,12 @@ from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2, scheduler_
 from signals.engine.k8s_apply import ApplyConfig, ApplyError, apply_queues_yaml
 from signals.engine.projection import ProjectionStore
 from signals.engine.queue_share import (
+    GPU,
+    GURU_NOCAPACITY,
     QueueShareService,
+    capacity_gate,
+    find_queue,
+    partition_budget,
     QueueShareStore,
     SharePersistError,
 )
@@ -132,7 +139,13 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         self.yk = yk
         self.store = store
         self.apply_cfg = apply_cfg or ApplyConfig.from_env()
-        self.shares = QueueShareService(QueueShareStore(store.root / "shares"))
+        # The arbiter judges every merge against the PHYSICAL GPU capacity (the YK
+        # partition's) — our responsibility across the federated engines, since we
+        # push these configurations into YuniKorn (user, 2026-09-07).
+        self._capacity_cache: tuple[float, int] | None = None
+        self.shares = QueueShareService(
+            QueueShareStore(store.root / "shares"), capacity_fn=self._physical_gpus
+        )
         # Coordination Activities: the lease store is shared with the control
         # HTTP (the Airflow sensor observes it); the Airflow client is constructed
         # lazily so the engine boots with Airflow down — every RPC then surfaces
@@ -153,6 +166,66 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         except Exception as e:  # noqa: BLE001 — boot must not fail on the applier
             log.warning("queue share resume skipped: %s", e)
 
+    # ── physical capacity (the invariant every pushed config must respect) ──
+    def _physical_gpus(self) -> int:
+        """Physical GPUs = the YK partition's capacity (Σ node capacity), cached 60 s.
+
+        Env `SIGNALS_PHYSICAL_GPUS` overrides (a host without the YK REST). Unknown
+        capacity is an error, never a guess: the arbiter cannot judge without it.
+        """
+        env = os.environ.get("SIGNALS_PHYSICAL_GPUS")
+        if env:
+            return int(env)
+        now = time.monotonic()
+        if self._capacity_cache and now - self._capacity_cache[0] < 60.0:
+            return self._capacity_cache[1]
+        try:
+            parts = self.yk.partitions()
+        except YkRestError as e:
+            raise SharePersistError(
+                f"{GURU_NOCAPACITY} physical GPU capacity unknown (YK partitions): {e}\n"
+                "  Try: check the YuniKorn REST; or set SIGNALS_PHYSICAL_GPUS"
+            ) from e
+        total = 0
+        for p in parts if isinstance(parts, list) else []:
+            if not isinstance(p, dict):
+                continue
+            cap = (p.get("capacity") or {}).get("capacity") or p.get("capacity") or {}
+            if isinstance(cap, dict):
+                total += int(cap.get(GPU, 0) or 0)
+        if total <= 0:
+            raise SharePersistError(
+                f"{GURU_NOCAPACITY} YK partitions report no {GPU} capacity\n"
+                "  Try: check node resource advertisement; or set SIGNALS_PHYSICAL_GPUS"
+            )
+        self._capacity_cache = (now, total)
+        return total
+
+    def _capacity_check(self) -> scheduler_pb2.HealthCheck:
+        """Health: Σ leaf guaranteed GPU in the CURRENT config ≤ physical GPUs, no parent over-commit."""
+        body = self.store.read_config("current") or self.store.read_config("scratch")
+        if not body:
+            return scheduler_pb2.HealthCheck(
+                name="guaranteed-within-physical", succeeded=False,
+                description="Σ leaf guaranteed GPU ≤ physical GPUs; children ≤ parent max",
+                diagnosis="no current/scratch config in the projection store",
+            )
+        try:
+            cap = self._physical_gpus()
+        except SharePersistError as e:
+            return scheduler_pb2.HealthCheck(
+                name="guaranteed-within-physical", succeeded=False,
+                description="Σ leaf guaranteed GPU ≤ physical GPUs; children ≤ parent max",
+                diagnosis=str(e)[:300],
+            )
+        total, _violations = partition_budget(body, {})
+        over = capacity_gate(body, {}, cap)
+        return scheduler_pb2.HealthCheck(
+            name="guaranteed-within-physical", succeeded=not over,
+            description="Σ leaf guaranteed GPU ≤ physical GPUs; children ≤ parent max",
+            diagnosis=over or f"leaf guaranteed GPU {total} of {cap} physical",
+        )
+
     # ── queue share I/O (shared by ingest and the boot-time resume) ────────
     def _share_read_yaml(self) -> str | None:
         return self.store.read_config("current") or self.store.read_config("scratch")
@@ -172,8 +245,23 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
     def activities(self) -> ActivityService:
         with self._activities_mu:
             if self._activities is None:
-                self._activities = ActivityService(AirflowClient(), self.leases)
+                self._activities = ActivityService(
+                    AirflowClient(), self.leases, leaf_max=self._leaf_max
+                )
             return self._activities
+
+    def _leaf_max(self, fqn: str) -> int | None:
+        """Declared max GPU of a YK leaf in the CURRENT config (None = unknown leaf)."""
+        import yaml
+
+        body = self.store.read_config("current") or self.store.read_config("scratch")
+        if not body:
+            return None
+        node = find_queue(yaml.safe_load(body) or {}, fqn)
+        if node is None:
+            return None
+        mx = ((node.get("resources") or {}).get("max") or {}).get(GPU)
+        return int(mx) if mx not in (None, "") else 0
 
     def ListPartitions(self, request, context):  # noqa: N802
         try:
@@ -353,9 +441,12 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
                     )
                 ],
             )
+        cap_check = self._capacity_check()
         if not isinstance(data, dict):
-            return scheduler_pb2.HealthResponse(healthy=True, backend="yunikorn")
-        checks = []
+            return scheduler_pb2.HealthResponse(
+                healthy=cap_check.succeeded, backend="yunikorn", checks=[cap_check]
+            )
+        checks = [cap_check]
         for c in data.get("HealthChecks") or data.get("healthChecks") or []:
             if not isinstance(c, dict):
                 continue
@@ -370,7 +461,7 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
                 )
             )
         return scheduler_pb2.HealthResponse(
-            healthy=bool(data.get("Healthy", data.get("healthy", True))),
+            healthy=bool(data.get("Healthy", data.get("healthy", True))) and cap_check.succeeded,
             backend="yunikorn",
             checks=checks,
         )
@@ -653,6 +744,21 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         # Always apply declared-shape normalization before validate/apply so
         # scratch seeded from live GET (with checksum/extra/…) still promotes.
         scratch = normalize_declared_config(scratch)
+        # Physical-capacity gate BEFORE the backend validates: YuniKorn checks
+        # children against parent maxima but not against node capacity.
+        try:
+            over = capacity_gate(scratch, {}, self._physical_gpus())
+        except SharePersistError as e:
+            return scheduler_pb2.PromoteScratchResponse(
+                ok=False, message=str(e), applied=False,
+                validation=scheduler_pb2.ValidateConfigResponse(ok=False, message=str(e), errors=[str(e)]),
+            )
+        if over:
+            msg = f"capacity gate: {over}"
+            return scheduler_pb2.PromoteScratchResponse(
+                ok=False, message=msg, applied=False,
+                validation=scheduler_pb2.ValidateConfigResponse(ok=False, message=msg, errors=[msg]),
+            )
         try:
             ok, msg = self.yk.validate_conf(scratch)
         except YkRestError as e:

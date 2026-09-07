@@ -325,6 +325,68 @@ def parent_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int, i
     return total, parent_max
 
 
+GURU_NOCAPACITY = "#YK.00000013.NOCAPACITY"
+
+
+def partition_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int, list[str]]:
+    """(Σ leaf guaranteed GPU over the WHOLE partition after patch_occupancy,
+    parent over-commits as YuniKorn would report them).
+
+    The invariant the federation owns (user, 2026-09-07): our workloads,
+    coordinated or otherwise, must never demand more guaranteed GPUs than the
+    system physically has — we push these configurations into YuniKorn, and
+    YuniKorn's config validation cannot check them against node capacity.
+    Leaves count as declared, raised by the merged floor where the share
+    system manages the leaf; every parent's children are checked against its
+    max (the rule YuniKorn does validate).
+    """
+    import yaml
+
+    doc = yaml.safe_load(yaml_body if yaml_body is not None else baseline_yaml()) or {}
+    total = 0
+    violations: list[str] = []
+
+    def guaranteed(node: dict[str, Any], fqn: str) -> int:
+        declared = int((((node.get("resources") or {}).get("guaranteed") or {}).get(GPU, 0)) or 0)
+        if fqn in OCCUPANCY_QUEUES:
+            return max(declared, int(floors.get(fqn, 0) or 0))
+        return declared
+
+    def walk(node: dict[str, Any], prefix: str) -> int:
+        nonlocal total
+        name = str(node.get("name") or "")
+        fqn = f"{prefix}.{name}" if prefix else name
+        children = [c for c in (node.get("queues") or []) if isinstance(c, dict) and c.get("name")]
+        if not children:
+            g = guaranteed(node, fqn)
+            total += g
+            return g
+        s = sum(walk(c, fqn) for c in children)
+        mx = ((node.get("resources") or {}).get("max") or {}).get(GPU)
+        if mx not in (None, "") and s > int(mx):
+            violations.append(f"{fqn}: children guaranteed GPU {s} > max {mx}")
+        return s
+
+    for part in doc.get("partitions") or []:
+        for q in part.get("queues") or []:
+            if isinstance(q, dict):
+                walk(q, "")
+    return total, violations
+
+
+def capacity_gate(yaml_body: str | None, floors: dict[str, int], capacity: int | None) -> str | None:
+    """Reason the merged config must NOT be pushed to YuniKorn, or None.
+
+    `capacity` = physical GPUs (the partition's capacity as YuniKorn sees its
+    nodes); None = unknown → only the parent-max rule is judged.
+    """
+    total, violations = partition_budget(yaml_body, floors)
+    reasons = list(violations)
+    if capacity is not None and total > int(capacity):
+        reasons.append(f"leaf guaranteed GPU {total} > physical GPUs {capacity}")
+    return "; ".join(reasons) or None
+
+
 def find_queue(doc: dict[str, Any], fqn: str) -> dict[str, Any] | None:
     parts = [p for p in fqn.split(".") if p]
     if not parts:
@@ -414,8 +476,13 @@ def leftover_queues_of(req: scheduler_pb2.QueueShareRequest) -> set[str]:
 
 
 class QueueShareService:
-    def __init__(self, store: QueueShareStore):
+    def __init__(self, store: QueueShareStore, capacity_fn=None):
         self.store = store
+        # Physical GPU capacity (the YK partition's, as the servicer reads it).
+        # None = unknown: only the parent-max rule is judged, with one warning —
+        # production always passes the servicer's reader.
+        self._capacity_fn = capacity_fn
+        self._warned_nocap = False
         self._mu = threading.Lock()
         # Coalescing applier state: one worker, a pending set of record ids
         # whose floors are merged into the current scratch. Thread-per-request
@@ -519,31 +586,29 @@ class QueueShareService:
         # raised by the merged floors on the share-managed leaves.
         yaml_body = read_yaml() or baseline_yaml()
         self._yaml_io = (read_yaml, write_scratch)
-        total, parent_max = parent_budget(yaml_body, floors)
-        if total > parent_max:
+        over0 = self._budget_reason(yaml_body, floors)
+        if over0:
             # The newcomer is not automatically the culprit (a zero-floor "ended"
             # record arriving while an older floor over-commits): shed by
             # priority, then judge again. Only a newcomer that is itself the
             # shed victim — or an over-commit no shedding can cure (declared
-            # SoR floors alone exceed the max) — comes back REJECTED.
+            # SoR floors alone exceed the max / the physical GPUs) — comes back
+            # REJECTED, carrying the reason the merge was refused.
             self._shed_core(read_yaml, write_scratch)
             rec_now = self.store.get(rid)
             active = active_records(self.store)
             floors = merge_floors(active)
-            total, parent_max = parent_budget(yaml_body, floors)
-            if (rec_now is not None and rec_now.state == "REJECTED") or total > parent_max:
+            over = self._budget_reason(yaml_body, floors)
+            if (rec_now is not None and rec_now.state == "REJECTED") or over:
                 if rec_now is not None and rec_now.state != "REJECTED":
                     rec_now.state = "REJECTED"
-                    rec_now.apply_error = f"parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}"
+                    rec_now.apply_error = f"over-commit: {over or over0}"[:400]
                     self.store.put(rec_now)
                 return scheduler_pb2.QueueShareResponse(
                     accepted=True,
                     request_id=rid,
                     state=scheduler_pb2.QUEUE_SHARE_REJECTED,
-                    error=(
-                        f"overlapping guaranteed GPU {total} exceeds parent max "
-                        f"{parent_max}: {floors}"
-                    ),
+                    error=f"guaranteed GPU over-commit — {over or over0}; floors after shed {floors}",
                 )
         try:
             patched = patch_occupancy(yaml_body, floors, shares=list(req.shares))
@@ -710,6 +775,20 @@ class QueueShareService:
         log.info("queue share resume: %d record(s) re-queued for apply after restart", len(ids))
         return len(ids)
 
+    def _physical_capacity(self) -> int | None:
+        if self._capacity_fn is None:
+            if not self._warned_nocap:
+                self._warned_nocap = True
+                log.warning(
+                    "%s physical GPU capacity unknown to the arbiter — judging parent maxima only",
+                    GURU_NOCAPACITY,
+                )
+            return None
+        return int(self._capacity_fn())
+
+    def _budget_reason(self, yaml_body: str | None, floors: dict[str, int]) -> str | None:
+        return capacity_gate(yaml_body, floors, self._physical_capacity())
+
     def _shed_core(self, read_yaml, write_scratch) -> list[str]:
         """Lock-free core of the shed (callers hold `_mu` or are the ingest path)."""
         rejected: list[str] = []
@@ -717,8 +796,8 @@ class QueueShareService:
             while True:
                 active = active_records(self.store)
                 floors = merge_floors(active)
-                total, parent_max = parent_budget(read_yaml() or baseline_yaml(), floors)
-                if total <= parent_max:
+                over = self._budget_reason(read_yaml() or baseline_yaml(), floors)
+                if not over:
                     break
                 victims: list[tuple[int, int, ShareRecord]] = []
                 for rec in active:
@@ -734,9 +813,7 @@ class QueueShareService:
                 victims.sort(key=lambda t: (t[0], t[1]))
                 victim = victims[0][2]
                 victim.state = "REJECTED"
-                victim.apply_error = (
-                    f"shed: parent {INFERENCE_PARENT} guaranteed {total} > max {parent_max}; floors {floors}"
-                )[:400]
+                victim.apply_error = f"shed: {over}; floors {floors}"[:400]
                 self.store.put(victim)
                 rejected.append(victim.request.request_id)
             if rejected:

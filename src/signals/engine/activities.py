@@ -72,6 +72,7 @@ GURU_ENDED = "#CO.00000004.ENDED"
 GURU_BADREQUEST = "#CO.00000005.BADREQUEST"
 GURU_NOTOWNER = "#CO.00000006.NOTOWNER"
 GURU_LEASEIO = "#CO.00000007.LEASEIO"
+GURU_OVERCLAIM = "#CO.00000009.OVERCLAIM"
 
 RUN_PREFIX = "act-"
 
@@ -403,9 +404,15 @@ class ActivityService:
         list_limit: int = 200,
         clock_ns: Callable[[], int] = _now_ns,
         sleep: Callable[[float], None] = time.sleep,
+        leaf_max: Callable[[str], int | None] | None = None,
     ):
         self.airflow = airflow
         self.leases = leases
+        # Declared max GPU of a YK leaf (None = unknown leaf). An Activity's claims
+        # may never exceed what the leaf can physically hold — the capacity
+        # invariant the federation owns (user, 2026-09-07). None = no gate
+        # (tests); the servicer always passes the current config's reader.
+        self._leaf_max = leaf_max
         self.lease_url_base = lease_url_base.rstrip("/")
         self.allowed_peers = allowed_peers
         self.poll_s = poll_s
@@ -542,6 +549,7 @@ class ActivityService:
             )
         aid = activity_id_for(req.peer, req.request_id)
         dag_id = dag_id_for(req.kind)
+        self._check_claims(aid, req)
         existing = self.leases.read(aid)
         if existing is not None:
             # Idempotent retry: the lease exists → the run exists (or Airflow
@@ -584,6 +592,43 @@ class ActivityService:
             _ns_to_iso(rec.horizon_ns), self.leases.ttl_s,
         )
         return got
+
+    def _check_claims(self, aid: str, req: scheduler_pb2.DeclareActivityRequest) -> None:
+        """Claims must fit the leaf: each ≤ the leaf's declared max, and the sum of
+        claims over in-force activities on that leaf ≤ the leaf's max. Refused
+        in-band with #CO.00000009.OVERCLAIM — YuniKorn could never honour it."""
+        if self._leaf_max is None or not req.claims:
+            return
+        wanted: dict[str, int] = {}
+        for c in req.claims:
+            leaf = (c.leaf or "").strip()
+            if not leaf:
+                raise ActivityError(GURU_BADREQUEST, "claim without a leaf")
+            wanted[leaf] = wanted.get(leaf, 0) + int(c.gpu)
+        held: dict[str, int] = {}
+        now = self._clock()
+        for lease in self.leases.all():  # raw leases carry claims; the HTTP view does not
+            if lease_state(lease, now) != LEASE_ALIVE:
+                continue
+            if str(lease.get("activity_id")) == aid:
+                continue  # an idempotent retry of this very activity
+            for c in lease.get("claims") or []:
+                if isinstance(c, dict) and c.get("leaf"):
+                    held[str(c["leaf"])] = held.get(str(c["leaf"]), 0) + int(c.get("gpu") or 0)
+        for leaf, gpu in wanted.items():
+            mx = self._leaf_max(leaf)
+            if mx is None:
+                raise ActivityError(GURU_OVERCLAIM, f"claim on unknown YK leaf {leaf!r}")
+            if gpu > mx:
+                raise ActivityError(
+                    GURU_OVERCLAIM, f"claim {gpu} GPU on {leaf} exceeds the leaf max {mx}"
+                )
+            if held.get(leaf, 0) + gpu > mx:
+                raise ActivityError(
+                    GURU_OVERCLAIM,
+                    f"claim {gpu} GPU on {leaf} with {held.get(leaf, 0)} already claimed by "
+                    f"in-force activities exceeds the leaf max {mx}",
+                )
 
     def renew(self, peer: str, activity_id: str, horizon_ns: int) -> ActivityRecord:
         """Heartbeat + new horizon on the lease. No Airflow call."""

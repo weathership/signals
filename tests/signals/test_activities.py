@@ -314,3 +314,34 @@ def test_watch_event_proto_shape(leases):
     ev = act.watch_event([a], 5)
     assert ev.observed_ns == 5 and ev.activities[0].activity_id == a.activity_id
     assert ev.activities[0].state == engine_pb2.ACTIVITY_RUNNING
+
+
+# ── 2026-09-07: an Activity's claims must fit the leaf YuniKorn manages ──────
+
+def test_declare_refuses_claims_beyond_the_leaf_max(tmp_path):
+    from signals.engine import activities as act
+    from signals.engine.generated.zndx.engine.v1 import engine_pb2
+    from signals.engine.generated.zndx.scheduler.v1 import scheduler_pb2
+
+    leaf_max = {"root.internal.inference.agent-rtc": 1}.get
+    svc = act.ActivityService(FakeAirflow(), act.LeaseStore(tmp_path / "leases"), leaf_max=leaf_max)
+
+    def req(rid, gpu, leaf="root.internal.inference.agent-rtc"):
+        return scheduler_pb2.DeclareActivityRequest(
+            peer="hermes", request_id=rid, kind="interactive_session", owner="t",
+            horizon_ns=act._now_ns() + 600 * 1_000_000_000,
+            claims=[engine_pb2.ActivityClaim(leaf=leaf, gpu=gpu)],
+        )
+
+    import pytest
+    with pytest.raises(act.ActivityError, match="OVERCLAIM"):
+        svc.declare(req("r-too-big", 2))
+    with pytest.raises(act.ActivityError, match="unknown YK leaf"):
+        svc.declare(req("r-unknown", 1, leaf="root.internal.inference.nowhere"))
+    first = svc.declare(req("r-ok", 1))
+    assert first.state == engine_pb2.ACTIVITY_RUNNING
+    # the leaf holds 1: a second in-force claim of 1 does not fit
+    with pytest.raises(act.ActivityError, match="already claimed"):
+        svc.declare(req("r-second", 1))
+    # an idempotent retry of the FIRST is not a second claim
+    assert svc.declare(req("r-ok", 1)).activity_id == first.activity_id

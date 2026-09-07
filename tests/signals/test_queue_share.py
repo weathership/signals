@@ -197,7 +197,7 @@ def test_two_peers_overlap_reject(tmp_path: Path) -> None:
     r = svc.ingest(_req("aegir", GPU_Q["medium"], 2), **kwargs)
     assert r.accepted
     assert r.state == scheduler_pb2.QUEUE_SHARE_REJECTED
-    assert "exceeds parent max" in r.error
+    assert "over-commit" in r.error
     assert occupancy_sum({GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1, GPU_Q["medium"]: 2}) > PARENT_GPU_MAX
 
 
@@ -416,7 +416,7 @@ def test_overcommit_via_unmanaged_leaf_is_rejected_at_ingest(tmp_path: Path) -> 
     kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
     r = svc.ingest(_req("gaius", GPU_Q["light"], 1), **kwargs)
     assert r.state == scheduler_pb2.QUEUE_SHARE_REJECTED
-    assert "exceeds parent max 6" in r.error
+    assert "> max 6" in r.error
     assert state["applied"] == 0  # nothing queued for an over-committing merge
 
 
@@ -493,3 +493,35 @@ def test_ingest_sheds_older_culprit_not_the_newcomer(tmp_path: Path) -> None:
     r = svc.ingest(probe, **kwargs)
     assert r.state == scheduler_pb2.QUEUE_SHARE_RECORDED, r.error
     assert svc.store.get(lo.request_id).state == "REJECTED"
+
+
+# ── 2026-09-07: guaranteed GPUs must never exceed the PHYSICAL GPUs ─────────
+
+def test_partition_budget_and_capacity_gate() -> None:
+    from signals.engine.queue_share import capacity_gate, partition_budget
+
+    total, violations = partition_budget(BASE_RTC, {})
+    assert total == 6 and violations == []
+    # a light floor of 1 → 7 leaves guaranteed: parent over-commit AND over physical
+    total, violations = partition_budget(BASE_RTC, {GPU_Q["light"]: 1})
+    assert total == 7 and violations and "inference" in violations[0]
+    over = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 6)
+    assert "> max 6" in over and "> physical GPUs 6" in over
+    # a box with 8 physical GPUs but the same parent max: still a parent violation only
+    over8 = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 8)
+    assert "> physical" not in over8 and "> max 6" in over8
+    # a parent max raised to 8 on a 6-GPU box: the physical gate is what refuses it
+    wide = BASE_RTC.replace('max: {federation.zndx.org/gpu: "6"}', 'max: {federation.zndx.org/gpu: "8"}')
+    assert capacity_gate(wide, {GPU_Q["light"]: 1}, 6) == "leaf guaranteed GPU 7 > physical GPUs 6"
+    assert capacity_gate(wide, {}, 6) is None
+
+
+def test_ingest_refuses_floors_beyond_physical_gpus(tmp_path: Path) -> None:
+    """Parent max says 8, the box has 6: the arbiter must refuse at 7."""
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    svc._capacity_fn = lambda: 6
+    state["yaml"] = BASE_RTC.replace('max: {federation.zndx.org/gpu: "6"}', 'max: {federation.zndx.org/gpu: "8"}')
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    r = svc.ingest(_req("gaius", GPU_Q["light"], 1), **kwargs)
+    assert r.state == scheduler_pb2.QUEUE_SHARE_REJECTED
+    assert "physical GPUs 6" in r.error
