@@ -212,7 +212,9 @@ partitions:
                   # Hermes WebRTC / Kyutai STT. Standing 1 GPU (Moshi stack).
                   # Dash is fine (see external.rate-metered). Fence so light
                   # does not walk this floor. Parent max is 6: heavy 4 +
-                  # extract 1 + agent-rtc 1.
+                  # extract 1 standing; agent-rtc 1 only while an interactive
+                  # session's Activity asserts it (then a light/medium floor
+                  # is shed by priority for the session's duration).
                   - name: agent-rtc
                     submitacl: '*'
                     properties:
@@ -220,13 +222,19 @@ partitions:
                       federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
                       federation.peer_meters: ""
                       federation.examples: hermes.agent-rtc;kyutai-stt;moshi
-                      # Floor of 1 GPU. Same shape as extract: delay, then
-                      # preempt unguaranteed light/medium. Do not fence —
-                      # fence would block this leaf from taking its floor.
+                      # (2026-09-07) No STANDING floor: the guarantee of 1 GPU
+                      # is asserted by the Signals arbiter only while a Hermes
+                      # interactive_session Activity is RUNNING in Airflow
+                      # (its claim on this leaf), and retired when the session
+                      # ends — so light/medium floors are grantable whenever
+                      # nobody is interactive. Same preemption shape as extract
+                      # while asserted: delay, then preempt unguaranteed
+                      # light/medium. Do not fence — fence would block this
+                      # leaf from taking its asserted floor.
                       preemption.delay: 5s
                     resources:
                       guaranteed:
-                        federation.zndx.org/gpu: "1"
+                        federation.zndx.org/gpu: "0"
                       max:
                         federation.zndx.org/gpu: "1"
                     maxapplications: 1

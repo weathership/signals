@@ -42,7 +42,16 @@ LEFTOVER_QUEUES = frozenset(
         "root.internal.inference.medium",
     }
 )
-OCCUPANCY_QUEUES = LEFTOVER_QUEUES | {"root.internal.inference.heavy"}
+# (2026-09-07) agent-rtc joins the share-managed leaves: its guarantee is no
+# longer a standing SoR floor but the Hermes interactive_session Activity's
+# claim, asserted by the arbiter only while the session RUNS (user: "agent-rtc
+# would only be configured whenever the interactive WebRTC workload is
+# active, per Hermes and Airflow"). patch_occupancy writes max(declared 0,
+# asserted floor) so the leaf reads 1 during a session and 0 otherwise.
+OCCUPANCY_QUEUES = LEFTOVER_QUEUES | {
+    "root.internal.inference.heavy",
+    "root.internal.inference.agent-rtc",
+}
 # Repo-anchored: the engine's cwd is not guaranteed (systemd vs devenv vs CLI).
 BASELINE = Path(
     os.environ.get(
