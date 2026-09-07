@@ -124,6 +124,17 @@ class SignalsEngineServicer(engine_pb2_grpc.EngineServicer):
             "Signals engine capability is scheduler (lab backend: yunikorn).",
         )
 
+    def Announce(self, request, context):  # noqa: N802
+        # The protocol says engines that are not a directory answer UNIMPLEMENTED
+        # (honest). Answer it explicitly: the generated default raises
+        # NotImplementedError, which grpc logs as an ERROR traceback on every
+        # peer announce (Hermes announces every ~30 s) — noise in this log.
+        context.abort(
+            grpc.StatusCode.UNIMPLEMENTED,
+            "Signals engine is not a peer directory (Announce is served by Aegir); "
+            f"peer {request.project or '?'} at {request.engine_target or '?'} not recorded.",
+        )
+
     def Yield(self, request, context):  # noqa: N802
         ended, msg = self.workloads.yield_one(request.workload_id)
         return engine_pb2.YieldResponse(
