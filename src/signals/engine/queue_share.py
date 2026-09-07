@@ -337,7 +337,11 @@ def parent_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int, i
 GURU_NOCAPACITY = "#YK.00000013.NOCAPACITY"
 
 
-def partition_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int, list[str]]:
+def partition_budget(
+    yaml_body: str | None,
+    floors: dict[str, int],
+    baseline: dict[str, int] | None = None,
+) -> tuple[int, list[str]]:
     """(Σ leaf guaranteed GPU over the WHOLE partition after patch_occupancy,
     parent over-commits as YuniKorn would report them).
 
@@ -345,21 +349,28 @@ def partition_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int
     coordinated or otherwise, must never demand more guaranteed GPUs than the
     system physically has — we push these configurations into YuniKorn, and
     YuniKorn's config validation cannot check them against node capacity.
-    Leaves count as declared, raised by the merged floor where the share
-    system manages the leaf; every parent's children are checked against its
-    max (the rule YuniKorn does validate).
+    Every parent's children are checked against its max (the rule YuniKorn
+    does validate).
+
+    Share-managed leaves (OCCUPANCY_QUEUES) count as the SoR's DECLARED floor
+    raised by the merged live floor — exactly what patch_occupancy will write.
+    NOT the working config's value: that is the PREVIOUS merge, and reading it
+    as "declared" double-counted a floor that had already been retired (2026-09-07
+    07:40 and 07:51: a stale light/agent-rtc 1 in `current` made the arbiter see
+    7 of 6 and shed the interactive session's own claim). Unmanaged leaves count
+    as the working config declares them.
     """
     import yaml
 
     doc = yaml.safe_load(yaml_body if yaml_body is not None else baseline_yaml()) or {}
+    declared_sor = baseline if baseline is not None else baseline_guarantees()
     total = 0
     violations: list[str] = []
 
     def guaranteed(node: dict[str, Any], fqn: str) -> int:
-        declared = int((((node.get("resources") or {}).get("guaranteed") or {}).get(GPU, 0)) or 0)
         if fqn in OCCUPANCY_QUEUES:
-            return max(declared, int(floors.get(fqn, 0) or 0))
-        return declared
+            return max(int(declared_sor.get(fqn, 0) or 0), int(floors.get(fqn, 0) or 0))
+        return int((((node.get("resources") or {}).get("guaranteed") or {}).get(GPU, 0)) or 0)
 
     def walk(node: dict[str, Any], prefix: str) -> int:
         nonlocal total
@@ -383,13 +394,18 @@ def partition_budget(yaml_body: str | None, floors: dict[str, int]) -> tuple[int
     return total, violations
 
 
-def capacity_gate(yaml_body: str | None, floors: dict[str, int], capacity: int | None) -> str | None:
+def capacity_gate(
+    yaml_body: str | None,
+    floors: dict[str, int],
+    capacity: int | None,
+    baseline: dict[str, int] | None = None,
+) -> str | None:
     """Reason the merged config must NOT be pushed to YuniKorn, or None.
 
     `capacity` = physical GPUs (the partition's capacity as YuniKorn sees its
     nodes); None = unknown → only the parent-max rule is judged.
     """
-    total, violations = partition_budget(yaml_body, floors)
+    total, violations = partition_budget(yaml_body, floors, baseline)
     reasons = list(violations)
     if capacity is not None and total > int(capacity):
         reasons.append(f"leaf guaranteed GPU {total} > physical GPUs {capacity}")
@@ -811,11 +827,22 @@ class QueueShareService:
                 victims: list[tuple[int, int, ShareRecord]] = []
                 for rec in active:
                     per = merge_floors([rec])
-                    if not any(
-                        q in OCCUPANCY_QUEUES and q != HEAVY_QUEUE and v > 0 for q, v in per.items()
-                    ):
+                    contributing = [
+                        q for q, v in per.items() if q in OCCUPANCY_QUEUES and q != HEAVY_QUEUE and v > 0
+                    ]
+                    if not contributing:
                         continue
-                    prio = max((int(w.priority or 0) for w in rec.request.workloads), default=0)
+                    # Priority of the intent(s) that carry the contributing floor —
+                    # never the record's max: a phase request bundles several
+                    # intents (thinking at 100 beside an embedding floor at 40), and
+                    # the bundle's max let a batch floor outrank the interactive
+                    # session's own claim.
+                    prios = [
+                        int(w.priority or 0)
+                        for w in rec.request.workloads
+                        if (w.queue or "").strip() in contributing
+                    ]
+                    prio = max(prios, default=0)
                     victims.append((prio, -int(rec.recorded_at_ns), rec))
                 if not victims:
                     break  # over-commit is declared policy (SoR floors alone exceed the max)

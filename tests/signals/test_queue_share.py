@@ -375,6 +375,14 @@ def test_legacy_requests_still_supersede_per_leaf(tmp_path: Path) -> None:
     assert svc.store.get(y.request_id).state != "SUPERSEDED"
 
 
+def _sor_is_the_test_yaml(monkeypatch, state):
+    """In these tests the yaml under test IS the SoR: declared floors come from it."""
+    from signals.engine import queue_share as qs
+    real = qs.baseline_guarantees
+    monkeypatch.setattr(qs, "baseline_guarantees",
+                        lambda yaml_body=None: real(yaml_body if yaml_body is not None else state["yaml"]))
+
+
 # ── 2026-09-06: count every child of the inference parent the way YuniKorn does ──
 
 BASE_RTC = BASE.replace(
@@ -410,8 +418,9 @@ def test_parent_budget_counts_unmanaged_leaves() -> None:
     assert occupancy_sum({GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1, GPU_Q["light"]: 1}) == 6
 
 
-def test_overcommit_via_unmanaged_leaf_is_rejected_at_ingest(tmp_path: Path) -> None:
+def test_overcommit_via_unmanaged_leaf_is_rejected_at_ingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    _sor_is_the_test_yaml(monkeypatch, state)
     state["yaml"] = BASE_RTC
     kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
     r = svc.ingest(_req("gaius", GPU_Q["light"], 1), **kwargs)
@@ -420,10 +429,11 @@ def test_overcommit_via_unmanaged_leaf_is_rejected_at_ingest(tmp_path: Path) -> 
     assert state["applied"] == 0  # nothing queued for an over-committing merge
 
 
-def test_applier_sheds_lowest_priority_floor_and_retries(tmp_path: Path) -> None:
+def test_applier_sheds_lowest_priority_floor_and_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A batch that fails validation converges: the lowest-priority floor is
     REJECTED, scratch is rewritten from the survivors, the retry applies."""
     svc, state, read_yaml, write_scratch, _ = _svc(tmp_path)
+    _sor_is_the_test_yaml(monkeypatch, state)
     calls = {"n": 0}
 
     def apply_fn():
@@ -479,10 +489,11 @@ def test_resume_requeues_recorded_records_after_restart(tmp_path: Path) -> None:
     _wait_state(svc2, r.request_id, "APPLIED")
 
 
-def test_ingest_sheds_older_culprit_not_the_newcomer(tmp_path: Path) -> None:
+def test_ingest_sheds_older_culprit_not_the_newcomer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A zero-floor newcomer arriving while an older low-priority floor over-commits
     must not be the one REJECTED."""
     svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    _sor_is_the_test_yaml(monkeypatch, state)
     kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
     lo = _req("gaius", GPU_Q["light"], 1)
     lo.workloads[0].wrk = "embedding"
@@ -500,28 +511,108 @@ def test_ingest_sheds_older_culprit_not_the_newcomer(tmp_path: Path) -> None:
 def test_partition_budget_and_capacity_gate() -> None:
     from signals.engine.queue_share import capacity_gate, partition_budget
 
-    total, violations = partition_budget(BASE_RTC, {})
+    sor = baseline_guarantees(BASE_RTC)
+    total, violations = partition_budget(BASE_RTC, {}, sor)
     assert total == 6 and violations == []
     # a light floor of 1 → 7 leaves guaranteed: parent over-commit AND over physical
-    total, violations = partition_budget(BASE_RTC, {GPU_Q["light"]: 1})
+    total, violations = partition_budget(BASE_RTC, {GPU_Q["light"]: 1}, sor)
     assert total == 7 and violations and "inference" in violations[0]
-    over = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 6)
+    over = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 6, sor)
     assert "> max 6" in over and "> physical GPUs 6" in over
     # a box with 8 physical GPUs but the same parent max: still a parent violation only
-    over8 = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 8)
+    over8 = capacity_gate(BASE_RTC, {GPU_Q["light"]: 1}, 8, sor)
     assert "> physical" not in over8 and "> max 6" in over8
     # a parent max raised to 8 on a 6-GPU box: the physical gate is what refuses it
     wide = BASE_RTC.replace('max: {federation.zndx.org/gpu: "6"}', 'max: {federation.zndx.org/gpu: "8"}')
-    assert capacity_gate(wide, {GPU_Q["light"]: 1}, 6) == "leaf guaranteed GPU 7 > physical GPUs 6"
-    assert capacity_gate(wide, {}, 6) is None
+    sor_w = baseline_guarantees(wide)
+    assert capacity_gate(wide, {GPU_Q["light"]: 1}, 6, sor_w) == "leaf guaranteed GPU 7 > physical GPUs 6"
+    assert capacity_gate(wide, {}, 6, sor_w) is None
 
 
-def test_ingest_refuses_floors_beyond_physical_gpus(tmp_path: Path) -> None:
+def test_ingest_refuses_floors_beyond_physical_gpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Parent max says 8, the box has 6: the arbiter must refuse at 7."""
     svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    _sor_is_the_test_yaml(monkeypatch, state)
     svc._capacity_fn = lambda: 6
     state["yaml"] = BASE_RTC.replace('max: {federation.zndx.org/gpu: "6"}', 'max: {federation.zndx.org/gpu: "8"}')
     kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
     r = svc.ingest(_req("gaius", GPU_Q["light"], 1), **kwargs)
     assert r.state == scheduler_pb2.QUEUE_SHARE_REJECTED
     assert "physical GPUs 6" in r.error
+
+
+def test_partition_budget_ignores_stale_merged_floors_in_the_working_config() -> None:
+    """2026-09-07 07:51: `current` still carried light=1 / agent-rtc=1 from a merge
+    that had since been retired; judged as 'declared', the arbiter saw 7 of 6 and
+    shed the interactive session's own claim. Share-managed leaves count as the SoR
+    declaration raised by LIVE floors — never the working config's previous merge."""
+    from signals.engine.queue_share import capacity_gate, partition_budget
+
+    stale = BASE_RTC.replace(
+        """                  - name: light
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "0"}""",
+        """                  - name: light
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "1"}""",
+    )
+    assert 'name: light' in stale
+    sor = {GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1, GPU_Q["light"]: 0, GPU_Q["medium"]: 0,
+           "root.internal.inference.agent-rtc": 0}
+    # the SoR says agent-rtc 0 too; the working config's agent-rtc 1 is a previous merge
+    stale = stale.replace(
+        """                  - name: agent-rtc
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "1"}""",
+        """                  - name: agent-rtc
+                    resources:
+                      guaranteed: {federation.zndx.org/gpu: "1"}""",
+    )
+    from signals.engine import queue_share as qs
+    assert "root.internal.inference.agent-rtc" in qs.OCCUPANCY_QUEUES
+    # live floors: only the interactive session's agent-rtc 1 → 4 + 1 + 0 + 1 = 6, fits
+    total, violations = partition_budget(stale, {"root.internal.inference.agent-rtc": 1}, baseline=sor)
+    assert total == 6 and violations == [], (total, violations)
+    assert capacity_gate(stale, {"root.internal.inference.agent-rtc": 1}, 6, baseline=sor) is None
+    # the OLD reading (working config as declared) would have said 7
+    old_total, _ = partition_budget(stale, {"root.internal.inference.agent-rtc": 1},
+                                    baseline={GPU_Q["light"]: 1, "root.internal.inference.agent-rtc": 1,
+                                              GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1})
+    assert old_total == 7
+
+
+def test_shed_uses_the_contributing_leaf_priority_not_the_record_max(tmp_path: Path) -> None:
+    """A bundled phase request (thinking@100 + embedding floor@40) must be shed before
+    the interactive session's agent-rtc claim@100."""
+    from signals.engine import queue_share as qs
+
+    svc, state, read_yaml, write_scratch, apply_fn = _svc(tmp_path)
+    svc._capacity_fn = lambda: 6
+    state["yaml"] = BASE_RTC.replace('guaranteed: {federation.zndx.org/gpu: "1"}\n                      max: {federation.zndx.org/gpu: "1"}',
+                                     'guaranteed: {federation.zndx.org/gpu: "0"}\n                      max: {federation.zndx.org/gpu: "1"}')
+    kwargs = dict(apply_fn=apply_fn, read_yaml=read_yaml, write_scratch=write_scratch)
+    bundle = scheduler_pb2.QueueShareRequest(
+        peer="gaius", request_id=mint_uuidv7(), reason="ambient phase",
+        workloads=[
+            scheduler_pb2.WorkloadIntent(wrk="thinking", queue=GPU_Q["heavy"], applications=1, floor=4, priority=100),
+            scheduler_pb2.WorkloadIntent(wrk="embedding", queue=GPU_Q["light"], applications=1, floor=1, priority=40),
+        ],
+        shares=[_share(GPU_Q["heavy"], 4, 4), _share(GPU_Q["light"], 1, 2)],
+    )
+    r1 = svc.ingest(bundle, **kwargs)
+    assert r1.state == scheduler_pb2.QUEUE_SHARE_RECORDED, r1.error
+    session = scheduler_pb2.QueueShareRequest(
+        peer="hermes", request_id=mint_uuidv7(), reason="activity interactive_session",
+        workloads=[scheduler_pb2.WorkloadIntent(wrk="interactive_session", queue="root.internal.inference.agent-rtc",
+                                                applications=1, floor=1, priority=100, owner="act-1")],
+        shares=[_share("root.internal.inference.agent-rtc", 1, 1)],
+    )
+    monkey = qs.baseline_guarantees
+    qs.baseline_guarantees = lambda yaml_body=None: {GPU_Q["heavy"]: 4, GPU_Q["extract"]: 1, GPU_Q["light"]: 0,
+                                                     GPU_Q["medium"]: 0, "root.internal.inference.agent-rtc": 0}
+    try:
+        r2 = svc.ingest(session, **kwargs)
+    finally:
+        qs.baseline_guarantees = monkey
+    assert r2.state == scheduler_pb2.QUEUE_SHARE_RECORDED, r2.error  # the session keeps its claim
+    assert svc.store.get(bundle.request_id).state == "REJECTED"        # the embedding floor was shed

@@ -24,6 +24,7 @@ from signals.engine.queue_share import (
     GPU,
     GURU_NOCAPACITY,
     QueueShareService,
+    baseline_guarantees,
     capacity_gate,
     find_queue,
     partition_budget,
@@ -233,8 +234,10 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
                 description="Σ leaf guaranteed GPU ≤ physical GPUs; children ≤ parent max",
                 diagnosis=str(e)[:300],
             )
-        total, _violations = partition_budget(body, {})
-        over = capacity_gate(body, {}, cap)
+        # Judge the document AS IT WILL BE APPLIED: its own leaves are the declaration.
+        sor = baseline_guarantees(body)
+        total, _violations = partition_budget(body, {}, sor)
+        over = capacity_gate(body, {}, cap, sor)
         return scheduler_pb2.HealthCheck(
             name="guaranteed-within-physical", succeeded=not over,
             description="Σ leaf guaranteed GPU ≤ physical GPUs; children ≤ parent max",
@@ -775,7 +778,7 @@ class SchedulerServicer(scheduler_pb2_grpc.SchedulerServicer):
         # Physical-capacity gate BEFORE the backend validates: YuniKorn checks
         # children against parent maxima but not against node capacity.
         try:
-            over = capacity_gate(scratch, {}, self._physical_gpus())
+            over = capacity_gate(scratch, {}, self._physical_gpus(), baseline_guarantees(scratch))
         except SharePersistError as e:
             return scheduler_pb2.PromoteScratchResponse(
                 ok=False, message=str(e), applied=False,
