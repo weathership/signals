@@ -120,7 +120,7 @@ class SignalsEngineServicer(engine_pb2_grpc.EngineServicer):
     def Remediate(self, request, context):  # noqa: N802
         context.abort(
             grpc.StatusCode.UNIMPLEMENTED,
-            "Remediate is served by Aegir (instruct / ontology). "
+            "Remediate is served by Aegir (ontology adaptation). "
             "Signals engine capability is scheduler (lab backend: yunikorn).",
         )
 

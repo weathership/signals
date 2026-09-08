@@ -267,7 +267,7 @@ class ReasoningLayer(_message.Message):
     def __init__(self, layer: _Optional[str] = ..., producer: _Optional[str] = ..., text: _Optional[str] = ..., tokens: _Optional[int] = ...) -> None: ...
 
 class CompleteResponse(_message.Message):
-    __slots__ = ("text", "model", "prompt_tokens", "completion_tokens", "latency_ms", "reasoning_content", "finish_reason", "tool_calls", "reasoning", "fulfilled_by")
+    __slots__ = ("text", "model", "prompt_tokens", "completion_tokens", "latency_ms", "reasoning_content", "finish_reason", "tool_calls", "reasoning", "fulfilled_by", "profile")
     TEXT_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     PROMPT_TOKENS_FIELD_NUMBER: _ClassVar[int]
@@ -278,6 +278,7 @@ class CompleteResponse(_message.Message):
     TOOL_CALLS_FIELD_NUMBER: _ClassVar[int]
     REASONING_FIELD_NUMBER: _ClassVar[int]
     FULFILLED_BY_FIELD_NUMBER: _ClassVar[int]
+    PROFILE_FIELD_NUMBER: _ClassVar[int]
     text: str
     model: str
     prompt_tokens: int
@@ -288,7 +289,8 @@ class CompleteResponse(_message.Message):
     tool_calls: _containers.RepeatedCompositeFieldContainer[ToolCall]
     reasoning: _containers.RepeatedCompositeFieldContainer[ReasoningLayer]
     fulfilled_by: str
-    def __init__(self, text: _Optional[str] = ..., model: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., reasoning_content: _Optional[str] = ..., finish_reason: _Optional[str] = ..., tool_calls: _Optional[_Iterable[_Union[ToolCall, _Mapping]]] = ..., reasoning: _Optional[_Iterable[_Union[ReasoningLayer, _Mapping]]] = ..., fulfilled_by: _Optional[str] = ...) -> None: ...
+    profile: OperatingProfile
+    def __init__(self, text: _Optional[str] = ..., model: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., reasoning_content: _Optional[str] = ..., finish_reason: _Optional[str] = ..., tool_calls: _Optional[_Iterable[_Union[ToolCall, _Mapping]]] = ..., reasoning: _Optional[_Iterable[_Union[ReasoningLayer, _Mapping]]] = ..., fulfilled_by: _Optional[str] = ..., profile: _Optional[_Union[OperatingProfile, _Mapping]] = ...) -> None: ...
 
 class StatusRequest(_message.Message):
     __slots__ = ()
@@ -876,8 +878,20 @@ class WorkloadRequirements(_message.Message):
     kserve: KServeTarget
     def __init__(self, backend: _Optional[_Union[ServingBackend, str]] = ..., parallelism: _Optional[_Union[ModelParallelism, _Mapping]] = ..., footprint: _Optional[_Union[ResourceFootprint, _Mapping]] = ..., kserve: _Optional[_Union[KServeTarget, _Mapping]] = ...) -> None: ...
 
+class OperatingProfile(_message.Message):
+    __slots__ = ("capability", "thinking", "reasoning_effort", "note")
+    CAPABILITY_FIELD_NUMBER: _ClassVar[int]
+    THINKING_FIELD_NUMBER: _ClassVar[int]
+    REASONING_EFFORT_FIELD_NUMBER: _ClassVar[int]
+    NOTE_FIELD_NUMBER: _ClassVar[int]
+    capability: str
+    thinking: bool
+    reasoning_effort: str
+    note: str
+    def __init__(self, capability: _Optional[str] = ..., thinking: _Optional[bool] = ..., reasoning_effort: _Optional[str] = ..., note: _Optional[str] = ...) -> None: ...
+
 class WorkloadOffer(_message.Message):
-    __slots__ = ("peer", "model", "capabilities", "requirements", "resource_class", "queue", "methods")
+    __slots__ = ("peer", "model", "capabilities", "requirements", "resource_class", "queue", "methods", "profiles")
     PEER_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
@@ -885,6 +899,7 @@ class WorkloadOffer(_message.Message):
     RESOURCE_CLASS_FIELD_NUMBER: _ClassVar[int]
     QUEUE_FIELD_NUMBER: _ClassVar[int]
     METHODS_FIELD_NUMBER: _ClassVar[int]
+    PROFILES_FIELD_NUMBER: _ClassVar[int]
     peer: str
     model: str
     capabilities: _containers.RepeatedScalarFieldContainer[str]
@@ -892,7 +907,8 @@ class WorkloadOffer(_message.Message):
     resource_class: ResourceClass
     queue: str
     methods: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, peer: _Optional[str] = ..., model: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[ResourceClass, str]] = ..., queue: _Optional[str] = ..., methods: _Optional[_Iterable[str]] = ...) -> None: ...
+    profiles: _containers.RepeatedCompositeFieldContainer[OperatingProfile]
+    def __init__(self, peer: _Optional[str] = ..., model: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., requirements: _Optional[_Union[WorkloadRequirements, _Mapping]] = ..., resource_class: _Optional[_Union[ResourceClass, str]] = ..., queue: _Optional[str] = ..., methods: _Optional[_Iterable[str]] = ..., profiles: _Optional[_Iterable[_Union[OperatingProfile, _Mapping]]] = ...) -> None: ...
 
 class QueueHint(_message.Message):
     __slots__ = ("path", "resource_class", "gpu_guarantee", "gpu_max", "max_applications", "preemption_policy", "preemption_delay", "role", "examples")

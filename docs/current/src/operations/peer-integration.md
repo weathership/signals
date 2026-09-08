@@ -409,14 +409,14 @@ session** after Gaius.
 
 | Fact | Value |
 |------|--------|
-| Role | Instruct / inference peer; capability→model owned by engine |
+| Role | Ontology / corpus engine; the federation `Announce` directory; **hosts no model** — forwards `instruct` (thinking on, effort low) and `thinking` to the peer that hosts Qwen3.8-27B (Gaius) |
 | Architecture class | **core_federated_engine** (Gaius-lineage capability engine) |
 | Checkout (lab) | `~/local/src/zndx/aegir` |
 | Unit sample | [`infra/systemd/aegir.service`](../../../infra/systemd/aegir.service) → Ægir `scripts/systemd_{start,stop}.sh` |
 | gRPC lattice | **`:50151`** — native + **`zndx.engine.v1.Engine`** + OIP |
 | Gateway / Vite UI | **`:8091`** / **`:5173`** |
 | Postgres lattice | **`:5555`** |
-| Capability / Status | `Status.project=aegir`, capability **`instruct`** |
+| Capability / Status | `Status.project=aegir`; `endpoints` **empty** (nothing hosted — honest); no `capability_hint` in the contract |
 | Unit process model | **Full devenv** (`just up`) — process `capability-engine` + gateway + vite |
 | Accept | Status `:50151` + gateway health + vite |
 | Session checklist | [peer-unit-spec — aegir](./peer-unit-spec.md#filled-aegir) |

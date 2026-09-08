@@ -4,8 +4,8 @@
   "description": "Stable lab contracts for federated engines and external peers. Process lifecycle is systemd-group; wire is signals-protocol.",
   "license_boundary": {
     "signals_core": "Apache-2.0",
-    "core_peers": "Gaius, Aegir, Atelier, and future in-family projects (e.g. synth, vigil) \u2014 shared engine family; protocol co-evolution center",
-    "external_peers": "License-incompatible products (e.g. AGPL Metabase) \u2014 external by requirement; isolated engines; process+wire only",
+    "core_peers": "Gaius, Aegir, Atelier, and future in-family projects (e.g. synth, vigil) — shared engine family; protocol co-evolution center",
+    "external_peers": "License-incompatible products (e.g. AGPL Metabase) — external by requirement; isolated engines; process+wire only",
     "integration": "Process boundary (systemd units + network) + signals-protocol gRPC; no static link or vendoring of AGPL into ASL2 binaries or core peer trees",
     "architecture_note": "Metabase is not a core Signals engine project; do not treat mbengine as Gaius-lineage"
   },
@@ -146,15 +146,14 @@
       "architecture_class": "platform_engine",
       "notes": [
         "Signals platform engine: multi-service gRPC Engine + zndx.scheduler.v1.Scheduler",
-        "Lab backend model=yunikorn; clients use engine gRPC only \u2014 never vendor REST as product path",
+        "Lab backend model=yunikorn; clients use engine gRPC only — never vendor REST as product path",
         "Projection: build/dev/{current,scratch,archive}",
         "Lattice :50551; YK REST private at SIGNALS_YK_API_URL",
-        "C2 HTTP :50561 last-gasp \u2192 Engine/Yield gRPC; sentinel is the YK Application"
+        "C2 HTTP :50561 last-gasp → Engine/Yield gRPC; sentinel is the YK Application"
       ]
     },
     {
       "id": "aegir",
-      "capability_hint": "instruct",
       "grpc_port": 50151,
       "pg_port": 5555,
       "license": "project-specific",
@@ -164,8 +163,9 @@
         "signals-ready.service"
       ],
       "notes": [
+        "Hosts NO model (2026-09-08): instruct/thinking are FORWARDED to the peer whose Status lists them (Gaius); Status.endpoints empty is the honest lattice face (capabilities.md §Operating profiles)",
         "Full-stack under signals.target (2026-08-13 remediation): just up / devenv up",
-        "Unit starts full product stack \u2014 capability-engine :50151 + gateway :8091 + vite :5173",
+        "Unit starts full product stack — capability-engine :50151 + gateway :8091 + vite :5173",
         "codegen Status + reflection + product UI health; peer-scoped full-stack stop",
         "Product SoR: aegir docs/current/src/operations/peer-unit.md",
         "Ops: docs/current/src/operations/peer-integration.md#aegir"
@@ -185,7 +185,7 @@
       ],
       "notes": [
         "Full-stack under signals.target (2026-08-13 remediation): just up / devenv up",
-        "Unit starts full product stack \u2014 capability-engine :50251 + product :50071 + gateway :8090 + vite :3000",
+        "Unit starts full product stack — capability-engine :50251 + product :50071 + gateway :8090 + vite :3000",
         "codegen Status + reflection + product UI health; peer-scoped full-stack stop",
         "Product SoR: atelier docs/current/src/operations/peer-unit.md",
         "Ops: docs/current/src/operations/peer-integration.md#atelier"
@@ -204,9 +204,9 @@
         "signals-ready.service"
       ],
       "notes": [
-        "In-org peer \u2014 wrappers + zndx.engine.v1.Engine face landed in gaius tree",
+        "In-org peer — wrappers + zndx.engine.v1.Engine face landed in gaius tree",
         "Unit Exec*: gaius scripts/systemd_{start,stop}.sh; After=signals-ready",
-        "TCP :50051 \u2260 Status until engine recycled with lattice servicer",
+        "TCP :50051 ≠ Status until engine recycled with lattice servicer",
         "Accept: recycle gaius-engine then just lattice-ci --require gaius",
         "Product ops: gaius docs/current/src/operations/peer-unit.md",
         "Ops guide: docs/current/src/operations/peer-integration.md#gaius",
@@ -245,13 +245,13 @@
         "Architecture: docs/current/src/architecture/signals-protocol-core.md#core-vs-license-external-engines",
         "Architecturally distinct from core peers (gaius/aegir/atelier/synth/vigil)",
         "License-external by requirement (AGPL); engine inherently isolated",
-        "Optional peer \u2014 core Signals does not require Metabase",
+        "Optional peer — core Signals does not require Metabase",
         "AGPL product + mbengine live outside the ASL2 signals tree",
         "Integrates only via process lifecycle + zndx.engine.v1.Engine",
         "Unit ExecStart/Stop: AGPL scripts/systemd_start.sh and systemd_stop.sh",
         "Opt-in: just install-systemd --peers metabase --enable; start signals.target (not bare signals)",
         "Operator guide: docs/current/src/operations/peer-integration.md#external-engines-metabase-agpl",
-        "Vendoring Metabase into signals would create a license conflict \u2014 do not"
+        "Vendoring Metabase into signals would create a license conflict — do not"
       ],
       "architecture_class": "license_external_isolated"
     }
