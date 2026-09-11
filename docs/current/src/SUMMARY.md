@@ -8,30 +8,31 @@
 # Architecture
 
 - [System Overview](./architecture/overview.md)
-    - [gRPC Engine](./architecture/grpc-engine.md)
-    - [WASM Terminal](./architecture/wasm-terminal.md)
-    - [Visualization Pipeline](./architecture/visualization.md)
-- [Identity and access](./architecture/identity-and-access.md)
 - [Signals protocol core](./architecture/signals-protocol-core.md)
+- [Signals engine](./architecture/grpc-engine.md)
 - [YuniKorn queue management](./architecture/yunikorn-queue-management.md)
-- [IT-ops FSM and Brier ledger](./architecture/ops-fsm.md)
 - [Sentinel Applications and Yield](./architecture/sentinel-yield.md)
-- [OpenLineage + Atlas](./architecture/openlineage-atlas.md)
-- [Data Products History](./architecture/data-product-history.md)
-- [Signals Control Plane UI](./architecture/signals-control-plane-ui.md)
+- [IT-ops FSM and Brier ledger](./architecture/ops-fsm.md)
 - [Platform Metaflow](./architecture/metaflow-platform.md)
 - [Critical plane](./architecture/stack-critical-plane.md)
-- [Data Flow](./architecture/data-flow.md)
 - [Query Engine & Catalog Stack](./architecture/query-engine.md)
-- [Metadata Tagging](./architecture/meta-tagging.md)
+- [Data Products History](./architecture/data-product-history.md)
+- [Data Flow](./architecture/data-flow.md)
+- [OpenLineage + Atlas](./architecture/openlineage-atlas.md)
 - [Atlas → Kudu outbox](./architecture/atlas-kudu-outbox.md)
 - [Governance scale plane](./architecture/governance-scale-plane.md)
+- [Signals Control Plane UI](./architecture/signals-control-plane-ui.md)
+- [Identity and access](./architecture/identity-and-access.md)
+- [Deployment Modes](./architecture/deployment.md)
+
+# Classification
+
+- [Metadata Tagging](./architecture/meta-tagging.md)
 - [Context Engineering](./architecture/context-engineering.md)
 - [Classification Training](./architecture/classification-training.md)
 - [Heuristic Elucidation](./architecture/heuristic-elucidation.md)
 - [Evidence Fusion](./architecture/evidence-fusion.md)
 - [Bootstrap Agent](./architecture/bootstrap-agent.md)
-- [Deployment Modes](./architecture/deployment.md)
 
 # Scenarios
 
@@ -58,21 +59,21 @@
 # Components
 
 - [Components Overview](./components/overview.md)
+    - [signals-protocol](./components/signals-protocol.md)
     - [Atlas](./components/atlas.md)
+    - [Marquez](./components/marquez.md)
     - [Ranger](./components/ranger.md)
     - [Kudu](./components/kudu.md)
     - [Impala](./components/impala.md)
     - [Impala FDW](./components/impala_fdw.md)
     - [Iceberg](./components/iceberg.md)
     - [Polaris](./components/polaris.md)
+    - [YuniKorn](./components/yunikorn.md)
     - [Airflow](./components/airflow.md)
     - [Metaflow](./components/metaflow.md)
-    - [NiFi](./components/nifi.md)
-    - [Marquez](./components/marquez.md)
-    - [signals-protocol](./components/signals-protocol.md)
     - [Hermes Agent](./components/hermes-agent.md)
     - [MiNiFi C++](./components/minifi-cpp.md)
-    - [YuniKorn](./components/yunikorn.md)
+    - [NiFi](./components/nifi.md)
 
 # Operations
 
@@ -86,6 +87,11 @@
     - [Services](./operations/services.md)
     - [Kerberos](./operations/kerberos.md)
     - [Headless browser (UI verify)](./operations/ui-browser.md)
+
+# Related surfaces
+
+- [WASM Terminal](./architecture/wasm-terminal.md)
+- [Visualization Pipeline](./architecture/visualization.md)
 
 # Reference
 

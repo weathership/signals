@@ -1,6 +1,7 @@
 # Visualization Pipeline
 
-The agent-mediated visualization stack renders in the top half of the web interface.
+HoloViews / Datashader / Dask rendering used by Gaius-era exploration
+UIs. Hub operators use [signals-ui](./signals-control-plane-ui.md).
 
 ## Stack
 

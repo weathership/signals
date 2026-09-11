@@ -1,19 +1,16 @@
 # Query Engine & Catalog Stack
 
-The query engine stack provides SQL access to analytical data without depending on the Hive Metastore (HMS), HDFS, or HBase. This is the core data infrastructure for Signals 360.
+Transparent hierarchical storage in Percy's sense: Kudu for hot
+mutable rows, Impala for SQL, cooler data as Iceberg files on RustFS.
+PostgreSQL is the application front door; [impala_fdw](../components/impala_fdw.md)
+carries one Kerberos principal through to Impala and Kudu.
 
-**Storage default (product):** **Kudu-only / no-HDFS.** Impala `STORED AS KUDU` is
-the primary table path. HDFS is not a tier we operate. Warm analytics (Iceberg via
-Polaris or similar) and future primary engines (**rustfs**, **Ceph**) are
-object/block — still not HDFS. Upstream Impala’s *build* may still pull a Hadoop
-**client** tarball (libhdfs / jars); that is transitional debt until the
-`rch/devenv` default is a no-HDFS daemon build. See
-[Impala](../components/impala.md#storage-default-kudu-only--no-hdfs).
-
-**Access default (product):** **FDW-only / no-JDBC.** Consumers use PostgreSQL +
-[impala_fdw](../components/impala_fdw.md) rather than treating Impala JDBC/HS2 as
-the primary API. HS2 remains the transport behind the FDW; we slim dual client
-stacks once that path is solid.
+Table metadata lives in a PostgreSQL catalog registry
+(`KuduMetaProvider`, `SignalsDdlExecutor`) and is loaded from the Kudu
+master. Impala talks to Kudu (`STORED AS KUDU`) and to Iceberg via the
+Polaris REST catalog. Applications use Postgres foreign tables:
+`kudu_scan` for closed hot-tier shapes, `impala_sql` for Iceberg and
+`UNION ALL` views of hot ∪ warm.
 
 ## Stack
 

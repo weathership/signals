@@ -1,60 +1,65 @@
 # System Overview
 
-Signals 360 is built around a gRPC engine that mediates between user interaction (via a WASM terminal) and analytical computation (via the HoloViews/Datashader/Dask stack), backed by Apache data infrastructure.
+Signals is the federation hub: protocol pin, scheduler, warehouse, and
+governance record. Sibling engines attach over
+[signals-protocol](./signals-protocol-core.md) and consume this plane.
 
-## Architecture Layers
+## Layers
 
 ```d2
 direction: down
 
-web: Web Client {
-  viz: HoloViews Visualization {
-    tooltip: "Datashader-rasterized views\nAgent-mediated data exploration"
-  }
-  term: Ghostty WASM Terminal {
-    tooltip: "User instructions → gRPC → engine"
-  }
-  viz -> term: {style.stroke-dash: 3}
+uis: UIs {
+  tooltip: "signals-ui :9889\nGaius Ægir Atelier Hermes Metabase"
 }
 
-engine: Engine Layer {
-  tooltip: "Agent engine (inspired by mistral-vibe)\nExtension registry\nSelf-improvement cycles"
+wire: Protocol {
+  tooltip: "zndx.engine.v1\nzndx.scheduler.v1"
 }
 
-compute: Compute Layer {
-  tooltip: "Dask distributed\nDatashader\nHoloViews\nAlgorithm extensions"
+hub: Hub {
+  tooltip: "engine :50551\nYuniKorn Airflow Metaflow"
 }
 
-data: Data Infrastructure {
-  tooltip: "PostgreSQL (AGE, pg_cron)\nKudu, Impala, Iceberg\nAtlas, Ranger\nAirflow, NiFi"
+store: Warehouse {
+  tooltip: "Kudu Iceberg Impala FDW\nAtlas OpenLineage Ranger"
 }
 
-web -> engine: gRPC
-engine -> compute
-engine -> data
+uis -> wire
+wire -> hub
+hub -> store
 ```
 
-## Key Design Principles
+## Planes
 
-**Agent-mediated interaction.** Users don't interact with raw compute APIs. The agent interprets instructions from the terminal, selects appropriate analysis strategies, and directs the visualization pipeline.
+| Plane | Role |
+|-------|------|
+| **Protocol** | Shared `Engine` and `Scheduler` RPCs. Peers keep native gRPC. |
+| **Schedule** | YuniKorn admits Applications. Resource class is the queue leaf. Activities are Airflow DAG runs owned by Signals. |
+| **Flows** | One Metaflow metadata service; tasks as Kubernetes pods; events via Knative Eventing. |
+| **Storage** | Kudu hot, Iceberg on RustFS, Impala views, PostgreSQL via [impala_fdw](../components/impala_fdw.md). |
+| **Governance** | Atlas is lineage and classification. OpenLineage REST on the same process. Marquez-web on `:21011` is the UI. |
+| **Control** | signals-ui `:9889`. Federated surfaces come from `Engine/Status`. |
 
-**Resolution autoscaling.** Datashader rasterizes data at the current viewport resolution. When users zoom, Dask recomputes the view in parallel, increasing detail as the viewport narrows.
+Critical-plane services (Postgres, RustFS, Atlas, Ranger, Kudu, Impala,
+YuniKorn, Knative, Metaflow, Airflow) come up together. `just up` is
+the entry point; `just signals-ready` is the check. See
+[Critical plane](./stack-critical-plane.md).
 
-**Multi-persona views.** A single data product supports multiple persona conventions (Data Scientist, Domain Researcher, Quantitative Analyst, Operational Analyst, Business Analyst) through agent-directed layout and metric selection.
+## Workloads
 
-**Extension lifecycle.** Algorithm developers package custom Dask-based analysis modules as platform extensions that the agent can invoke in distributed compute contexts.
+YuniKorn Applications use leaves such as
+`root.internal.inference.{reasoning,coding,instruct,heavy,extract,agent-rtc}`.
+Project is identity (`federation.project`). Interactive Hermes sessions
+claim `agent-rtc` for one GPU while they run.
 
-**HMS-free, no-HDFS query stack.** Impala + **Kudu-only** storage without Hive
-Metastore, HDFS, or HBase. Table metadata lives in a PostgreSQL catalog registry
-and is loaded from Kudu master. HDFS is not a product tier; longer-term object/block
-storage moves toward **rustfs** and **Ceph**. See [Query Engine & Catalog Stack](./query-engine.md).
+Coordination Activities are two hops: local process → peer engine →
+Signals `:50551` → Airflow. Only Signals talks to the DAG.
 
-**Automated metadata governance.** Tables and columns created in Impala are registered in Atlas and automatically classified by an AI/ML service against a controlled sensitivity vocabulary. Classifications drive Ranger tag-based access policies. See [Metadata Tagging](./meta-tagging.md).
+## Classification
 
-**Uniform critical plane.** A Signals deployment treats host data services
-(Postgres, **RustFS**, Atlas, Ranger, Kudu, Impala) and RKE2 platform services
-(**YuniKorn**, **Knative**, **Metaflow**, **Airflow**) as equally required —
-not optional bolt-ons. `devenv up [-d]` is the entry point; engines consume
-via [signals-protocol](../components/signals-protocol.md). See
-[Critical plane](./stack-critical-plane.md) and
-[Platform Metaflow](./metaflow-platform.md).
+`sigint` classifies columns into the SIGDG taxonomy (Dempster–Shafer
+fusion, SAGE-measured features) and writes Atlas tags. It is one
+consumer of the governance record. See
+[Metadata Tagging](./meta-tagging.md) and
+[Evidence Fusion](./evidence-fusion.md).

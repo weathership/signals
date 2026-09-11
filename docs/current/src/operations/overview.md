@@ -1,38 +1,25 @@
 # Operations Guide
 
-Operational procedures for the Signals 360 development and deployment environment.
+How to run the Signals hub on a workstation or lab host.
 
-## Getting Started
-
-1. **[Development Environment](./devenv.md)** — enter the devenv shell, start services, available tasks
-2. **[Secrets](./secrets.md)** — SecretSpec declarations, dotenv provider, keytab paths
-3. **[Services](./services.md)** — PostgreSQL (AGE, pg_cron) configuration and usage
-4. **[Kerberos](./kerberos.md)** — project-local KDC, principals, ticket management (`DEV.VISTA.ZNDX.ORG`)
-
-## Quick Reference
+1. **[Development Environment](./devenv.md)** — devenv shell, `just up`, tasks
+2. **[Peer integration](./peer-integration.md)** — join the lattice
+3. **[Secrets](./secrets.md)** — SecretSpec, dotenv, keytabs
+4. **[Services](./services.md)** — PostgreSQL (AGE, pg_cron)
+5. **[Kerberos](./kerberos.md)** — project-local KDC (`DEV.VISTA.ZNDX.ORG`)
+6. **[Storage and backup](./storage-and-backup.md)** — `SIGNALS_DATA_ROOT`, stamps
+7. **[Peer data products](./peer-data-products.md)** — warehouse facts
+8. **[Peer unit acceptance](./peer-unit-spec.md)** — `signals.target` and lattice-ci
 
 ```bash
-# Development
-devenv shell                         # Enter environment
-devenv up                            # Start PostgreSQL + KDC
-devenv test                          # Run devenv tests
-
-# Database
-psql -d signals                      # Connect to PostgreSQL
-
-# Authentication
-kinit signals                        # Get Kerberos ticket (pw: signals)
-klist                                # Show current tickets
-
-# Testing
-uv run behave                        # Run BDD scenarios
-uv run behave --dry-run              # Parse features only
-
-# Documentation
-devenv tasks run docs:build          # Build mdbook
-devenv tasks run docs:serve          # Serve with live reload
+devenv shell
+just up
+just signals-ready
+just kinit
+just lattice-ci
+just test
+just docs-serve
 ```
 
-## Deployment Operations
-
-For infrastructure provisioning and deployment, see the [Infrastructure](../infrastructure/overview.md) section.
+Infrastructure provisioning (AWS, Zarf, Tilt) is under
+[Infrastructure](../infrastructure/overview.md).

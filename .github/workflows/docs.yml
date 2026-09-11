@@ -3,6 +3,7 @@ name: Deploy Documentation
 on:
   push:
     branches:
+      - trunk
       - main
     paths:
       - 'docs/current/**'

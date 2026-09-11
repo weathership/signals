@@ -2,79 +2,71 @@
 
 ## Prerequisites
 
-- [devenv](https://devenv.sh/) with Nix
-- [direnv](https://direnv.net/) (recommended)
+- Linux workstation (Impala, Kudu, and the RKE2 critical plane)
+- [devenv](https://devenv.sh/) + Nix; [direnv](https://direnv.net/) recommended
+- [just](https://github.com/casey/just), `kubectl`, `grpcurl` on `PATH`
+- Recurse submodules on clone
 
-## Setup
+## Bring-up
 
 ```bash
-# Clone with submodules
-git clone --recurse-submodules git@github.com:cldr-research/signals-360.git
-cd signals-360
-
-# Enter development environment
+git clone --recurse-submodules git@github.com:weathership/signals.git
+cd signals
 devenv shell
 
-# Pre-cache embedding model (once — required for air-gap operation)
-just cache-models
+# One-time native builds if this machine has never built them
+devenv tasks run kudu:build-cpp
+devenv tasks run impala:build
 
-# Start services (PostgreSQL, Kerberos KDC, Kudu, Impala, Atlas)
-devenv up
+cp .env.example .env
+just up
+just signals-ready
 ```
 
-## Verify Services
+`just up` starts PostgreSQL 16 + AGE (`:5455`), Kerberos, RustFS,
+Polaris, Atlas, Ranger, Kudu, Impala, signals-ui, and preflights
+YuniKorn, Knative, Metaflow, and Airflow on RKE2.
+
+Open **http://127.0.0.1:9889** — that is the control plane.
 
 ```bash
-# PostgreSQL
-psql -d signals -c "SELECT extname FROM pg_extension;"
-
-# Kerberos
-kinit signals    # password: signals
-klist
-
-# Run tier-1 health checks (requires devenv up)
-uv run behave features/platform/health_postgres.feature --no-capture
+just kinit
+just kerberos-status    # Impala HS2 GSSAPI OK
+just lattice-ci
+just test               # pytest tests/
+just behave             # tier-0 BDD; SIGNALS_BDD_TIER1=1 for the live stack
+just docs-serve
 ```
 
-## Run BDD Scenarios
+## Attach a peer
 
 ```bash
-# Tier-0: Classification pipeline (no infrastructure needed)
-uv run behave features/classification/ --no-capture
-
-# Tier-1: Health + integration (requires devenv up)
-uv run behave features/platform/ features/tagging/ --no-capture
-
-# All tiers
-uv run behave --no-capture
-
-# Run unit tests
-uv run pytest tests/sigint/ -v
+just install-systemd --peers gaius,aegir,atelier --enable
+sudo systemctl start signals.target
+just lattice-ci --require gaius,aegir,atelier
 ```
 
-## Run the Tagging Pipeline
+A new engine implements `zndx.engine.v1` on its lattice port, waits on
+`signals-ready.service`, Announces, and consumes Metaflow, Atlas, and
+the warehouse. Contract:
+[`config/platform/peer-contract.json`](https://github.com/weathership/signals/blob/trunk/config/platform/peer-contract.json).
+Walkthrough: [Peer integration](./operations/peer-integration.md).
+
+## Classify columns (optional)
+
+The in-tree `sigint` pipeline samples Impala, fuses evidence, and
+writes Atlas tags:
 
 ```bash
-# Dry-run: classify columns without writing to Atlas
 just tag-dry-run default.my_table
-
-# Live: classify and write SIGDG tags to Atlas
 just tag default.my_table
 ```
 
-## Build Documentation
+See [Metadata Tagging](./architecture/meta-tagging.md).
 
-```bash
-devenv tasks run docs:build          # Build mdbook
-devenv tasks run docs:serve          # Serve with live reload
-```
+## Next
 
-## Next Steps
-
-- [Scenarios Overview](./scenarios/overview.md) — active and backlog BDD domains
-- [Test Infrastructure](./scenarios/testing.md) — tier system, air-gap testing, config-driven BDD
-- [Evidence Fusion](./architecture/evidence-fusion.md) — DST belief intervals and mass functions
-- [Context Engineering](./architecture/context-engineering.md) — 12 SAGE-ablatable features
-- [Metadata Tagging](./architecture/meta-tagging.md) — Tagger pipeline architecture
-- [Development Environment](./operations/devenv.md) — full task reference
-- [Deployment Modes](./architecture/deployment.md) — laptop, workstation, hybrid, full AWS
+- [System Overview](./architecture/overview.md)
+- [signals-protocol](./architecture/signals-protocol-core.md)
+- [Query engine](./architecture/query-engine.md)
+- [devenv](./operations/devenv.md)

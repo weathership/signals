@@ -1,6 +1,6 @@
 # Deployment Modes
 
-Signals 360 supports four deployment modes, from local development to full cloud production.
+Signals supports four deployment modes, from local development to full cloud production.
 
 | Mode | Compute | K8s | Services |
 |------|---------|-----|----------|

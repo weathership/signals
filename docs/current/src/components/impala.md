@@ -1,6 +1,8 @@
 # Impala
 
-Apache Impala provides a distributed SQL query engine for interactive analysis. In Signals 360, Impala is the SQL interface for all analytical queries across Kudu (hot tier) and Iceberg (warm tier) tables.
+Apache Impala is the SQL engine across Kudu (hot) and Iceberg (warm).
+Applications reach it through PostgreSQL and
+[impala_fdw](./impala_fdw.md).
 
 ## Role in the Stack
 

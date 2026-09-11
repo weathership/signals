@@ -1,7 +1,7 @@
 # Ranger
 
 Apache Ranger provides authorization and access control across the data platform.
-In Signals 360, Ranger consumes **Atlas classifications** (SIGDG tags) and enforces
+Ranger consumes **Atlas classifications** (SIGDG tags) and enforces
 tag-based policies at query time in Impala.
 
 ## Role in the Stack

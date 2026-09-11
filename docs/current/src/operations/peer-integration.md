@@ -1,16 +1,13 @@
-# Peer integration (federation engines + external services)
+# Peer integration
 
-How sibling engines and **license-external** services attach to the Signals
-foundation without re-hosting the critical plane.
+How sibling engines and AGPL services attach to the Signals hub and
+consume the critical plane.
 
-**Hub model:** Signals is **early** on the gRPC engine axis (federation
-architecture still settling; little engine surface *yet*), while Gaius / Ægir /
-Atelier already hold substantial engines. This tree currently centralizes
-**control** (critical plane, `signals.target`, peer-contract, lattice-ci,
-platform Metaflow/CE/YK/Atlas) so iterative cycles can surface and converge
-depth in peer repos — and grow Signals engine work when the architecture is
-ready. See
-[Signals as hub — early on the engine axis](../architecture/signals-protocol-core.md#signals-as-hub--early-on-the-engine-axis-not-thin-forever).
+Signals holds control: `signals.target`, peer-contract, lattice-ci,
+platform Metaflow, YuniKorn, Atlas, the warehouse. Product engines
+(Gaius, Ægir, Atelier, Hermes) keep native gRPC and add
+`zndx.engine.v1`. See
+[signals-protocol](../architecture/signals-protocol-core.md).
 
 **End state (lab):** after each peer finishes its local unit work and is
 **enabled** under the group:

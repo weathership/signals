@@ -1,6 +1,8 @@
 # Metadata Tagging
 
-Signals 360 uses Apache Atlas as a metadata catalog and an external AI/ML service to automatically classify table and column names against a BFO-grounded data governance ontology. The goal is to make every table and column in the platform discoverable, consistently labeled, and annotated with formal sensitivity and governance metadata.
+`sigint` classifies Impala columns against the SIGDG ontology and
+writes those tags to Atlas. Ranger consumes the tags. Discoverability
+and sensitivity labels come from that loop.
 
 ## Architecture
 

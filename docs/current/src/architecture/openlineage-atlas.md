@@ -1,49 +1,35 @@
-# OpenLineage + Atlas (Signals system of record)
+# OpenLineage + Atlas
 
-Signals is the **system of record** for governance **and** OpenLineage-shaped
-runtime lineage for consumers (Aegir, Gaius, and direct Signals users). One
-deploy. One Postgres. Scaling of heavy projection/query via **Impala FDW /
-kudu_scan** — not a second Marquez database.
+Governance and runtime lineage live in one Atlas process: Apache AGE
+on PostgreSQL 16. Existing Atlas clients keep `/api/atlas/*`. An
+OpenLineage extension on the same host serves the Marquez REST
+surface. Heavy analytics scale through [impala_fdw](../components/impala_fdw.md)
+onto Kudu projections of those same entities.
 
-## Doctrine
+## What lives where
 
 | Concern | Authority | Notes |
 |---------|-----------|--------|
-| Governance (types, classifications, policies) | **Atlas** on `signals` PG + AGE | Existing Atlas clients **unchanged** |
-| Runtime lineage (Job / Run / Dataset, facets) | **Same Atlas/AGE store** (composite schema) | OL types + edges additive |
-| OL HTTP ingest | **Atlas OL extension** | `POST /api/v1/lineage` |
-| Marquez-compatible API | **Atlas OL extension — complete** | Full Marquez `/api/v1/*` + needed `/api/v2beta/*` |
-| Marquez **server** + **Postgres schema** | **Not deployed** | Would dual-write SoR; rejected |
-| Marquez **web UI** | Default-stack process | **Validation harness** for API completeness |
-| Heavy lineage analytics | **FDW → Impala → Kudu** | Atlas projections / OL tables on Kudu |
+| Governance (types, classifications, policies) | **Atlas** on `signals` PG + AGE | `/api/atlas/*` |
+| Runtime lineage (Job / Run / Dataset, facets) | Same Atlas/AGE store | OL types + edges |
+| OL HTTP ingest | Atlas OL extension | `POST /api/v1/lineage` |
+| Marquez-compatible API | Atlas OL extension | `/api/v1/*` and `/api/v2beta/*` |
+| OpenLineage UI | Marquez-web | `:21011` (Atlas HTTP + 1); proxies `/api/v1` and `/api/v2beta` |
+| Heavy lineage analytics | FDW → Impala → Kudu | Atlas projections |
 
-**Hard rule:** do **not** create a `marquez` database or run stock Marquez API as
-a second catalog. Submodule `components/marquez` supplies **UI + contract
-reference** (and minimal diffs only if the Atlas facade needs them).
+`components/marquez` is the UI and the contract reference. Producers
+(Airflow, Metaflow, Flink, Gaius, `sigint`) post RunEvents to Signals.
 
-### Marquez as validator (not SoR)
+### Completeness
 
-Atlas must implement the **complete** Marquez OpenLineage API surface so that:
+Atlas implements the Marquez OpenLineage API so that:
 
-1. **Marquez-web** renders real content (jobs, datasets, events, search, stats, tags, lineage graphs).
-2. **Marquez API contract tests** (and UI request paths under `web/src/store/requests/`) can be pointed at Atlas as an acceptance suite.
-3. Any OpenLineage-shaped client (Flink, Airflow, polyglot) talks only to Signals.
+1. Marquez-web renders jobs, datasets, events, search, stats, tags, and lineage graphs.
+2. Marquez API contract tests can point at Atlas.
+3. OpenLineage clients talk to one host.
 
-Empty collections are valid when no data exists; **404 on an implemented route
-shape is not**. The acceptance bar is: every path Marquez UI calls returns a
-status and JSON body Marquez-shaped clients accept.
-
-## Why no Marquez DB
-
-Stock Marquez owns its own Flyway schema and becomes a **second system of
-record**. That fights:
-
-1. Atlas as governance SoR  
-2. A single composite graph (Aegir/Gaius already target AGE)  
-3. Scale-out via **FDW / Kudu**, not by cloning OL tables into Marquez’s layout  
-
-The correct convergence is **extend Atlas’s store and API** so any
-OL-consuming UI (Marquez-web or third-party) talks only to Signals.
+Empty collections return 200. Every path Marquez-web calls returns
+Marquez-shaped JSON.
 
 ## Deployment model (one SoR process; UI on adjacent port)
 
@@ -65,28 +51,13 @@ Producers (Flink OL, Airflow, polyglot, sigint, …)
  marquez-web :21011  ── default stack; port = Atlas HTTP + 1; proxies /api/v1 + /api/v2beta → Atlas
 ```
 
-Path prefixes do not collide. marquez-web only forwards `/api/v1` and
-`/api/v2beta`; it never needs to own the SoR host. No second API process, no
-second SoR HTTP port. Marquez-web is **not optional** — it is part of the
-default process graph for every `devenv up` / `devenv up -d`, and the primary
-human-facing proof that the Atlas OL API is complete.
+Marquez-web forwards `/api/v1` and `/api/v2beta` to Atlas. It is part
+of every `just up`. Port rule:
+`MARQUEZ_WEB_PORT = SIGNALS_ATLAS_HTTP_PORT + 1` (defaults `21010` /
+`21011`).
 
-**Port rule:** `MARQUEZ_WEB_PORT = SIGNALS_ATLAS_HTTP_PORT + 1` (defaults
-`21010` / `21011`). Do not bind Marquez on `:3000` — that range is for
-ad-hoc local frontends.
-
-### Non-goals (rejected)
-
-| Approach | Why rejected |
-|----------|--------------|
-| Stock Marquez API + Flyway DB | Second system of record |
-| Python/FastAPI OL facade beside Atlas | Vestigial the day Atlas serves `/api/v1`; dual surface, dual deploy |
-| Separate OL port “until Atlas is ready” | Encourages the throwaway; ship the Atlas extension instead |
-| Subset-only Marquez API | UI empty / invalid; fails completeness validation |
-
-Reference implementations elsewhere (Aegir `gateway/marquez.py`, Gaius
-`hx.lineage`) inform **graph shape and contract tests**. They are not
-deployed as Signals product API.
+Aegir `gateway/marquez.py` and Gaius `hx.lineage` inform graph shape
+and contract tests.
 
 ## Atlas client compatibility
 

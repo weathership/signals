@@ -1,23 +1,20 @@
 # Atlas
 
-Apache Atlas provides metadata governance and data catalog capabilities. In Signals 360, Atlas is the central metadata catalog where all Impala tables and columns are registered, classified, and tagged with BFO-grounded governance metadata.
+Apache Atlas is the governance and lineage catalog. Impala tables and
+columns register here; `sigint` writes SIGDG classifications; Ranger
+reads those tags. The same process serves OpenLineage REST for
+[Marquez-web](./marquez.md).
 
-## Role in the Stack
-
-Atlas serves two purposes:
-
-1. **Metadata catalog** — Every table and column created in Impala becomes a discoverable entity in Atlas with type information, ownership, and lineage.
-2. **Classification target** — An external AI/ML tagging service annotates Atlas entities with SIGDG ontology labels, enabling tag-based access control via Ranger.
-
-See [Metadata Tagging](../architecture/meta-tagging.md) for the classification architecture and SIGDG ontology.
+See [OpenLineage + Atlas](../architecture/openlineage-atlas.md) and
+[Metadata Tagging](../architecture/meta-tagging.md).
 
 ## Services
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| Atlas | 21010 | Web UI and REST API (admin/admin); :21010 avoids clash with aegir Atlas on :21000 |
+| Atlas | 21010 | `/api/atlas/*` and OpenLineage `/api/v1/*` |
 
-Atlas uses PostgreSQL with the Apache AGE graph extension as its backend (replacing the default JanusGraph/HBase/Solr stack).
+The graph backend is Apache AGE on PostgreSQL 16 (`signals` database).
 
 ## AGE Backend
 

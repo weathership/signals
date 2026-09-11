@@ -1,6 +1,11 @@
 # WASM Terminal
 
-A Ghostty-based terminal component compiled to WebAssembly, embedded in the bottom half of the web interface. User instructions entered in the terminal transit gRPC to the server engine and responses stream back to the client.
+A Ghostty-based terminal compiled to WebAssembly. This surface belongs
+to the Gaius-era visualization track. The hub control plane is
+[signals-ui](./signals-control-plane-ui.md) on `:9889`.
+
+User instructions in the terminal transit gRPC to a product engine and
+responses stream back to the client.
 
 ## Design
 

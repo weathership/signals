@@ -1,20 +1,11 @@
-# Marquez (UI + API validation harness)
+# Marquez
 
 Submodule: `components/marquez` → `git@github.com:zndx/oss-marquez.git` (`main`).
 
-## Role
-
-| Deployed | Not deployed |
-|----------|--------------|
-| **Marquez-web** (default `devenv` process) | Stock Marquez API |
-| Proxy `/api/v1` + `/api/v2beta` → Atlas | Marquez Postgres / Flyway schema |
-
-Signals (Atlas OL extension) is the system of record and implements the
-**complete** Marquez OpenLineage API. Marquez is the **reference UI** and the
-**validation harness** that the enhanced API is complete and valid for all
-aspects of OpenLineage (UI request paths + contract shape).
-
-Doctrine: [OpenLineage + Atlas](../architecture/openlineage-atlas.md).
+Marquez-web is the OpenLineage UI. It proxies `/api/v1` and
+`/api/v2beta` to Atlas. Lineage events, jobs, datasets, and graphs
+live in AGE on the Signals Postgres. Architecture:
+[OpenLineage + Atlas](../architecture/openlineage-atlas.md).
 
 ## Port convention
 

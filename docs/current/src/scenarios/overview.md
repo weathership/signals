@@ -1,6 +1,8 @@
 # Scenarios Overview
 
-Signals 360 scenarios are organized into active domains with passing BDD coverage and backlog domains that document future capabilities.
+BDD scenarios (behave) cover the hub and the in-tree classification
+pipeline. Active domains have passing coverage; backlog domains
+document later work.
 
 ## Active Domains
 

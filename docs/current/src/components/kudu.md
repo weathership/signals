@@ -1,6 +1,8 @@
 # Kudu
 
-Apache Kudu provides a columnar storage engine optimized for fast analytics on rapidly changing data. In Signals 360, Kudu is the hot-tier storage for tables that require both low-latency random access and fast analytical scans.
+Apache Kudu is the hot-tier store: low-latency upserts and analytical
+scans on weekly range partitions. Iceberg on RustFS holds settled
+weeks. See [Query Engine](../architecture/query-engine.md).
 
 ## Role in the Stack
 

@@ -10,36 +10,14 @@ PostgreSQL foreign data wrapper for the Impala + Kudu data plane, maintained as
 
 | | |
 |--|--|
-| Storage | **Kudu only** (via Impala tables `STORED AS KUDU`) |
-| Default path | Impala HS2 (C/C++ thrift client) — SQL-shaped queries |
-| Fast path | Direct **C++ `libkudu_client`** for closed governance ops |
-| Identity | **End-to-end Kerberos**: Postgres GSSAPI role ↔ same principal on Impala/Kudu |
-| Access control | Postgres GRANT + **RLS** / security-barrier views; **not multi-tenant** FDW |
-| Non-goals | Iceberg, HMS, Java-in-process clients, FDW multi-tenancy, DML in v0 |
+| Hot storage | Kudu (`STORED AS KUDU`); `kudu_scan` via `libkudu_client` |
+| Warm storage | Iceberg and Impala `UNION ALL` views via `impala_sql` (HS2) |
+| Identity | Kerberos: Postgres GSSAPI role is the Impala/Kudu principal |
+| Access control | Postgres GRANT + RLS / security-barrier views |
 
-## Access default: FDW-only / no-JDBC
-
-**Product direction:** applications and governance tooling talk to the data plane
-through **PostgreSQL + impala_fdw**, not through a first-class **JDBC/HS2 client
-surface** for every consumer.
-
-| Path | Role |
-|------|------|
-| **Postgres (:5455) + FDW** | **Default** app / agent / AGE-adjacent access |
-| Impala HS2 | Transport **behind** the FDW (and minicluster ops), not the primary API we optimize for |
-| Direct JDBC to Impala | Supported only as interim / debug — not the long-term product contract |
-
-That lets the stack slim further after Kudu-only / no-HDFS:
-
-- Fewer things need a full JDBC stack, HiveServer2 client libraries in app code, or
-  dual auth stories (Postgres vs Impala-as-primary).
-- Identity stays **one principal story** (Kerberos into Postgres; FDW carries it to
-  Impala/Kudu per SPEC).
-- Impala remains the SQL/execution engine; **exposure** is FDW-shaped.
-
-Same debt class as Hadoop-at-build and Ranger Nashorn: today’s HS2/JDBC tooling may
-still exist for bootstrap and FE tests; the **default we design toward** is
-FDW-only / no-JDBC for product consumers.
+Applications and governance tooling reach the data plane through
+**PostgreSQL + impala_fdw**. Impala remains the SQL engine; HS2 is the
+transport behind the FDW.
 
 ## Role
 

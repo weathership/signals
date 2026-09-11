@@ -1,54 +1,36 @@
 # Signals protocol core
 
-Signals is the **system of record** and the **central discovery surface** for the
-zndx federation: lineage, governance metadata, and authz decision inputs live
-here. **Core** federated engines (Gaius, Ægir, Atelier, and future in-family
-projects such as synth or vigil) and **license-external** peers (e.g. Metabase)
-operate on the fleet; they **discover and call** centralized services instead of
-each growing a private catalog, lineage store, or policy engine.
-**Hermes Agent** is a multi-agent runtime we integrate with (**plugins first,
-not a core fork for now**) for **reasoning-enabled memory** and **context
-compaction**, with Weathership as the path to an
-[official Hermes memory provider](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers).
-The federated fleet is already a **healthy superset** of Hermes’s product
-surface (governance SoR, multi-engine federation, DST, nascent SAE/CLT
-interpretability, persistent homology / Ollivier–Ricci topology)—capabilities
-Hermes may never fully adopt in-tree.
+Signals holds lineage, governance metadata, and scheduler state for the
+federation. Peer engines — Gaius, Ægir, Atelier, Hermes, Metabase —
+discover and call those services over a shared gRPC contract.
 
-Wire contracts live in the shared submodule
+Hermes Agent ([Nous Research](https://nousresearch.com/)) joins as
+capability `agent`. Weathership plugins attach memory and context to
+that runtime; the official product remains Hermes.
+[Memory providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers)
+are the documented extension point.
+
+Wire contracts live in
 [`components/signals-protocol`](https://github.com/zndx/signals-protocol)
-(`git@github.com:zndx/signals-protocol.git`, branch `trunk`). Changes land in
-that repo first (additive-only within a version), then propagate by submodule
-bump — one proto, every adopter.
+(`trunk`). Changes land in that repository first (additive within a
+version), then propagate by submodule bump.
 
 ## How the federation contract evolves
 
-**signals-protocol is the shared federation contract** (engine-to-engine wire,
-capability semantics, co-tenancy conventions, OIP mapping). It is still early:
-much of the foundational work for a durable multi-engine contract remains
-ahead of us.
+**signals-protocol** is the shared federation contract: engine-to-engine
+wire, capability semantics, co-tenancy, OIP mapping. It grows as peers
+need new shapes. The first cross-engine call showed why
+`zndx.engine.v1.Engine` sits beside each project's native service.
+`Complete`, `Remediate`, GPU leases, and OIP tensors followed the same
+path: ship in a peer, then promote a stable shape into the protocol.
 
-That work is **organic, not top-down**. Requirements surface when a peer engine
-needs something the wire does not yet express — the first live cross-engine
-call exposed package-scoped service paths (`UNIMPLEMENTED` despite matching
-messages), which is why `zndx.engine.v1.Engine` sits **beside** each project’s
-native service. Later needs (structured `Complete`, boundary `Remediate`,
-Status fields for GPU leases, OIP tensor conventions) follow the same pattern:
-implement enough in the engine to ship product value, then **promote** stable
-shapes into the protocol so every peer can speak them.
+**In-family engines** (Gaius, Ægir, Atelier, planned siblings) share
+multi-service gRPC, capability-on-the-wire, private serving, lattice
+ports, and co-tenancy leases.
 
-**Core peer engines** (Gaius, Ægir, Atelier, and planned siblings such as synth
-or vigil) form one architectural family: multi-service gRPC, capability-not-model,
-private vLLM (or equivalent), lattice ports, and co-tenancy leases. That family
-grew in those codebases as product work demanded it; protocol requirements
-continue to surface there first.
-
-**License-external peers** (Metabase today) are different by **requirement**,
-not preference. AGPL (and similar) cannot be combined into ASL2 Signals or core
-peer distributions, so their engines must live in an **isolated** tree: process
-boundary + protocol wire only. mbengine is a real federation participant
-(`Status` / lattice unit) but it is **not** a core Signals engine project and
-is not expected to share the Gaius-lineage engine stack. See
+**AGPL peers** (Metabase) live in an isolated tree and speak the same
+wire. mbengine is a lattice participant (`Status`, unit under
+`signals.target`). See
 [Core vs license-external engines](#core-vs-license-external-engines).
 
 Signals **hosts** the platform (governance SoR, critical plane, process group
@@ -72,18 +54,13 @@ requirements materialize in real projects; the contract absorbs what should be
 shared. Expect substantial further foundation work on signals-protocol itself
 before “federation complete” is a fair claim.
 
-### Signals as hub — early on the engine axis, not “thin forever”
+### Signals as hub
 
-Gaius, Ægir, and Atelier already carry substantial capability-engine
-implementations (multi-service gRPC, vLLM managers, co-tenancy, Remediate,
-product services). Signals is **early** on that same axis: federation
-architecture (protocol, peer units, lattice gates, group lifecycle) is still
-being nailed down, so this tree has not yet grown a large engine surface — not
-because engine work is forbidden here, but because it is **too early** to have
-implemented much of it *yet*.
+Gaius, Ægir, and Atelier carry product engines (multi-service gRPC,
+serving, co-tenancy, Remediate). Signals holds the scheduler engine
+on `:50551` and the control plane those peers attach to:
 
-What is already useful to centralize (and what accelerates the initiative
-while the architecture settles):
+What the hub centralizes:
 
 | Hub control (today) | Role |
 |---------------------|------|

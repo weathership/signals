@@ -1,6 +1,6 @@
 # Development Environment
 
-Signals 360 uses [devenv](https://devenv.sh/) (Nix-based) with direnv for automatic shell activation.
+Signals uses [devenv](https://devenv.sh/) (Nix-based) with direnv for automatic shell activation.
 
 ## Entering the Environment
 
@@ -33,12 +33,10 @@ just kinit              # Refresh user ticket if needed
 just kerberos-status    # Expect: impala HS2 GSSAPI OK
 ```
 
-Prefer **`just up` / `just down`** over bare `devenv processes down`: the bare
-command often leaves the signals postmaster on **:5455**, which then blocks the
-next `up` under `strictPorts`. `just down` only stops **this** tree’s
-`.devenv/state/postgres` — never gaius/synth/atelier/system PG.
+Prefer **`just up` / `just down`**. `just down` stops this tree’s
+Postgres on `:5455` and leaves sibling project databases alone.
 
-**`devenv up -d` is the only required runtime command.** It:
+**`devenv up -d` (`just up`) starts the hub:**
 
 1. Ensures data layout under `SIGNALS_DATA_ROOT`
 2. Starts **KDC**, then **kerberos-bootstrap** (keytabs + kinit) before Kudu/Impala

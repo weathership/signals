@@ -8,21 +8,13 @@
 
 ## Thesis
 
-Upstream YuniKorn (Apache) prioritizes **core scheduler features**; the stock
-SPA may ship with a release or ship **disabled** by that preference. It is
-not Signals’ surface to maintain. Marquez-web is an OpenLineage **validation
-harness**, not the long-term operator surface. **Keeping stock YK web
-available is fine** while our pinned YK version still includes it enabled;
-it is never a product dependency.
+**`signals-ui` is the primary backplane UI for Signals.** Admission,
+queues, and process visibility go through YuniKorn; operators open
+`:9889`.
 
-**`signals-ui` is the primary backplane UI for Signals.** Once the stack lands,
-**YuniKorn is required** (not optional): admission, queues, and process
-visibility for federated work go through YK, and operators use signals-ui as
-the default control-plane entry (not stock yk-web, not Marquez-web).
-
-1. **Strict superset of stock yunikorn-web** — every capability and YK REST
-   usage in `rch-yunikorn-web` is implemented and tested; then Signals
-   value-add is layered on top (never a subset “MVP forever”).
+1. **Superset of stock yunikorn-web** — YK REST used in
+   `rch-yunikorn-web`, plus Signals views (lineage, sentinels,
+   federated surfaces).
 2. **Isolated submodule** — developed in `weathership/signals-ui`, vendored
    into Signals as `components/signals-ui` (same pattern as other components).
 3. **Idiomatic Rust for the service** — no Node.js runtime in production.
