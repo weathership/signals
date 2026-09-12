@@ -353,13 +353,17 @@ def _declare(**context: Any) -> str:
 def _close(**context: Any) -> str:
     conf = dict(context["dag_run"].conf or {})
     outcome = context["ti"].xcom_pull(task_ids="hold")
-    if outcome not in coord_lease.TERMINAL:
+    try:
+        coord_lease.require_released(str(outcome or ""), kind=str(conf.get("kind") or ""))
+    except coord_lease.LapsedLease as e:
+        raise AirflowException(str(e)) from e
+    except ValueError:
         raise AirflowException(
             f"{GURU_BADEVENT} hold returned {outcome!r} for activity {conf.get('activity_id')}"
         )
     print(
         f"coord close: activity={conf.get('activity_id')} kind={conf.get('kind')} peer={conf.get('peer')} "
-        f"outcome={outcome} ({'owner released it' if outcome == 'released' else 'heartbeats stopped or horizon passed'})"
+        f"outcome={outcome} (owner released it)"
     )
     return str(outcome)
 
@@ -418,11 +422,14 @@ def make_coord_dag(
 
 def _close_workload(hold_task_id: str, kind: str, **context: Any) -> str:
     outcome = context["ti"].xcom_pull(task_ids=hold_task_id)
-    if outcome not in coord_lease.TERMINAL:
+    try:
+        coord_lease.require_released(str(outcome or ""), kind=kind)
+    except coord_lease.LapsedLease as e:
+        raise AirflowException(str(e)) from e
+    except ValueError:
         raise AirflowException(f"{GURU_BADEVENT} {hold_task_id} returned {outcome!r} for workload {kind}")
     print(
-        f"workload close: kind={kind} outcome={outcome} "
-        f"({'owner released it' if outcome == 'released' else 'heartbeats stopped or horizon passed'}) — "
+        f"workload close: kind={kind} outcome={outcome} (owner released it) — "
         f"queue configuration retired at Signals; Asset zndx.coord.{kind}.ended emitted"
     )
     return str(outcome)

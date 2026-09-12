@@ -9,6 +9,7 @@ they are constructed live inside the dag-processor pod by the deploy check.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import threading
@@ -16,6 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+
+_AIRFLOW_MISSING = importlib.util.find_spec("airflow") is None
 
 PLUGINS = Path(__file__).resolve().parents[2] / "config" / "k8s" / "airflow" / "plugins"
 sys.path.insert(0, str(PLUGINS))
@@ -94,12 +97,18 @@ def test_outcome_only_for_terminal_states():
     assert coord_lease.classify({}) == coord_lease.UNKNOWN
 
 
-airflow = pytest.importorskip(
-    "airflow", reason="airflow is not installed in the Signals venv; the trigger/sensor are constructed live in the dag-processor pod by the deploy check"
-)
+def test_close_succeeds_only_on_released():
+    assert coord_lease.require_released("released") == "released"
+    with pytest.raises(coord_lease.LapsedLease) as ei:
+        coord_lease.require_released("lapsed", kind="article_curate")
+    assert coord_lease.GURU_LAPSED in str(ei.value)
+    assert "article_curate" in str(ei.value)
+    with pytest.raises(ValueError, match="non-terminal"):
+        coord_lease.require_released("alive")
 
 
 def test_trigger_and_sensor_construct():
+    pytest.importorskip("airflow", reason="airflow is not installed in the Signals venv")
     import coord_signals
 
     trig = coord_signals.SignalsLeaseTrigger(activity_id="x", lease_url="http://h/coord/activities/x")
@@ -155,7 +164,7 @@ def test_post_json_declares_and_surfaces_refusals(declare_server):
         coord_lease.post_json("http://127.0.0.1:9/coord/activities", {}, timeout_s=0.5)
 
 
-@pytest.mark.skipif("airflow" not in sys.modules and pytest.importorskip("airflow", reason="airflow not in the Signals venv") is None, reason="airflow absent")
+@pytest.mark.skipif(_AIRFLOW_MISSING, reason="airflow not in the Signals venv")
 def test_workload_and_chain_dags_construct():
     import coord_signals
 
@@ -180,7 +189,7 @@ def test_workload_and_chain_dags_construct():
     assert "declare_publish" in chain.get_task("close_curate").downstream_task_ids
 
 
-@pytest.mark.skipif("airflow" not in sys.modules and pytest.importorskip("airflow", reason="airflow not in the Signals venv") is None, reason="airflow absent")
+@pytest.mark.skipif(_AIRFLOW_MISSING, reason="airflow not in the Signals venv")
 def test_workload_schedule_shapes():
     """protocol ce31d5d after_mode: all → AssetAll list, any → AssetAny, cron+after → AssetOrTimeSchedule."""
     import coord_signals as cs

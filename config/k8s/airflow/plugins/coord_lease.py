@@ -27,6 +27,33 @@ LAPSED = "lapsed"
 UNKNOWN = "unknown"
 
 TERMINAL = (RELEASED, LAPSED)
+GURU_LAPSED = "#CO.0000000E.LAPSED"  # hold ended because the peer never released
+
+
+class LapsedLease(RuntimeError):
+    """The lease lapsed — the peer did not heartbeat or ReleaseActivity.
+
+    Airflow used to treat this as DAG success (hold ~180s then close). That
+    hid WatchActivities death: gaius_article_curate looked green on 10–11 Sep
+    2026 while Gaius never enqueued a row (MISSTICK).
+    """
+
+    def __init__(self, outcome: str = LAPSED, *, kind: str = ""):
+        self.outcome = outcome
+        self.kind = kind
+        what = f"workload {kind} " if kind else ""
+        super().__init__(
+            f"{GURU_LAPSED} {what}lease {outcome} — peer did not ReleaseActivity"
+        )
+
+
+def require_released(outcome: str, *, kind: str = "") -> str:
+    """close() may only succeed when the owner released the lease."""
+    if outcome == RELEASED:
+        return outcome
+    if outcome == LAPSED:
+        raise LapsedLease(outcome, kind=kind)
+    raise ValueError(f"non-terminal lease outcome {outcome!r}")
 
 
 class LeaseUnreachable(RuntimeError):
