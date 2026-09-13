@@ -7,6 +7,14 @@ enabled member, then `signals-refresh.service` verifies each unit is
 of the target does **not** restart live peers. Do not treat the target as
 healthy if `signals-refresh.service` is failed.
 
+**Cold start is a routine gate**, not a rare drill. `just signals-cold-start-ci`
+runs the unit-script contracts, then the same complete recycle + `lattice-ci`.
+`signals-engine.service` is a **membership hook**: devenv owns
+`python -m signals.engine`; the unit waits for `Engine/Status` and must not
+spawn a second interpreter while `uv` is building the venv. `signals-heal`
+re-kicks `signals.target` (live members stay) when refresh is not active —
+RemainAfterExit oneshots have no `Restart=` and will otherwise stay failed.
+
 Sample units for lab hosts that bring **Signals foundation** up with optional
 federated peer engines (Ægir, Atelier, Gaius, Synth) and **external** engines
 (e.g. AGPL Metabase) under one group target.
@@ -45,6 +53,9 @@ Foundation units call repo wrappers (not bare `just` in the unit file):
 - `scripts/systemd_foundation_start.sh` — idempotent up / already-ready
 - `scripts/systemd_foundation_stop.sh` — `just down`
 - `scripts/systemd_signals_ready.sh` — poll `just signals-ready`
+- `scripts/systemd_engine_start.sh` — wait for devenv-owned Engine/Status (no second interpreter)
+- `scripts/systemd_heal.sh` — if refresh is not active, reset-failed + start the target (live members stay)
+- `just signals-cold-start-ci` — routine elevated cold-start gate
 
 ## Topology
 

@@ -727,12 +727,32 @@ in
     };
   };
 
+  # Ensure the devenv uv venv matches the lock BEFORE Python processes start.
+  # Process exec must not `uv run` (that re-syncs torch/CUDA on a cold start and
+  # races systemd_engine_start.sh against a half-built interpreter — 2026-09-13).
+  tasks."signals:uv-sync" = {
+    description = "Match .devenv/state/venv to uv.lock before Python processes start";
+    before = [ "devenv:processes:signals-engine" ];
+    exec = ''
+      set -euo pipefail
+      py="$PWD/.devenv/state/venv/bin/python"
+      if [ -x "$py" ] && "$py" -c "import grpc" >/dev/null 2>&1; then
+        echo "signals:uv-sync: venv import-ready (grpc) — skip uv sync"
+        exit 0
+      fi
+      echo "signals:uv-sync: uv sync --frozen (venv missing or incomplete)"
+      uv sync --frozen
+      "$PWD/.devenv/state/venv/bin/python" -c "import grpc"
+    '';
+  };
+
   # ── signals-engine (platform gRPC: Engine + Scheduler on :50551) ─────────
   # Product path for scheduler ops. YuniKorn REST is private to this process.
-  # systemd counterpart: infra/systemd/signals-engine.service
+  # systemd counterpart: infra/systemd/signals-engine.service (membership hook:
+  # wait for Engine/Status; do not spawn a second interpreter).
   processes.signals-engine = {
     ready = {
-      exec = "uv run python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
+      exec = ".devenv/state/venv/bin/python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
       initial_delay = 1;
       period = 2;
       probe_timeout = 5;
@@ -752,14 +772,16 @@ in
       fi
       export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
       echo "signals-engine: Engine + Scheduler on :$SIGNALS_ENGINE_GRPC_PORT (YK REST private)"
-      if command -v uv >/dev/null 2>&1; then
-        exec uv run python -m signals.engine
+      py="$PWD/.devenv/state/venv/bin/python"
+      if [ ! -x "$py" ]; then
+        echo "signals-engine: missing $py — signals:uv-sync should have created it" >&2
+        exit 1
       fi
-      exec python -m signals.engine
+      exec "$py" -m signals.engine
     '';
     process-compose = {
       readiness_probe = {
-        exec.command = "uv run python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
+        exec.command = ".devenv/state/venv/bin/python scripts/zndx_engine_status.py --expect-project signals --expect-capability scheduler 127.0.0.1:50551";
         initial_delay_seconds = 1;
         period_seconds = 2;
         timeout_seconds = 5;
@@ -786,10 +808,12 @@ in
       export SIGNALS_PEER_CONTRACT="''${SIGNALS_PEER_CONTRACT:-$PWD/config/platform/peer-contract.json}"
       export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
       echo "signals-c2: C2 HTTP on :$SIGNALS_C2_HTTP_PORT (Yield via engine gRPC)"
-      if command -v uv >/dev/null 2>&1; then
-        exec uv run python -m signals.c2
+      py="$PWD/.devenv/state/venv/bin/python"
+      if [ ! -x "$py" ]; then
+        echo "signals-c2: missing $py — signals:uv-sync should have created it" >&2
+        exit 1
       fi
-      exec python -m signals.c2
+      exec "$py" -m signals.c2
     '';
     process-compose = {
       depends_on = {

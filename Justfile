@@ -365,6 +365,12 @@ install-systemd *ARGS:
 signals-restart:
     bash scripts/systemd_target_refresh.sh
 
+# Elevated cold-start gate (not a smoke): script contracts, then a complete
+# group recycle + lattice-ci. Takes the lattice down. Requires sudo.
+# Scripts-only: SIGNALS_COLD_START_CI_SCRIPTS_ONLY=1 just signals-cold-start-ci
+signals-cold-start-ci:
+    bash scripts/signals_cold_start_ci.sh
+
 # Settle closed hours of signal_tier0 → Iceberg+HDF5 signal_tier1, verify, then
 # retire fully-verified closed days from Kudu (DROP RANGE PARTITION).
 # Needs h5py + boto3: uses the gaius venv unless SIGNAL_SETTLE_PY is set.

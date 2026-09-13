@@ -310,6 +310,7 @@ just lattice-ci --require <id>
 | **`systemctl start signals.target`** | Foundation + ready + **all enabled peers** (does not restart live members) |
 | **`systemctl restart signals.target`** | **Complete refresh** — stop every `PartOf=` member, start all enabled members, `signals-refresh.service` verifies Status |
 | `just signals-restart` | Same recycle + fail if any enabled member is not active |
+| `just signals-cold-start-ci` | **Elevated gate** — script contracts + complete recycle + `lattice-ci` (routine cold start; not a smoke) |
 | `systemctl start <peer>` | That peer alone (still `After=signals-ready`) |
 
 Acceptance templates: [peer-unit-spec](./peer-unit-spec.md).

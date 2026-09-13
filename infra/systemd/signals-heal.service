@@ -1,5 +1,5 @@
 [Unit]
-Description=Signals group self-heal (re-kick failed foundation until verified healthy)
+Description=Signals group self-heal (re-kick target when refresh is down; live members stay)
 Documentation=file:///home/rch/local/src/wxs/signals/infra/systemd/README.md
 # Runs as root (no User=) so it can systemctl reset-failed / start the group.
 After=signals.target
