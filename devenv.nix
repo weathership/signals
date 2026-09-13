@@ -740,8 +740,15 @@ in
         echo "signals:uv-sync: venv import-ready (grpc) — skip uv sync"
         exit 0
       fi
-      echo "signals:uv-sync: uv sync --frozen (venv missing or incomplete)"
-      uv sync --frozen
+      # --no-dev: the default `uv sync` / `uv run` pulls the dev group
+      # (sentence-transformers → torch/CUDA) onto root and DiskPressure-evicts
+      # the node (2026-09-13). Engine/C2 only need project.dependencies.
+      if [ -d /raid/cache ]; then
+        export UV_CACHE_DIR="''${UV_CACHE_DIR:-/raid/cache/uv}"
+        mkdir -p "$UV_CACHE_DIR"
+      fi
+      echo "signals:uv-sync: uv sync --frozen --no-dev (venv missing or incomplete; cache=''${UV_CACHE_DIR:-default})"
+      uv sync --frozen --no-dev
       "$PWD/.devenv/state/venv/bin/python" -c "import grpc"
     '';
   };
@@ -2745,6 +2752,12 @@ SQL
     export TRANSFORMERS_OFFLINE="''${TRANSFORMERS_OFFLINE:-$HF_HUB_OFFLINE}"
     if [ -z "''${HF_HOME:-}" ] && [ -d /raid/cache/huggingface ]; then
       export HF_HOME=/raid/cache/huggingface
+    fi
+    # uv wheel cache off root. `uv run` without --no-dev pulled torch/CUDA
+    # into ~/.cache/uv on / and tripped kubelet DiskPressure (2026-09-13).
+    if [ -z "''${UV_CACHE_DIR:-}" ] && [ -d /raid/cache ]; then
+      export UV_CACHE_DIR=/raid/cache/uv
+      mkdir -p "$UV_CACHE_DIR"
     fi
     if [ -z "''${HF_HUB_CACHE:-}" ]; then
       if [ -d /raid/cache/rch/huggingface ]; then

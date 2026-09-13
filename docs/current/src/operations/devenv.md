@@ -82,8 +82,10 @@ every script, readiness oneshot and systemd unit resolves the interpreter throug
 (the `signals-engine` false WARN in `signals-ready`). `signals_python_path` requires
 `import grpc`; a half-built venv (uv sync in flight) is not ready. Process execs
 use that venv binary directly — they must not `uv run` at start (that re-syncs
-torch/CUDA and races systemd). Task `signals:uv-sync` runs `uv sync --frozen`
-only when grpc is missing. Justfile recipes use `uv run`. Cold-start gate:
+torch/CUDA and races systemd). Task `signals:uv-sync` runs `uv sync --frozen --no-dev` only when grpc is
+missing (`uv run` without `--no-dev` pulls sentence-transformers/torch onto
+root). Wheel cache is `UV_CACHE_DIR=/raid/cache/uv` when `/raid/cache`
+exists. Justfile recipes use `uv run`. Cold-start gate:
 `just signals-cold-start-ci`.
 
 Process manager: **native** (`process.manager.implementation = "native"`). Ordering

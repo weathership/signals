@@ -35,6 +35,11 @@ timed out waiting for Status on :50551
 - TimeoutStartSec=1200 on the engine unit (Gaius-class cold start).
 - Gate: `just signals-cold-start-ci` (script contracts + complete recycle +
   lattice-ci). Routine, not a smoke.
+- `uv run` (ready probes + engine exec) syncs the **dev** group →
+  sentence-transformers → torch/CUDA onto `~/.cache/uv` on `/`. Hundreds of
+  overlapping Status probes filled root from 86 Gi free to 2 Gi and kubelet
+  DiskPressure-evicted ingress/dcgm. Cache now `/raid/cache/uv`;
+  `signals:uv-sync` is `uv sync --frozen --no-dev`.
 
 ## RKE2 (same window)
 
