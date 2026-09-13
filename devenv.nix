@@ -747,6 +747,7 @@ in
         export UV_CACHE_DIR="''${UV_CACHE_DIR:-/raid/cache/uv}"
         mkdir -p "$UV_CACHE_DIR"
       fi
+      export UV_PROJECT_ENVIRONMENT="$PWD/.devenv/state/venv"
       echo "signals:uv-sync: uv sync --frozen --no-dev (venv missing or incomplete; cache=''${UV_CACHE_DIR:-default})"
       uv sync --frozen --no-dev
       "$PWD/.devenv/state/venv/bin/python" -c "import grpc"
