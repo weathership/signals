@@ -99,6 +99,27 @@ def test_tier1_registrar_matches_tier0_shape() -> None:
     ]
 
 
+def test_scratch_tier1_hour_partition_matches_kudu() -> None:
+    from signals.ops.iceberg_register import (
+        SCRATCH_TIER1_TABLES,
+        scratch_tier1_schema,
+    )
+
+    assert SCRATCH_TIER1_TABLES == (
+        "theta_scratch_vertex_tier1",
+        "theta_scratch_edge_tier1",
+        "theta_scratch_incidence_tier1",
+    )
+    names = {
+        t: [f.name for f in scratch_tier1_schema(t).fields]
+        for t in SCRATCH_TIER1_TABLES
+    }
+    assert names["theta_scratch_vertex_tier1"][0] == "epoch_hour"
+    assert "vertex_role" in names["theta_scratch_incidence_tier1"]
+    assert "tau" in names["theta_scratch_vertex_tier1"]
+    assert "role" not in names["theta_scratch_incidence_tier1"]
+
+
 def test_no_tmp_warehouse_paths() -> None:
     root = Path(__file__).resolve().parents[2]
     for rel in (
