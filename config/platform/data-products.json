@@ -77,6 +77,16 @@
       "kind": "ledger",
       "leaf": "root.platform",
       "agent_focus": "The Fibonacci-hour Backlog of gaius's cadenced workflows (signals_dataproducts.nautilus_backlog / nautilus_events / nautilus_positions, project = gaius): every hourly fill is an OL run; quality = slot-0 rows filled within the horizon for every declared workflow, lineage = the instance spec_version+engine_build epoch stamped on each cell, delta = items opened/resolved since the last review, nominal = no item past its horizon_slot unsurfaced."
+    },
+    {
+      "id": "gaius.theta.cycle",
+      "peer": "gaius",
+      "title": "Theta contemplation cycle",
+      "kind": "corpus",
+      "leaf": "root.internal.inference.light",
+      "agent_focus": "Aperture remainder (none/ambiguous ≤512 windows) and CLT(+SAE) incidence as a hypergraph on scratch THS (theta_scratch_vertex/edge/incidence): quality = hourly slot-0 remainder rows when admit ran, lineage = c_epoch + hx_generation_id on vertices, delta = new incidence since last cycle, nominal = DROP RANGE PARTITION after Iceberg verify never row DELETE. Graph analysis (hubs, data-fusion over settled Iceberg) is later; AGE is Atlas+OL only.",
+      "table_identifier": "signals_dataproducts.theta_scratch_incidence",
+      "storage": "scratch"
     }
   ]
 }

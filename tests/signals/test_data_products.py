@@ -37,6 +37,9 @@ def test_catalog_has_federation_peers() -> None:
     assert "aegir.usd-corpora" in cats
     assert "aegir.models.bespoke" in cats
     assert "atelier.classification.embeddings" in cats
+    assert "gaius.theta.cycle" in cats
+    assert cats["gaius.theta.cycle"]["peer"] == "gaius"
+    assert cats["gaius.theta.cycle"]["storage"] == "scratch"
 
 
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:
