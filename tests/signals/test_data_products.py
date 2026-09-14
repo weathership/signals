@@ -40,6 +40,7 @@ def test_catalog_has_federation_peers() -> None:
     assert "gaius.theta.cycle" in cats
     assert cats["gaius.theta.cycle"]["peer"] == "gaius"
     assert cats["gaius.theta.cycle"]["storage"] == "scratch"
+    assert cats["gaius.theta.cycle"]["table_identifier"] == "signals_dataproducts.theta_cycle_incidence"
 
 
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:

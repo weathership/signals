@@ -8,7 +8,7 @@ from signals.ops.warehouse import SCHEMA_SQL
 
 _ROOT = Path(__file__).resolve().parents[2]
 _KUDU = _ROOT / "config" / "platform" / "theta-scratch-kudu.sql"
-_FDW = _ROOT / "config" / "platform" / "theta-scratch-fdw.sql"
+_FDW = _ROOT / "config" / "platform" / "theta-cycle-fdw.sql"
 
 
 def test_catalog_product_is_cycle_over_scratch() -> None:
@@ -18,7 +18,7 @@ def test_catalog_product_is_cycle_over_scratch() -> None:
     assert p["kind"] == "corpus"
     assert p["leaf"] == "root.internal.inference.light"
     assert p["storage"] == "scratch"
-    assert p["table_identifier"] == "signals_dataproducts.theta_scratch_incidence"
+    assert p["table_identifier"] == "signals_dataproducts.theta_cycle_incidence"
     assert "DROP RANGE PARTITION" in p["agent_focus"]
     assert "AGE is Atlas+OL only" in p["agent_focus"]
 
@@ -48,12 +48,15 @@ def test_kudu_hypergraph_expire_is_drop_range_not_row_delete() -> None:
     assert "atlas_graph" not in text
     assert "CREATE GRAPH" not in text.upper()
     assert "STORED AS ICEBERG" not in text
+    assert "theta_cycle_vertex" in text
+    assert "theta_cycle_incidence" in text
 
 
 def test_fdw_twins_kudu_scan_tier0_and_sql_views() -> None:
     text = _FDW.read_text(encoding="utf-8")
     assert "access 'kudu_scan'" in text
     assert "access 'impala_sql'" in text
-    assert text.count("theta_scratch_vertex") >= 2
+    assert "theta_cycle_vertex_tier0" in text
     assert "vertex_role" in text
     assert "impala::signals_dataproducts.theta_scratch_incidence_tier0" in text
+    assert '"table" \'theta_cycle_vertex\'' in text or "theta_cycle_vertex" in text

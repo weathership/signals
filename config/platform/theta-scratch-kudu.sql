@@ -118,3 +118,11 @@ CREATE VIEW IF NOT EXISTS signals_dataproducts.theta_scratch_edge AS
 SELECT * FROM signals_dataproducts.theta_scratch_edge_tier0;
 CREATE VIEW IF NOT EXISTS signals_dataproducts.theta_scratch_incidence AS
 SELECT * FROM signals_dataproducts.theta_scratch_incidence_tier0;
+
+-- Product surface: gaius.theta.cycle. Scratch names stay the THS tablets.
+CREATE VIEW IF NOT EXISTS signals_dataproducts.theta_cycle_vertex AS
+SELECT * FROM signals_dataproducts.theta_scratch_vertex;
+CREATE VIEW IF NOT EXISTS signals_dataproducts.theta_cycle_edge AS
+SELECT * FROM signals_dataproducts.theta_scratch_edge;
+CREATE VIEW IF NOT EXISTS signals_dataproducts.theta_cycle_incidence AS
+SELECT * FROM signals_dataproducts.theta_scratch_incidence;
