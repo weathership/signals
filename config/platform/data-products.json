@@ -77,16 +77,6 @@
       "kind": "ledger",
       "leaf": "root.platform",
       "agent_focus": "The Fibonacci-hour Backlog of gaius's cadenced workflows (signals_dataproducts.nautilus_backlog / nautilus_events / nautilus_positions, project = gaius): every hourly fill is an OL run; quality = slot-0 rows filled within the horizon for every declared workflow, lineage = the instance spec_version+engine_build epoch stamped on each cell, delta = items opened/resolved since the last review, nominal = no item past its horizon_slot unsurfaced."
-    },
-    {
-      "id": "gaius.theta.cycle",
-      "peer": "gaius",
-      "title": "Theta contemplation cycle",
-      "kind": "corpus",
-      "leaf": "root.internal.inference.light",
-      "agent_focus": "NOT the Theta consolidation cycle (that is Gaius Metaflow gaius_theta_cycle over theta_consolidation_runs). This row is leftover scratch THS naming only — do not treat incidence as SoR.",
-      "table_identifier": "signals_dataproducts.theta_cycle_incidence",
-      "storage": "scratch"
     }
   ]
 }

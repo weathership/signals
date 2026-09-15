@@ -28,9 +28,6 @@ SCHEMA_SQL = (
     # Kudu tier0 + tier0-only logical views until its Iceberg tier1 lands.
     # Self-contained — applied after the views, needs no Polaris step.
     _REPO_ROOT / "config/platform/nautilus-kudu.sql",
-    # gaius.theta.cycle over scratch storage: hypergraph (vertex/edge/incidence)
-    # Kudu tier0 + tier0-only views until Polar Iceberg tier1 lands.
-    _REPO_ROOT / "config/platform/theta-scratch-kudu.sql",
 )
 DATABASE = "signals_dataproducts"
 TABLES = ("tx", "details", "hx_exchange", "hx_reasoning")

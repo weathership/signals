@@ -179,62 +179,6 @@ def tier1_schema(table: str) -> "Schema":
     raise ValueError(f"unknown tier1 table {table!r}")
 
 
-# gaius.theta.cycle scratch THS — hour identity so expire is a whole partition
-# (metadata-only delete). Separate from catalog TIER1_TABLES (product_id / e).
-SCRATCH_TIER1_TABLES = (
-    "theta_scratch_vertex_tier1",
-    "theta_scratch_edge_tier1",
-    "theta_scratch_incidence_tier1",
-)
-
-
-def scratch_tier1_schema(table: str) -> "Schema":
-    """Columns byte-match theta_scratch_*_tier0 (minus Kudu PRIMARY KEY)."""
-    if table == "theta_scratch_vertex_tier1":
-        return _schema(
-            [
-                ("epoch_hour", "int", True, "UTC hour; expire grain"),
-                ("ts_ns", "long", True, "event time, ns"),
-                ("vertex_id", "string", True, "stable vertex id"),
-                ("kind", "string", True, "window|feature|label|hx"),
-                ("text_id", "long", False, "source text id"),
-                ("layer", "int", False, "CLT/SAE layer"),
-                ("feature_idx", "int", False, "CLT/SAE feature"),
-                ("window_start", "int", False, "char offset start"),
-                ("window_end", "int", False, "char offset end"),
-                ("reason", "string", False, "none|ambiguous"),
-                ("tau", "float", False, "aperture tau"),
-                ("margin", "float", False, "MaxSim margin"),
-                ("c_epoch", "string", False, "local C snapshot"),
-                ("aperture", "string", False, "collection name"),
-                ("hx_generation_id", "string", False, "HX thinking trace id"),
-            ]
-        )
-    if table == "theta_scratch_edge_tier1":
-        return _schema(
-            [
-                ("epoch_hour", "int", True, "UTC hour; expire grain"),
-                ("ts_ns", "long", True, "event time, ns"),
-                ("edge_id", "string", True, "hyperedge id"),
-                ("kind", "string", True, "ACTIVATES|CONTEMPLATES|…"),
-                ("arity", "int", False, "incident vertex count"),
-                ("c_epoch", "string", False, "local C snapshot"),
-            ]
-        )
-    if table == "theta_scratch_incidence_tier1":
-        return _schema(
-            [
-                ("epoch_hour", "int", True, "UTC hour; expire grain"),
-                ("ts_ns", "long", True, "event time, ns"),
-                ("edge_id", "string", True, "hyperedge id"),
-                ("vertex_id", "string", True, "incident vertex"),
-                ("vertex_role", "string", True, "window|feature|label|trace"),
-                ("pos", "int", False, "order in the hyperedge"),
-            ]
-        )
-    raise ValueError(f"unknown scratch tier1 table {table!r}")
-
-
 def tier1_partition_column(table: str) -> str:
     """Iceberg partitions by identity — never epoch_hour (hour hotspots)."""
     return "e" if table == "details_tier1" else "product_id"
@@ -268,37 +212,5 @@ def register_tier1_tables(catalog: "Catalog | None" = None) -> list[str]:
     out: list[str] = []
     for table in TIER1_TABLES:
         create_tier1_table(cat, table)
-        out.append(f"{NAMESPACE}.{table}")
-    return out
-
-
-def create_scratch_tier1_table(catalog: "Catalog", table: str) -> "Table":
-    """Idempotent Polar create; partition identity epoch_hour (hour expire)."""
-    from pyiceberg.exceptions import NoSuchTableError, TableAlreadyExistsError
-
-    table_id = f"{NAMESPACE}.{table}"
-    try:
-        return catalog.load_table(table_id)
-    except NoSuchTableError:
-        pass
-    schema = scratch_tier1_schema(table)
-    logger.info("Creating Polar Iceberg scratch table %s", table_id)
-    try:
-        return catalog.create_table(
-            identifier=table_id,
-            schema=schema,
-            partition_spec=_identity_spec(schema, "epoch_hour"),
-            properties=dict(_TABLE_PROPERTIES),
-        )
-    except TableAlreadyExistsError:
-        return catalog.load_table(table_id)
-
-
-def register_scratch_tier1_tables(catalog: "Catalog | None" = None) -> list[str]:
-    """gaius.theta.cycle Iceberg twins; hour partitions for metadata-only expire."""
-    cat = catalog or load_polaris_catalog()
-    out: list[str] = []
-    for table in SCRATCH_TIER1_TABLES:
-        create_scratch_tier1_table(cat, table)
         out.append(f"{NAMESPACE}.{table}")
     return out

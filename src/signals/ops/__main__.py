@@ -192,10 +192,6 @@ def main(argv: list[str] | None = None) -> int:
             for extra in SCHEMA_SQL[2:]:
                 wh.apply_schema(extra)
                 print(f"product {extra.name}")
-            from signals.ops.iceberg_register import register_scratch_tier1_tables
-
-            for ident in register_scratch_tier1_tables():
-                print(f"scratch tier1 {ident}")
         except Exception as e:
             print(e, file=sys.stderr)
             return 2

@@ -37,10 +37,6 @@ def test_catalog_has_federation_peers() -> None:
     assert "aegir.usd-corpora" in cats
     assert "aegir.models.bespoke" in cats
     assert "atelier.classification.embeddings" in cats
-    assert "gaius.theta.cycle" in cats
-    assert cats["gaius.theta.cycle"]["peer"] == "gaius"
-    assert cats["gaius.theta.cycle"]["storage"] == "scratch"
-    assert cats["gaius.theta.cycle"]["table_identifier"] == "signals_dataproducts.theta_cycle_incidence"
 
 
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:
@@ -98,27 +94,6 @@ def test_tier1_registrar_matches_tier0_shape() -> None:
         "epoch_hour", "product_id", "tx_id", "agent", "ts_ns",
         "quality", "lineage", "delta", "trace",
     ]
-
-
-def test_scratch_tier1_hour_partition_matches_kudu() -> None:
-    from signals.ops.iceberg_register import (
-        SCRATCH_TIER1_TABLES,
-        scratch_tier1_schema,
-    )
-
-    assert SCRATCH_TIER1_TABLES == (
-        "theta_scratch_vertex_tier1",
-        "theta_scratch_edge_tier1",
-        "theta_scratch_incidence_tier1",
-    )
-    names = {
-        t: [f.name for f in scratch_tier1_schema(t).fields]
-        for t in SCRATCH_TIER1_TABLES
-    }
-    assert names["theta_scratch_vertex_tier1"][0] == "epoch_hour"
-    assert "vertex_role" in names["theta_scratch_incidence_tier1"]
-    assert "tau" in names["theta_scratch_vertex_tier1"]
-    assert "role" not in names["theta_scratch_incidence_tier1"]
 
 
 def test_no_tmp_warehouse_paths() -> None:
