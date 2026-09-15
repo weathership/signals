@@ -107,6 +107,47 @@ def test_close_succeeds_only_on_released():
         coord_lease.require_released("alive")
 
 
+def test_workload_skip_is_not_dag_success():
+    with pytest.raises(coord_lease.IneffectiveRelease) as ei:
+        coord_lease.require_effect(
+            "skipped: SELECT meta.should_run_prospects_check() is false",
+            kind="prospects_check",
+        )
+    assert coord_lease.GURU_NOEFFECT in str(ei.value)
+    assert "prospects_check" in str(ei.value)
+    with pytest.raises(coord_lease.IneffectiveRelease):
+        coord_lease.require_effect("failed: prospects_update #44219", kind="prospects_update")
+    assert coord_lease.require_effect("completed: prospects_check #11") == (
+        "completed: prospects_check #11"
+    )
+    assert coord_lease.require_effect("connect-probe-done") == "connect-probe-done"
+
+
+def test_close_workload_fails_on_skipped_owner_outcome(monkeypatch):
+    pytest.importorskip("airflow", reason="airflow is not installed in the Signals venv")
+    import coord_signals
+    from airflow.exceptions import AirflowException
+
+    class _TI:
+        def xcom_pull(self, task_ids, key=None):
+            if task_ids == "hold":
+                return "released"
+            if task_ids == "declare" and key == "lease_url":
+                return "http://lease/coord/activities/w1"
+            return None
+
+    monkeypatch.setattr(
+        coord_lease,
+        "fetch",
+        lambda url, timeout_s=5.0: {
+            "state": "released",
+            "outcome": "skipped: SELECT meta.should_run_prospects_check() is false",
+        },
+    )
+    with pytest.raises(AirflowException, match=coord_lease.GURU_NOEFFECT):
+        coord_signals._close_workload("hold", "prospects_check", ti=_TI())
+
+
 def test_trigger_and_sensor_construct():
     pytest.importorskip("airflow", reason="airflow is not installed in the Signals venv")
     import coord_signals

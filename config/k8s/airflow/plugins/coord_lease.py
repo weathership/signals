@@ -28,6 +28,11 @@ UNKNOWN = "unknown"
 
 TERMINAL = (RELEASED, LAPSED)
 GURU_LAPSED = "#CO.0000000E.LAPSED"  # hold ended because the peer never released
+GURU_NOEFFECT = "#CO.0000000F.NOEFFECT"  # owner released without the intended effect
+# Owner ReleaseActivity outcomes that are not the workload's real-world effect.
+# A "skipped" gate is a fail: calling skip success lets error conditions
+# pass as silent, masked failures (gaius_prospects_check 12–15 Sep 2026).
+INEFFECTIVE_HEADS = frozenset({"skipped", "failed", "error", "stalled"})
 
 
 class LapsedLease(RuntimeError):
@@ -54,6 +59,40 @@ def require_released(outcome: str, *, kind: str = "") -> str:
     if outcome == LAPSED:
         raise LapsedLease(outcome, kind=kind)
     raise ValueError(f"non-terminal lease outcome {outcome!r}")
+
+
+class IneffectiveRelease(RuntimeError):
+    """The owner released, but the intended effect did not occur.
+
+    Airflow used to treat any ReleaseActivity as DAG success. That hid
+    gaius_prospects_check: every 07:00 tick released ``skipped: gate_false``
+    (green) while the check only ran on engine-catchup, and a failed
+    prospects_update never retried.
+    """
+
+    def __init__(self, owner_outcome: str, *, kind: str = ""):
+        self.owner_outcome = owner_outcome
+        self.kind = kind
+        what = f"workload {kind} " if kind else ""
+        super().__init__(
+            f"{GURU_NOEFFECT} {what}released without effect: {owner_outcome}"
+        )
+
+
+def owner_effect_head(owner_outcome: str) -> str:
+    return (owner_outcome.split(":", 1)[0] if owner_outcome else "").strip().lower()
+
+
+def require_effect(owner_outcome: str, *, kind: str = "") -> str:
+    """Workload close: skip/fail/error/stalled is not DAG success.
+
+    Interactive sessions use ``require_released`` only (freeform outcomes).
+    Ordered workloads must produce the intended effect.
+    """
+    head = owner_effect_head(owner_outcome)
+    if head in INEFFECTIVE_HEADS:
+        raise IneffectiveRelease(owner_outcome, kind=kind)
+    return owner_outcome
 
 
 class LeaseUnreachable(RuntimeError):

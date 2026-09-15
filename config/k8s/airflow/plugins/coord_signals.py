@@ -420,6 +420,12 @@ def make_coord_dag(
 # ── ordered workloads: the run IS the activity ───────────────────────────────
 
 
+def _declare_task_id(hold_task_id: str) -> str:
+    if hold_task_id.startswith("hold"):
+        return "declare" + hold_task_id[len("hold") :]
+    return "declare"
+
+
 def _close_workload(hold_task_id: str, kind: str, **context: Any) -> str:
     outcome = context["ti"].xcom_pull(task_ids=hold_task_id)
     try:
@@ -428,8 +434,22 @@ def _close_workload(hold_task_id: str, kind: str, **context: Any) -> str:
         raise AirflowException(str(e)) from e
     except ValueError:
         raise AirflowException(f"{GURU_BADEVENT} {hold_task_id} returned {outcome!r} for workload {kind}")
+    lease_url = context["ti"].xcom_pull(task_ids=_declare_task_id(hold_task_id), key="lease_url")
+    owner_outcome = ""
+    if lease_url:
+        try:
+            view = coord_lease.fetch(str(lease_url))
+            owner_outcome = str(view.get("outcome") or "")
+        except coord_lease.LeaseUnreachable as e:
+            raise AirflowException(
+                f"{coord_lease.GURU_NOEFFECT} workload {kind} close could not read owner outcome: {e}"
+            ) from e
+    try:
+        coord_lease.require_effect(owner_outcome, kind=kind)
+    except coord_lease.IneffectiveRelease as e:
+        raise AirflowException(str(e)) from e
     print(
-        f"workload close: kind={kind} outcome={outcome} (owner released it) — "
+        f"workload close: kind={kind} outcome={outcome} owner={owner_outcome!r} — "
         f"queue configuration retired at Signals; Asset zndx.coord.{kind}.ended emitted"
     )
     return str(outcome)
