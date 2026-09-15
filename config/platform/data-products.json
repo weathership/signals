@@ -77,6 +77,14 @@
       "kind": "ledger",
       "leaf": "root.platform",
       "agent_focus": "The Fibonacci-hour Backlog of gaius's cadenced workflows (signals_dataproducts.nautilus_backlog / nautilus_events / nautilus_positions, project = gaius): every hourly fill is an OL run; quality = slot-0 rows filled within the horizon for every declared workflow, lineage = the instance spec_version+engine_build epoch stamped on each cell, delta = items opened/resolved since the last review, nominal = no item past its horizon_slot unsurfaced."
+    },
+    {
+      "id": "gaius.fmp.warehouse",
+      "peer": "gaius",
+      "title": "FMP Starter Annual warehouse",
+      "kind": "warehouse",
+      "leaf": "root.platform",
+      "agent_focus": "Typed FMP catalog rows on signals_dataproducts.fmp_*_tier0 (profile, filings, earnings) projected as Postgres warehouse.v_fmp_* for Metabase. Quality = flatten contracts (symbol required, market_cap DOUBLE). Lineage = FmpCall tool name + scheduled_tasks id. Delta = new as_of vs prior ts_ns. Nominal = ProjectWarehouse fields_projected > 0 on the Metabase peer (not Gaius :3100 meta.*)."
     }
   ]
 }
