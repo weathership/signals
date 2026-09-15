@@ -44,23 +44,23 @@ def test_catalog_has_federation_peers() -> None:
 
 
 def test_fmp_kudu_is_plain_scalar_ths() -> None:
-    """FMP warehouse is nautilus-shaped Kudu, not Polarisfork JSON blobs."""
+    """FMP warehouse is C++ Kudu + catalog_tables, not Python impyla HS2."""
     from signals.ops.warehouse import SCHEMA_SQL
 
-    root = Path(__file__).resolve().parents[2] / "config" / "platform"
-    sql = (root / "fmp-kudu.sql").read_text(encoding="utf-8")
-    assert any(p.name == "fmp-kudu.sql" for p in SCHEMA_SQL)
-    assert sql.count("\nSTORED AS KUDU\n") == 3
-    assert "fmp_profile_tier0" in sql
-    assert "fmp_filings_tier0" in sql
-    assert "fmp_earnings_tier0" in sql
-    assert "RANGE (epoch_hour)" in sql
-    assert "HASH (symbol)" in sql
-    assert "announced" in sql
-    assert "FOREIGN TABLE" not in sql
-    assert "CREATE TABLE IF NOT EXISTS" in sql
-    # date is Impala-reserved; the earnings column is announced.
-    assert " announced " in sql
+    root = Path(__file__).resolve().parents[2]
+    cc = (root / "scripts" / "signals_kudu_create.cc").read_text(encoding="utf-8")
+    registry = (root / "config" / "platform" / "signal-registry.sql").read_text(
+        encoding="utf-8"
+    )
+    shape = (root / "config" / "platform" / "fmp-kudu.sql").read_text(encoding="utf-8")
+    assert not any(p.name == "fmp-kudu.sql" for p in SCHEMA_SQL)
+    for name in ("fmp_profile_tier0", "fmp_filings_tier0", "fmp_earnings_tier0"):
+        assert name in cc
+        assert name in registry
+        assert name in shape
+    assert "impala_fdw kudu_scan" in cc
+    assert "announced" in cc
+    assert "schema-apply" in shape.lower() or "impyla" in shape.lower()
 
 
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:

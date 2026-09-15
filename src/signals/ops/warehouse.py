@@ -28,9 +28,6 @@ SCHEMA_SQL = (
     # Kudu tier0 + tier0-only logical views until its Iceberg tier1 lands.
     # Self-contained — applied after the views, needs no Polaris step.
     _REPO_ROOT / "config/platform/nautilus-kudu.sql",
-    # Gaius FMP warehouse (Starter Annual profile/filings/earnings): same
-    # scalar HS2 path as nautilus. Metabase reads Postgres warehouse.v_fmp_*.
-    _REPO_ROOT / "config/platform/fmp-kudu.sql",
 )
 DATABASE = "signals_dataproducts"
 TABLES = ("tx", "details", "hx_exchange", "hx_reasoning")

@@ -168,6 +168,40 @@ void BuildCltLabel(KuduSchemaBuilder* b) {
 /* ---- clt_activation_tier0: the text->feature firing event. Sparse top-k
  * pairs (~115) are 230 elements / ~920 B, inside both caps at their defaults;
  * the dense alternative is 20480 floats = 80 KB, over the 64 KB cell cap. ---- */
+/* ---- fmp_*_tier0: Gaius FMP Starter Annual warehouse. Plain scalars;
+ * writers INSERT through Postgres impala_fdw kudu_scan (no Python impyla).
+ * HS2 CREATE … STORED AS KUDU is not the apply path. ---- */
+void BuildFmpProfileTier0(KuduSchemaBuilder* b) {
+  Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
+  Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "symbol", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "name", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "exchange", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "sector", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "industry", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "market_cap", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "website", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "description", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+}
+
+void BuildFmpFilingsTier0(KuduSchemaBuilder* b) {
+  Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
+  Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "symbol", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "form", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "filed", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "url", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+}
+
+void BuildFmpEarningsTier0(KuduSchemaBuilder* b) {
+  Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
+  Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "symbol", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "announced", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "eps", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "eps_estimated", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+}
+
 void BuildCltActivationTier0(KuduSchemaBuilder* b) {
   Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
   Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
@@ -194,6 +228,12 @@ const std::vector<TableSpec>& Specs() {
        {"model_id", "layer", "feature_idx", "valid_from_ns"}, {"feature_idx"}, 2, false},
       {"clt_activation_tier0", BuildCltActivationTier0,
        {"epoch_hour", "ts_ns", "text_id", "pos", "layer"}, {"text_id"}, 4, true},
+      {"fmp_profile_tier0", BuildFmpProfileTier0,
+       {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
+      {"fmp_filings_tier0", BuildFmpFilingsTier0,
+       {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
+      {"fmp_earnings_tier0", BuildFmpEarningsTier0,
+       {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
   };
   return kSpecs;
 }

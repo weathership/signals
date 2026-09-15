@@ -1,6 +1,8 @@
--- Gaius FMP warehouse — Kudu tier0 (hot). Plain scalars: HS2
--- CREATE … STORED AS KUDU is the nautilus path (signals_kudu_create.cc
--- is only for signal_tier0 array/decimal).
+-- Gaius FMP warehouse — Impala-visible shape of Kudu tier0.
+-- Apply path is scripts/signals_kudu_create.cc (libkudu_client) plus
+-- catalog_tables rows in signal-registry.sql. Writers INSERT through
+-- Postgres impala_fdw kudu_scan. Do not schema-apply this file over
+-- Python impyla; that client is not the THS runtime.
 --
 -- Grain: one ingest batch row per symbol (profile) or filing/earnings
 -- line. Time grain = UTC hour (epoch_hour); range unit = DAY so a closed
