@@ -27,6 +27,11 @@ FORMAT=text
 REQUIRE_CSV="${SIGNALS_LATTICE_REQUIRE:-}"
 REQUIRE_ALL=0
 STATUS_PY="$ROOT/scripts/zndx_engine_status.py"
+# Prefer the devenv interpreter. Bare `uv run` from CI rebuilds extras
+# (kerberos, torch) and was the 2026-09-15 uniform "codegen Status failed".
+if [[ -z "${SIGNALS_PYTHON:-}" && -x "$ROOT/.devenv/state/venv/bin/python" ]]; then
+  SIGNALS_PYTHON="$ROOT/.devenv/state/venv/bin/python"
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -115,7 +120,11 @@ probe_status_codegen() {
   local args=(--json --timeout 3)
   [[ -n "$proj" ]] && args+=(--expect-project "$proj")
   [[ -n "$cap" ]] && args+=(--expect-capability "$cap")
-  uv run python "$STATUS_PY" "${args[@]}" "127.0.0.1:${port}" 2>/dev/null
+  if [[ -n "${SIGNALS_PYTHON:-}" ]]; then
+    "$SIGNALS_PYTHON" "$STATUS_PY" "${args[@]}" "127.0.0.1:${port}" 2>/dev/null
+  else
+    uv run python "$STATUS_PY" "${args[@]}" "127.0.0.1:${port}" 2>/dev/null
+  fi
 }
 
 # (2) External tooling surface — bare grpcurl requires server reflection
