@@ -675,8 +675,12 @@ class ActivityService:
         since_ns: int = 0,
         limit: int = 0,
     ) -> list[ActivityRecord]:
+        # active_only is Connect's stale-release: in-force leases have no
+        # ended_ns so they stay in the recent set. Walking every historical
+        # schedule-declared lease serializes GET /dagRuns per file and blows
+        # the peer's 15 s gRPC deadline.
         out = []
-        for r in self._records():
+        for r in self._records(recent_only=bool(active_only)):
             if peer and r.peer != peer:
                 continue
             if kind and r.kind != kind:

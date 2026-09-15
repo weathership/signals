@@ -156,6 +156,25 @@ def test_declare_is_idempotent_and_does_not_heartbeat(leases):
     assert leases.read(a.activity_id)["heartbeat_ns"] == 1_000 * NS  # a retry is not a renew
 
 
+def test_list_active_only_skips_ended_lease_fetches(leases):
+    """Connect's stale-release is list(active_only=True). Ended history must not
+    serialize a GET /dagRuns per lease or the 15 s gRPC deadline fires first."""
+    fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
+    svc = _svc(fake, clock, leases)
+    old = svc.declare(_declare_req(request_id="old"))
+    svc.release("hermes", old.activity_id, "done")
+    fake.finish(old.run_id)
+    clock.ns = 1_000 * NS + 601 * NS  # past ended_window_s=600
+    new = svc.declare(_declare_req(request_id="new"))
+    fake.calls.clear()
+    recs = svc.list(peer="hermes", kind="interactive_session", active_only=True)
+    assert [r.activity_id for r in recs] == [new.activity_id]
+    fetched = [c[1] for c in fake.calls if c[0] == "get_run"]
+    assert old.run_id not in fetched
+    assert new.run_id in fetched
+    assert not any(c[0] == "list_runs" or (c[0] == "list_dag_runs") for c in fake.calls)
+
+
 def test_generic_kind_uses_coord_activity_without_pool(leases):
     fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
     svc = _svc(fake, clock, leases)
