@@ -120,7 +120,14 @@ partitions:
                       federation.class: internal.inference.light
                       federation.yk_enforces: memory,vcore,federation.zndx.org/gpu,maxapplications
                       federation.peer_meters: ""
-                      federation.examples: gaius.ask-agent;1.7b
+                      federation.examples: gaius.ask-agent;1.7b;gaius.theta-cycle
+                      # Single-GPU Metaflow (theta-cycle Monday, clt-skos-admit)
+                      # stays on THIS leaf. Do not fence — a pending Activity
+                      # that asserts guaranteed>usage must be able to preempt
+                      # floor-0 siblings (clt-probe). Standing guaranteed stays
+                      # 0 so leftover tokens remain with extract/medium; the
+                      # arbiter raises the floor only while the Airflow run's
+                      # claims are in force (same shape as agent-rtc).
                       preemption.delay: 5s
                     resources:
                       # No standing floor. Shares leftover 2 with extract / on-demand SAE.
