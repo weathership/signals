@@ -19,8 +19,7 @@ def test_catalog_product_is_cycle_over_scratch() -> None:
     assert p["leaf"] == "root.internal.inference.light"
     assert p["storage"] == "scratch"
     assert p["table_identifier"] == "signals_dataproducts.theta_cycle_incidence"
-    assert "DROP RANGE PARTITION" in p["agent_focus"]
-    assert "AGE is Atlas+OL only" in p["agent_focus"]
+    assert "NOT the Theta consolidation cycle" in p["agent_focus"]
 
 
 def test_schema_apply_includes_scratch_kudu() -> None:

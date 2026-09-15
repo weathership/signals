@@ -84,7 +84,7 @@
       "title": "Theta contemplation cycle",
       "kind": "corpus",
       "leaf": "root.internal.inference.light",
-      "agent_focus": "Aperture remainder (none/ambiguous ≤512 windows) and CLT(+SAE) incidence as a hypergraph (theta_cycle_vertex/edge/incidence). Scratch is the THS tablet family (Kudu tier0 + Iceberg tier1), not the product name. Quality = hourly slot-0 remainder rows when admit ran, lineage = c_epoch + hx_generation_id on vertices, delta = new incidence since last cycle, nominal = DROP RANGE PARTITION after Iceberg verify never row DELETE. Graph analysis (hubs, data-fusion over settled Iceberg) is later; AGE is Atlas+OL only.",
+      "agent_focus": "NOT the Theta consolidation cycle (that is Gaius Metaflow gaius_theta_cycle over theta_consolidation_runs). This row is leftover scratch THS naming only — do not treat incidence as SoR.",
       "table_identifier": "signals_dataproducts.theta_cycle_incidence",
       "storage": "scratch"
     }
