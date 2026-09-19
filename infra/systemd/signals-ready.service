@@ -3,8 +3,7 @@ Description=Signals readiness oneshot (Gaius-style PASS/WARN/FAIL)
 Documentation=file:///home/rch/local/src/wxs/signals/scripts/signals_ready.sh
 PartOf=signals.target
 After=signals.service rke2-server.service
-Requires=signals.service
-Wants=rke2-server.service
+Requires=signals.service rke2-server.service
 
 [Service]
 Type=oneshot

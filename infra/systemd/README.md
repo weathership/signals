@@ -62,7 +62,7 @@ Foundation units call repo wrappers (not bare `just` in the unit file):
 ```text
 multi-user.target
   ├── rke2-server.service            # K8s (Airflow :30800, YK, Metaflow)
-  └── signals.target                 # Wants= rke2-server (not PartOf)
+  └── signals.target                 # Requires= rke2-server (not PartOf)
         ├── signals.service          # just up / just down  (After=rke2-server)
         ├── signals-ready.service    # oneshot: just signals-ready until exit 0
         ├── signals-engine.service   # platform engine :50551 (After=ready)
@@ -76,14 +76,17 @@ multi-user.target
         └── metabase.service         # EXTERNAL AGPL tree — not vendored here
 ```
 
-Stopping `signals.target` does **not** stop RKE2. Starting the target after a
-host reboot waits for `rke2-server` so Airflow NodePort exists before
-`DeclareActivity`.
+Stopping `signals.target` does **not** stop RKE2. Starting the target
+`Requires=` + `After=` `rke2-server` so Airflow NodePort exists before
+`DeclareActivity`. If `rke2-server` fails or is stopped, systemd deactivates
+the requiring Signals units; the cluster is still a host service.
 
 Peers are **peer-to-peer** with each other (no ordering edges). All order after
 **`signals-ready.service`**, not merely after `signals.service` process start.
-Foundation units order **after `rke2-server.service`** so a host reboot does
-not start `just up` while Airflow's NodePort is still refused.
+Foundation units **`Requires=` + `After=` `rke2-server.service`** so a host
+reboot does not start `just up` while Airflow's NodePort is still refused,
+and a dead kube-apiserver fails the group instead of leaving Hermes on a
+connection-refused `:30800`.
 
 ## License boundary (Metabase)
 
