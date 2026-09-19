@@ -2,8 +2,9 @@
 Description=Signals readiness oneshot (Gaius-style PASS/WARN/FAIL)
 Documentation=file:///home/rch/local/src/wxs/signals/scripts/signals_ready.sh
 PartOf=signals.target
-After=signals.service
+After=signals.service rke2-server.service
 Requires=signals.service
+Wants=rke2-server.service
 
 [Service]
 Type=oneshot
@@ -19,7 +20,8 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
 Environment=XDG_RUNTIME_DIR=/run/user/1001
 # Poll until critical plane is ready (includes Kudu + Metaflow)
 ExecStart=/home/rch/local/src/wxs/signals/scripts/systemd_signals_ready.sh
-TimeoutStartSec=1500
+# Cold boot: rke2 + Airflow NodePort + Eventing broker can take >20 min.
+TimeoutStartSec=2400
 
 [Install]
 WantedBy=signals.target

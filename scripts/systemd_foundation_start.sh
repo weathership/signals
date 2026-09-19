@@ -10,6 +10,19 @@ export PATH="/usr/local/bin:/usr/bin:/bin:${HOME}/.nix-profile/bin:${PATH:-}"
 
 info() { echo "systemd-foundation: $*"; }
 
+# devenv critical plane is not a substitute for K8s. Wait for rke2 so
+# Airflow/YK/Metaflow NodePorts exist before `just up` / ready poll.
+if ! systemctl is-active --quiet rke2-server 2>/dev/null; then
+  info "waiting for rke2-server before foundation up"
+  for i in $(seq 1 60); do
+    if systemctl is-active --quiet rke2-server 2>/dev/null; then
+      info "rke2-server active"
+      break
+    fi
+    sleep 5
+  done
+fi
+
 if just signals-ready; then
   info "already READY — skip just up"
   exit 0

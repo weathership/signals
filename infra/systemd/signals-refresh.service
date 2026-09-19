@@ -5,7 +5,7 @@ Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations
 PartOf=signals.target
 After=network-online.target
 After=signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service
-After=gaius.service aegir.service atelier.service metabase.service synth.service
+After=gaius.service aegir.service atelier.service hermes.service metabase.service synth.service
 # Re-verify until the group converges: members and warehouse-ingest freshness
 # lag boot. Verify-only (no restarts of members), so retries are cheap.
 StartLimitIntervalSec=3600

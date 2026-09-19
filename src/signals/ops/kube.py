@@ -15,6 +15,7 @@ import requests
 def pick_kubeconfig() -> str:
     for c in (
         os.environ.get("KUBECONFIG") or "",
+        str(Path.home() / ".config" / "kube" / "rke2.yaml"),
         str(Path.home() / ".kube" / "rke2.yaml"),
         str(Path.home() / ".kube" / "config"),
         "/etc/rancher/rke2/rke2.yaml",

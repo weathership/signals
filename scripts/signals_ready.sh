@@ -50,7 +50,10 @@ UI_URL="${SIGNALS_UI_URL:-http://127.0.0.1:9889}"
 # Prefer a readable kubeconfig (lab env often sets KUBECONFIG to root-only rke2 path).
 pick_kubeconfig() {
   local c
-  for c in "${KUBECONFIG:-}" "${HOME}/.kube/rke2.yaml" "${HOME}/.kube/config"; do
+  for c in "${KUBECONFIG:-}" \
+    "${HOME}/.config/kube/rke2.yaml" \
+    "${HOME}/.kube/rke2.yaml" \
+    "${HOME}/.kube/config"; do
     [[ -n "$c" && -r "$c" ]] || continue
     export KUBECONFIG="$c"
     return 0
@@ -238,7 +241,7 @@ if command -v kubectl >/dev/null 2>&1 && [[ "$KUBE_OK" == "1" ]]; then
     record "knative-serving" "$([[ $crit_s -eq 1 ]] && echo FAIL || echo WARN)" "$crit_s" "ns/deploy missing"
   fi
 else
-  record "knative-eventing" FAIL 1 "kubectl missing or no readable kubeconfig (tried env, ~/.kube/rke2.yaml, ~/.kube/config)"
+  record "knative-eventing" FAIL 1 "kubectl missing or no readable kubeconfig (tried env, ~/.config/kube/rke2.yaml, ~/.kube/rke2.yaml, ~/.kube/config)"
   record "knative-serving" SKIP 0 "kubectl/kubeconfig unavailable"
 fi
 

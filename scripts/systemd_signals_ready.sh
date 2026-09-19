@@ -9,6 +9,23 @@ export PATH="/usr/local/bin:/usr/bin:/bin:${HOME}/.nix-profile/bin:${PATH:-}"
 MAX="${SIGNALS_READY_SYSTEMD_ATTEMPTS:-120}"
 SLEEP="${SIGNALS_READY_SYSTEMD_SLEEP:-10}"
 
+# After a host reboot rke2-server can still be activating while this
+# oneshot starts. Airflow :30800 / YK / Eventing are K8s; do not poll
+# the critical plane until the server unit is active.
+for i in $(seq 1 90); do
+  if systemctl is-active --quiet rke2-server 2>/dev/null; then
+    echo "systemd-signals-ready: rke2-server active"
+    break
+  fi
+  if [[ "$i" -eq 90 ]]; then
+    echo "systemd-signals-ready: rke2-server not active after wait" >&2
+    systemctl is-active rke2-server >&2 || true
+    exit 1
+  fi
+  echo "systemd-signals-ready: waiting for rke2-server (attempt $i/90)"
+  sleep 5
+done
+
 for i in $(seq 1 "$MAX"); do
   if just signals-ready; then
     echo "systemd-signals-ready: READY (attempt $i)"

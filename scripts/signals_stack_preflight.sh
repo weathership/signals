@@ -43,7 +43,10 @@ ATLAS_URL="${SIGNALS_ATLAS_HTTP_URL:-http://127.0.0.1:${SIGNALS_ATLAS_HTTP_PORT:
 # Same pick as signals_ready.sh / knative_eventing_bootstrap.sh.
 pick_kubeconfig() {
   local c
-  for c in "${KUBECONFIG:-}" "${HOME}/.kube/rke2.yaml" "${HOME}/.kube/config"; do
+  for c in "${KUBECONFIG:-}" \
+    "${HOME}/.config/kube/rke2.yaml" \
+    "${HOME}/.kube/rke2.yaml" \
+    "${HOME}/.kube/config"; do
     [[ -n "$c" && -r "$c" ]] || continue
     export KUBECONFIG="$c"
     return 0

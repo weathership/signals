@@ -61,8 +61,9 @@ Foundation units call repo wrappers (not bare `just` in the unit file):
 
 ```text
 multi-user.target
-  └── signals.target
-        ├── signals.service          # just up / just down  (foundation)
+  ├── rke2-server.service            # K8s (Airflow :30800, YK, Metaflow)
+  └── signals.target                 # Wants= rke2-server (not PartOf)
+        ├── signals.service          # just up / just down  (After=rke2-server)
         ├── signals-ready.service    # oneshot: just signals-ready until exit 0
         ├── signals-engine.service   # platform engine :50551 (After=ready)
         ├── signals-c2.service       # C2 HTTP :50561 → Engine/Yield (After=engine)
@@ -75,8 +76,14 @@ multi-user.target
         └── metabase.service         # EXTERNAL AGPL tree — not vendored here
 ```
 
+Stopping `signals.target` does **not** stop RKE2. Starting the target after a
+host reboot waits for `rke2-server` so Airflow NodePort exists before
+`DeclareActivity`.
+
 Peers are **peer-to-peer** with each other (no ordering edges). All order after
 **`signals-ready.service`**, not merely after `signals.service` process start.
+Foundation units order **after `rke2-server.service`** so a host reboot does
+not start `just up` while Airflow's NodePort is still refused.
 
 ## License boundary (Metabase)
 

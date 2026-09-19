@@ -5,7 +5,10 @@ Documentation=file:///home/rch/local/src/wxs/signals/config/platform/peer-contra
 # Soft-pull foundation + readiness + engine + C2 + Polaris + post-start verify.
 # Peers opt in via WantedBy=. Refresh = systemctl restart signals.target
 # (complete stop then start; signals-refresh.service verifies every member).
-Wants=signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service signals-refresh.service
+# rke2-server is Wants= not PartOf=: the group must wait for K8s (Airflow
+# :30800, YK, Metaflow) after a host reboot, but stopping the target must
+# not take the cluster down.
+Wants=rke2-server.service signals.service signals-ready.service signals-engine.service signals-c2.service signals-polaris.service signals-refresh.service
 
 [Install]
 WantedBy=multi-user.target

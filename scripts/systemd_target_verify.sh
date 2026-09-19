@@ -35,6 +35,32 @@ for u in "${UNITS[@]}"; do
   fi
 done
 
+# Critical plane NodePorts (Airflow/YK/Metaflow). Hermes DeclareActivity
+# talks to Airflow through the Signals engine — TCP down is a group fail.
+for spec in "30800 airflow" "30080 yunikorn" "30180 metaflow"; do
+  port="${spec%% *}"
+  name="${spec#* }"
+  if ss -ltnH 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
+    info "OK   ${name} :${port}"
+  else
+    # kube-proxy NodePort may not show in ss -ltn; HTTP is the accept.
+    if curl -sf -m 3 "http://127.0.0.1:${port}/" >/dev/null 2>&1 \
+      || curl -sf -m 3 "http://127.0.0.1:${port}/ping" >/dev/null 2>&1 \
+      || curl -sf -m 3 "http://127.0.0.1:${port}/api/v2/version" >/dev/null 2>&1 \
+      || curl -sf -m 3 "http://127.0.0.1:${port}/ws/v1/clusters" >/dev/null 2>&1; then
+      info "OK   ${name} :${port}"
+    else
+      code=$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:${port}/" 2>/dev/null || echo 000)
+      if [[ "$code" =~ ^(200|302|303|401|403)$ ]]; then
+        info "OK   ${name} :${port} http=${code}"
+      else
+        info "FAIL ${name} :${port} unreachable (http=${code})"
+        failed=1
+      fi
+    fi
+  fi
+done
+
 # Lattice Status for enabled units that map to a contract peer.
 if command -v python3 >/dev/null; then
   while IFS=$'\t' read -r unit port; do
