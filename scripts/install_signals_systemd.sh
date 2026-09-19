@@ -58,7 +58,7 @@ if [[ "$DO_PEERS" == "1" ]]; then
       UNITS+=("${id}.service")
     done
   else
-    for f in aegir atelier gaius synth metabase; do
+    for f in aegir atelier gaius hermes synth metabase; do
       UNITS+=("${f}.service")
     done
   fi

@@ -104,6 +104,7 @@
     "atelier": 50251,
     "synth": 50351,
     "metabase": 50451,
+    "hermes": 50651,
     "service": "zndx.engine.v1.Engine",
     "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto",
     "server_reflection": {
@@ -215,6 +216,28 @@
       "architecture_class": "core_federated_engine"
     },
     {
+      "id": "hermes",
+      "capability_hint": "agent",
+      "project_status": "hermes",
+      "grpc_port": 50651,
+      "dashboard_http": "http://127.0.0.1:9119",
+      "license": "MIT",
+      "path_hint": "~/local/src/oss/hermes-agent",
+      "unit": "hermes.service",
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "In-org agent peer — hsengine zndx.engine.v1.Engine on :50651, dashboard :9119",
+        "Unit Exec*: hermes-agent scripts/systemd_{start,stop}.sh; After=signals-ready",
+        "Full-stack under signals.target: devenv up (engine + dashboard + rustfs + caddy + nautilus)",
+        "Do not vendor Hermes into Signals; process + protocol only",
+        "Product SoR: hermes-agent README.engine.md",
+        "Ops: docs/current/src/operations/peer-integration.md#hermes"
+      ],
+      "architecture_class": "core_federated_engine"
+    },
+    {
       "id": "synth",
       "capability_hint": "synthesis",
       "grpc_port": 50351,
@@ -261,7 +284,7 @@
     "foundation": "signals.service",
     "ready_oneshot": "signals-ready.service",
     "samples": "infra/systemd/",
-    "install_hint": "just install-systemd --enable --start; peers: just install-systemd --peers gaius,aegir,atelier,metabase --enable; one-command group: systemctl start signals.target (bare 'signals' is foundation only)",
+    "install_hint": "just install-systemd --enable --start; peers: just install-systemd --peers gaius,aegir,atelier,hermes,metabase --enable; one-command group: systemctl start signals.target (bare 'signals' is foundation only)",
     "docs": {
       "systemd_readme": "infra/systemd/README.md",
       "peer_integration": "docs/current/src/operations/peer-integration.md",

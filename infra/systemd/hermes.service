@@ -1,0 +1,27 @@
+[Unit]
+Description=Hermes federated engine (signals peer)
+Documentation=file:///home/rch/local/src/wxs/signals/docs/current/src/operations/peer-integration.md
+Documentation=file:///home/rch/local/src/oss/hermes-agent/README.engine.md
+PartOf=signals.target
+After=signals-ready.service network-online.target
+Wants=signals-ready.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+KillMode=control-group
+User=rch
+Group=rch
+WorkingDirectory=/home/rch/local/src/oss/hermes-agent
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/rch/.nix-profile/bin
+Environment=HOME=/home/rch
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=SIGNALS_PLUGINS=/home/rch/local/src/wxs/signals-plugins
+# Membership hook only. devenv owns process-compose, jail, secretspec.
+ExecStart=/home/rch/local/src/oss/hermes-agent/scripts/systemd_start.sh
+ExecStop=/home/rch/local/src/oss/hermes-agent/scripts/systemd_stop.sh
+TimeoutStartSec=900
+TimeoutStopSec=300
+
+[Install]
+WantedBy=signals.target

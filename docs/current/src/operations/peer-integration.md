@@ -51,7 +51,7 @@ Bare `systemctl start signals` starts **only** the foundation unit — not peers
    critical plane          PASS ⇒ exit 0           Engine + Scheduler
    PG Kudu Impala          Kudu+Metaflow           (enabled peers after ready)
    YK Metaflow AF          critical included       gaius · aegir · atelier
-   Eventing Broker                                 synth · metabase (AGPL opt.)
+   Eventing Broker                                 hermes · synth · metabase (AGPL opt.)
 ```
 
 Peers are **peer-to-peer** with each other (no ordering edges among engines).
@@ -470,6 +470,33 @@ just lattice-ci --require atelier
 
 ---
 
+## Hermes Agent
+
+Hermes is an in-org **agent** peer (`Status.project=hermes`, capability
+`agent`). It is not a user-session unit: `signals.target` is a **system**
+group, so membership is `hermes.service` with `WantedBy=signals.target`.
+A `~/.config/systemd/user/hermes.service` on `default.target` never joins
+the group and stays down after a host reboot.
+
+| Fact | Value |
+|------|--------|
+| Role | `agent` engine (`Status.project=hermes`) |
+| gRPC | `:50651` — `zndx.engine.v1.Engine` |
+| Dashboard | `:9119` |
+| Sample unit | [`infra/systemd/hermes.service`](../../../infra/systemd/hermes.service) |
+| Wrappers | Hermes tree `scripts/systemd_start.sh` / `systemd_stop.sh` |
+| Peer contract | `peers[]` id `hermes` |
+| Product SoR | Hermes `README.engine.md` |
+
+```bash
+just install-systemd --peers hermes --enable
+sudo systemctl start hermes.service
+grpcurl -plaintext 127.0.0.1:50651 zndx.engine.v1.Engine/Status
+just lattice-ci --require hermes
+```
+
+---
+
 ## External engines: Metabase (AGPL)
 
 Metabase is **external by license requirement** (AGPL vs ASL2), not merely
@@ -555,7 +582,7 @@ just lattice-ci --require metabase
 just install-systemd --enable --start
 
 # Enable only peers whose local unit + Status work is done
-just install-systemd --peers gaius,aegir,atelier,metabase --enable
+just install-systemd --peers gaius,aegir,atelier,hermes,metabase --enable
 
 sudo systemctl start signals.target
 systemctl list-dependencies signals.target

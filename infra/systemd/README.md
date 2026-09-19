@@ -70,6 +70,7 @@ multi-user.target
         ├── aegir.service            # After=signals-ready.service
         ├── atelier.service
         ├── gaius.service
+        ├── hermes.service           # agent peer :50651 + dashboard :9119
         ├── synth.service
         └── metabase.service         # EXTERNAL AGPL tree — not vendored here
 ```
@@ -145,7 +146,7 @@ cd ~/local/src/wxs/signals
 just install-systemd --enable --start
 
 # Later: install peer samples (enable only after peer-unit-spec accept)
-just install-systemd --peers gaius,aegir,atelier,metabase --enable
+just install-systemd --peers gaius,aegir,atelier,hermes,metabase --enable
 
 systemctl list-dependencies signals.target
 just signals-ready

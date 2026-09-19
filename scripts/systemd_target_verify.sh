@@ -60,6 +60,16 @@ PY
 )
 fi
 
+# Hermes product UI is part of that peer's full stack.
+if [[ -e "$WANTS/hermes.service" ]]; then
+  if ss -ltnH 2>/dev/null | grep -qE ':9119[[:space:]]'; then
+    info "OK   hermes-dashboard :9119"
+  else
+    info "FAIL hermes-dashboard :9119 not listening (full-stack doctrine)"
+    failed=1
+  fi
+fi
+
 # Gaius product UI is part of that peer's full stack.
 if [[ -e "$WANTS/gaius.service" ]]; then
   if ss -ltnH 2>/dev/null | grep -qE ':9890[[:space:]]'; then
