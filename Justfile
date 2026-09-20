@@ -572,6 +572,12 @@ airflow-ui:
     echo "DAGs:   just airflow-platform-status"
     if [[ "${OPEN:-0}" == "1" ]]; then (xdg-open "$URL" || open "$URL") >/dev/null 2>&1 || true; fi
 
+# Bounded Theta historical windows via Airflow 3 backfill (not DAG catchup).
+# One Monday 06:00 run per closed ISO week; max_active_runs=1. Dry-run first:
+#   just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14 --dry-run
+theta-backfill *ARGS:
+    uv run python scripts/theta_backfill.py {{ARGS}}
+
 # Trigger signals_ci DAG and wait for success (elevated M2 CI gate).
 airflow-platform-ci:
     bash scripts/airflow_platform_ci.sh

@@ -43,6 +43,10 @@ just airflow-ui
 # Trigger CI DAG and wait for success
 just airflow-platform-ci
 
+# Theta: bounded historical Mondays (not DAG catchup)
+just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14 --dry-run
+just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14
+
 # Critical plane preflight (auto-bootstraps Airflow when SIGNALS_STACK_AUTO_AIRFLOW=1)
 just stack-ready
 just signals-ready                  # check-only oneshot

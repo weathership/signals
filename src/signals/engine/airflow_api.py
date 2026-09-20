@@ -313,3 +313,32 @@ class AirflowClient:
             json=body,
             dag_id=dag_id,
         ).json()
+
+    def create_backfill(
+        self,
+        dag_id: str,
+        *,
+        from_date: str,
+        to_date: str,
+        reprocess_behavior: str = "failed",
+        max_active_runs: int = 1,
+        run_backwards: bool = True,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """POST /api/v2/backfills — one DAG run per scheduled interval in the range.
+
+        Theta uses this instead of DAG catchup=True: each Monday 06:00 run
+        consolidates that week's closed ISO slice, and max_active_runs=1 keeps
+        the LIGHT token from stampeding other catalogued workloads.
+        """
+        body: dict[str, Any] = {
+            "dag_id": dag_id,
+            "from_date": from_date,
+            "to_date": to_date,
+            "run_backwards": bool(run_backwards),
+            "reprocess_behavior": reprocess_behavior,
+            "max_active_runs": int(max_active_runs),
+            "dag_run_conf": {},
+        }
+        path = "/api/v2/backfills/dry_run" if dry_run else "/api/v2/backfills"
+        return self._request("POST", path, json=body, dag_id=dag_id).json()

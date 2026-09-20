@@ -34,6 +34,31 @@ GURU_NOEFFECT = "#CO.0000000F.NOEFFECT"  # owner released without the intended e
 # pass as silent, masked failures (gaius_prospects_check 12–15 Sep 2026).
 INEFFECTIVE_HEADS = frozenset({"skipped", "failed", "error", "stalled"})
 
+# Temporal window of this DAG run. Not a hold-uptime posture: Theta (and other
+# windowed workloads) read it on WatchActivities to bound the slice to this
+# logical date. Airflow catchup=False stays; historical weeks are Airflow
+# backfill, one Monday at a time.
+LOGICAL_DATE_POSTURE = "zndx.logical_date"
+
+
+def isoformat_logical_date(dt: Any) -> str:
+    if dt is None:
+        return ""
+    if hasattr(dt, "isoformat"):
+        return str(dt.isoformat())
+    return str(dt).strip()
+
+
+def postures_with_logical_date(
+    postures: dict[str, str] | None, logical_date: Any
+) -> dict[str, str]:
+    """Stamp the run's logical date onto postures without clobbering holds."""
+    out = {str(k): str(v) for k, v in (postures or {}).items()}
+    iso = isoformat_logical_date(logical_date)
+    if iso:
+        out[LOGICAL_DATE_POSTURE] = iso
+    return out
+
 
 class LapsedLease(RuntimeError):
     """The lease lapsed — the peer did not heartbeat or ReleaseActivity.

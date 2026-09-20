@@ -299,13 +299,14 @@ class SignalsDeclareOperator(BaseOperator):
         dag_id = str(getattr(dag_run, "dag_id", None) or context["dag"].dag_id)
         run_id = str(getattr(dag_run, "run_id", None) or context.get("run_id") or "")
         task_id = str(getattr(ti, "task_id", None) or self.task_id)
+        logical = context.get("logical_date") or context.get("data_interval_start")
         payload = {
             "kind": self.kind,
             "peer": self.peer,
             "owner": self.activity_owner or f"{dag_id}/{run_id}",
             "claims": self.claims,
             "precludes": self.precludes,
-            "postures": self.postures,
+            "postures": coord_lease.postures_with_logical_date(self.postures, logical),
             "horizon_s": self.horizon_s,
             "reason": self.reason,
             "dag_id": dag_id,

@@ -194,6 +194,18 @@ def declare_server():
     httpd.shutdown()
 
 
+def test_postures_with_logical_date_stamps_the_window():
+    from datetime import datetime, timezone
+
+    out = coord_lease.postures_with_logical_date(
+        {"gaius.endpoint.thinking": "hold-uptime"},
+        datetime(2026, 9, 14, 6, 0, tzinfo=timezone.utc),
+    )
+    assert out["gaius.endpoint.thinking"] == "hold-uptime"
+    assert out[coord_lease.LOGICAL_DATE_POSTURE].startswith("2026-09-14T06:00:00")
+    assert coord_lease.postures_with_logical_date({}, None) == {}
+
+
 def test_post_json_declares_and_surfaces_refusals(declare_server):
     view = coord_lease.post_json(f"{declare_server}/coord/activities", {"kind": "k", "peer": "gaius", "dag_id": "d", "run_id": "r"})
     assert view["activity_id"] and view["lease_url"].endswith(view["activity_id"])
