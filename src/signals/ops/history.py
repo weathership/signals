@@ -58,6 +58,10 @@ def resolve_product(
     return product_by_id(product_id, catalog)
 
 
+def _product_id_of(product: dict[str, Any]) -> str:
+    return str(product.get("id") or product.get("product_id") or "")
+
+
 def record_event(
     product_id: str,
     *,
@@ -86,7 +90,16 @@ def record_event(
     }
     wh.insert_tx(ev)
     if product is not None:
-        wh.assert_details(product, tid)
+        from signals.ops.aspects import (
+            CATALOG_PRODUCT_ID,
+            catalog_definition_facts,
+            expand_product,
+        )
+
+        row = expand_product(product)
+        if _product_id_of(row) == CATALOG_PRODUCT_ID:
+            row.update(catalog_definition_facts())
+        wh.assert_details(row, tid)
     return ev
 
 
@@ -122,6 +135,7 @@ def agent_brief(product: dict[str, Any], event: dict[str, Any]) -> str:
         f"Kind: {product.get('kind')}\n"
         f"Title: {product.get('title')}\n"
         f"YK leaf: {product.get('leaf')}\n"
+        f"Spec: {product.get('spec') or product.get('spec_id') or '(none)'}\n"
         f"Event: {event.get('kind')} ({event.get('type')})\n"
         f"tx: {event.get('tx_id') or event.get('event_id')}\n"
         f"Summary: {event.get('summary') or '(none)'}\n\n"

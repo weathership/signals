@@ -11,7 +11,60 @@
     "local_model": "Qwen3.8",
     "queue": "root.external.subscription.rate-limited"
   },
+  "aspects": [
+    {"id": "signals.aspect.identifiable", "title": "Identifiable", "intent": "Stable id, title, owner, version.", "properties": [{"path": "id", "min_count": 1, "datatype": "xsd:string"}]},
+    {"id": "signals.aspect.discoverable", "title": "Discoverable", "intent": "Description, tags, catalog visibility.", "properties": [{"path": "title", "min_count": 1, "datatype": "xsd:string"}]},
+    {"id": "signals.aspect.contracted_interface", "title": "Contracted interface", "intent": "What consumers may rely on."},
+    {"id": "signals.aspect.accessible", "title": "Accessible", "intent": "How approved consumers obtain it.", "properties": [{"path": "data_uri", "min_count": 0, "node_kind": "IRI"}]},
+    {"id": "signals.aspect.quality_assured", "title": "Quality-assured", "intent": "Fitness + evidence."},
+    {"id": "signals.aspect.observable", "title": "Observable", "intent": "Freshness, lineage, incidents."},
+    {"id": "signals.aspect.governed", "title": "Governed", "intent": "Roles, classification, retention."},
+    {"id": "signals.aspect.interoperable", "title": "Interoperable", "intent": "Shared concepts, encodings."},
+    {"id": "signals.aspect.lifecycle_managed", "title": "Lifecycle-managed", "intent": "Maturity, sunset."},
+    {"id": "signals.aspect.provenanced", "title": "Provenanced", "intent": "Inputs, transforms, activity.", "properties": [{"path": "peer", "min_count": 1, "datatype": "xsd:string"}]},
+    {"id": "signals.aspect.cost_transparent", "title": "Cost-transparent", "intent": "Quotas / economics when relevant."},
+    {"id": "signals.aspect.risk_managed", "title": "Risk-managed", "intent": "Continuity, restrictions."},
+    {"id": "signals.aspect.prepared_session_materials", "title": "Prepared session materials", "intent": "Session input; immutable from the session's point of view.", "properties": [{"path": "attachments", "min_count": 0, "node": "signals.aspect.attachment"}]},
+    {"id": "signals.aspect.transcript", "title": "Transcript", "intent": "Session output; in_force then sealed.", "properties": [{"path": "seal", "in": ["", "in_force", "sealed"]}]},
+    {"id": "signals.aspect.can_have_attachment", "title": "Can-have-attachment", "intent": "Invite capability; upper bound.", "properties": [{"path": "attachmentsAllowed", "datatype": "xsd:boolean", "min_count": 1, "max_count": 1}], "or": ["signals.aspect.can_have_attachment.allowed", "signals.aspect.can_have_attachment.forbidden"]},
+    {"id": "signals.aspect.can_have_attachment.allowed", "title": "Attachments allowed", "intent": "Capability true; empty list conforms.", "properties": [{"path": "attachmentsAllowed", "has_value": "true"}, {"path": "attachments", "min_count": 0, "node": "signals.aspect.attachment"}]},
+    {"id": "signals.aspect.can_have_attachment.forbidden", "title": "Attachments forbidden", "intent": "Capability false; nonempty list is maxCount 0.", "properties": [{"path": "attachmentsAllowed", "has_value": "false"}, {"path": "attachments", "max_count": 0}]},
+    {"id": "signals.aspect.attachment", "title": "Attachment pointer", "intent": "Thin-wire pointer; bytes on rustfs.", "properties": [{"path": "name", "min_count": 1, "datatype": "xsd:string"}, {"path": "uri", "min_count": 1, "node_kind": "IRI"}, {"path": "role", "min_count": 1, "in": ["prompt", "materials", "other"]}]}
+  ],
+  "product_specs": [
+    {
+      "id": "signals.spec.warehouse_product",
+      "title": "Warehouse product",
+      "requires": [
+        "signals.aspect.identifiable",
+        "signals.aspect.discoverable",
+        "signals.aspect.provenanced",
+        "signals.aspect.accessible"
+      ]
+    },
+    {
+      "id": "signals.spec.session",
+      "title": "Session",
+      "requires": [
+        "signals.aspect.identifiable",
+        "signals.aspect.prepared_session_materials",
+        "signals.aspect.transcript",
+        "signals.aspect.can_have_attachment",
+        "signals.aspect.provenanced",
+        "signals.aspect.accessible"
+      ]
+    }
+  ],
   "products": [
+    {
+      "id": "signals.aspects.catalog",
+      "peer": "signals",
+      "title": "Aspect and product-spec catalog",
+      "kind": "catalog",
+      "leaf": "root.platform",
+      "spec_id": "signals.spec.warehouse_product",
+      "agent_focus": "Shapes graph: aspects are NodeShapes, not products. Quality = every product_specs.requires id exists in aspects[]. Lineage = signals-protocol pin. Delta = added/removed shapes. Nominal = A intersect P is empty."
+    },
     {
       "id": "signals.metaflow.snapshots",
       "peer": "signals",

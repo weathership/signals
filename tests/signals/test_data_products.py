@@ -14,11 +14,63 @@ from signals.ops.warehouse import (
 )
 
 
+def test_aspects_are_not_product_ids() -> None:
+    from signals.ops.aspects import CATALOG_PRODUCT_ID, aspect_ids, product_specs
+
+    cats = {p["id"] for p in load_catalog()["products"] if p.get("id")}
+    aids = aspect_ids()
+    assert CATALOG_PRODUCT_ID in cats
+    assert not (aids & cats)
+    required = {
+        str(a)
+        for spec in product_specs()
+        for a in (spec.get("requires") or [])
+    }
+    assert required <= aids
+
+
+def test_seed_asserts_spec_and_aspect_bindings() -> None:
+    from signals.ops.aspects import CATALOG_PRODUCT_ID, WAREHOUSE_SPEC
+
+    wh = MemoryWarehouse()
+    seed_details(warehouse=wh)
+    row = wh.get_product("signals.metaflow.snapshots")
+    assert row is not None
+    assert row["spec"] == WAREHOUSE_SPEC
+    assert row["aspect.signals.aspect.identifiable"] == "declared"
+    catalog = wh.get_product(CATALOG_PRODUCT_ID)
+    assert catalog is not None
+    assert catalog["spec"] == WAREHOUSE_SPEC
+    assert catalog["def.signals.aspect.identifiable.title"]
+    assert (
+        catalog["spec.signals.spec.session.requires.signals.aspect.can_have_attachment"]
+        == "true"
+    )
+
+
+def test_can_have_attachment_forbidden_max_count_is_zero() -> None:
+    from signals.ops.aspects import aspect_spec_proto, aspects
+    from signals.engine.generated.zndx.engine.v1 import engine_pb2
+
+    row = next(a for a in aspects() if a["id"].endswith(".forbidden"))
+    spec = aspect_spec_proto(row, engine_pb2)
+    counts = [
+        p.max_count
+        for p in spec.shape.property
+        if p.HasField("max_count") and p.path.predicate.endswith("attachments")
+    ]
+    assert 0 in counts
+    allowed = next(a for a in aspects() if a["id"] == "signals.aspect.can_have_attachment")
+    parent = aspect_spec_proto(allowed, engine_pb2)
+    assert "signals.aspect.can_have_attachment.forbidden" in list(
+        getattr(parent.shape, "or")
+    )
+
+
 def test_catalog_has_federation_peers() -> None:
     doc = load_catalog()
     assert "RustFS" in doc.get("description", "") or "Iceberg" in doc.get("description", "")
     cats = {p["id"]: p for p in doc["products"]}
-    assert doc["products"][0]["id"] == "signals.metaflow.snapshots"
     assert cats["signals.metaflow.snapshots"]["peer"] == "signals"
     assert cats["signals.metaflow.snapshots"]["kind"] == "snapshot"
     assert cats["signals.metaflow.snapshots"]["leaf"] == "root.platform"

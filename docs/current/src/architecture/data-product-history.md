@@ -32,6 +32,12 @@ Schema:
 - [`data-products-iceberg.sql`](../../../config/platform/data-products-iceberg.sql)
 - [`data-products-views.sql`](../../../config/platform/data-products-views.sql)
 
+Aspects are SHACL Core NodeShapes, not products. Instances claim a
+`spec` (`signals.spec.warehouse_product`) and carry `aspect.<id>`
+bindings. The shapes graph is `signals.aspects.catalog` (a product that
+*describes* aspects). Wire: `ServerQuery kind=ASPECTS`. Contract:
+[data_products.md](../../../components/signals-protocol/specification/protocol/data_products.md).
+
 `details` is a fact log `(e, a, v, t, op)` plus `epoch_hour` (range unit).
 `t` / `tx_id` is RFC 9562 **UUIDv7** (time-ordered). Non-v7 ids are refused
 and surfaced to the source via `Engine/Remediate` (`TX_ID_NOT_UUIDV7`).
@@ -60,7 +66,7 @@ erDiagram
     DETAILS {
         int epoch_hour "Kudu RANGE unit; week-wide tablets"
         string e FK "product_id"
-        string a "peer title kind leaf agent_focus + snapshot facts"
+        string a "peer title kind leaf agent_focus spec aspect.* + snapshot facts"
         string v
         string t FK "tx_id"
         boolean op

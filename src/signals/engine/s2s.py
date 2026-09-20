@@ -213,7 +213,7 @@ _PRODUCTS_TTL_S = 30.0
 
 
 def _product_hint(row: dict) -> engine_pb2.ProductHint:
-    return engine_pb2.ProductHint(
+    hint = engine_pb2.ProductHint(
         product_id=str(row.get("id") or row.get("product_id") or ""),
         peer=str(row.get("peer") or ""),
         title=str(row.get("title") or ""),
@@ -225,7 +225,26 @@ def _product_hint(row: dict) -> engine_pb2.ProductHint:
         step=str(row.get("step_name") or ""),
         agent_focus=str(row.get("agent_focus") or ""),
         history="details/tx/hx in signals_dataproducts (warehouse of record)",
+        spec_id=str(row.get("spec_id") or row.get("spec") or ""),
     )
+    prefix = "aspect."
+    for key, val in row.items():
+        if not str(key).startswith(prefix):
+            continue
+        aspect_id = str(key)[len(prefix) :]
+        if not aspect_id or ".evidence" in aspect_id or ".seal" in aspect_id:
+            continue
+        binding = hint.aspects.add()
+        binding.aspect_id = aspect_id
+        binding.claim_status = str(val or "declared")
+        binding.conforms = str(val) in {"declared", "conformant", "true"}
+        ev = row.get(f"aspect.{aspect_id}.evidence")
+        if ev:
+            binding.evidence_uri = str(ev)
+        seal = row.get(f"aspect.{aspect_id}.seal")
+        if seal:
+            binding.seal = str(seal)
+    return hint
 
 
 def local_products() -> list[engine_pb2.ProductHint]:
@@ -287,6 +306,12 @@ def local_response(
         resp.surfaces.extend(local_surfaces())
     if kind == engine_pb2.SERVER_QUERY_KIND_PRODUCTS:
         resp.products.extend(local_products())
+    if kind == engine_pb2.SERVER_QUERY_KIND_ASPECTS:
+        from signals.ops.aspects import shapes_graph
+
+        specs, product_specs = shapes_graph(engine_pb2)
+        resp.aspect_catalog.extend(specs)
+        resp.product_specs.extend(product_specs)
     # WORKLOADS: Signals is scheduler, not a model host — empty is honest.
     # COGNITION (10): Signals has no cognition unit — unset hint is honest.
     # CONTRIBUTIONS (11): PENDING — Signals will answer from its systems of

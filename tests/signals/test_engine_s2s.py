@@ -157,6 +157,21 @@ def test_server_query_peers_from_contract(tmp_path: Path, monkeypatch) -> None:
     assert {p.project for p in q.peers} == {"gaius", "aegir"}
 
 
+def test_server_query_aspects_is_shapes_graph_not_products() -> None:
+    q = local_response(engine_pb2.SERVER_QUERY_KIND_ASPECTS)
+    ids = {s.shape.id for s in q.aspect_catalog}
+    spec_ids = {s.shape.id for s in q.product_specs}
+    assert "signals.aspect.identifiable" in ids
+    assert "signals.aspect.can_have_attachment" in ids
+    assert "signals.spec.warehouse_product" in spec_ids
+    assert "signals.spec.session" in spec_ids
+    assert "signals.aspects.catalog" not in ids
+    required = set()
+    for spec in q.product_specs:
+        required.update(getattr(spec.shape, "and"))
+    assert required <= ids
+
+
 def test_record_lineage_rejects_empty_and_mismatch() -> None:
     yk = MagicMock()
     svc = SignalsEngineServicer("signals", yk=yk)

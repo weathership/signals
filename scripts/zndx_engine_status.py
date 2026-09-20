@@ -36,6 +36,8 @@ _QUERY_KINDS = {
     "surfaces": "SERVER_QUERY_KIND_SURFACES",
     "queues": "SERVER_QUERY_KIND_QUEUES",
     "workloads": "SERVER_QUERY_KIND_WORKLOADS",
+    "products": "SERVER_QUERY_KIND_PRODUCTS",
+    "aspects": "SERVER_QUERY_KIND_ASPECTS",
 }
 
 

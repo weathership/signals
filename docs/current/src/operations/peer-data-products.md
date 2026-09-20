@@ -83,6 +83,8 @@ Map at least:
 | Fact (`a`) | Typical `v` |
 |------------|-------------|
 | `peer`, `title`, `kind`, `leaf`, `agent_focus` | Catalog identity |
+| `spec` / `spec_id` | Product specification (`signals.spec.warehouse_product`) |
+| `aspect.<aspect_id>` | SHACL binding (`declared` / `conformant` / `failed` / `holding`) |
 | `flow_name`, `run_id`, `pathspec` | Metaflow identity |
 | `snapshot_uri` | `{sysroot}/{flow}/{run}` |
 | `data_uri` | `{sysroot}/{flow}/data` (CAS) |
