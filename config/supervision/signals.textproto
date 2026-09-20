@@ -8,6 +8,11 @@
 # this is the "no project package" proof. Every restart strategy is NONE for the
 # read-only adoption phase (nautilus_supervision.md §9).
 #
+# AUDIT 2026-09-20: AgentRTC satrep treated Gaius coordination MISSTICK as
+# Airflow unreachable. Airflow 3 health is /api/v2/monitor/health (not /health).
+# Status-healthy engines can still fail ServerQuery. Audit this spec.
+# gaius/docs/notes/2026-09-20/142002_nautilus_spec_audit_serverquery.md.
+#
 # Residue worth naming: the hourly settle of the `signal` data product is
 # ORCHESTRATED FROM THE GAIUS ENGINE'S pg_cron (tier-settle-signal @ :20) and
 # executes signals/scripts/signal_settle.py — a cross-project ownership seam
