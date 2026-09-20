@@ -35,10 +35,11 @@ GURU_NOEFFECT = "#CO.0000000F.NOEFFECT"  # owner released without the intended e
 INEFFECTIVE_HEADS = frozenset({"skipped", "failed", "error", "stalled"})
 
 # Temporal window of this DAG run. Not a hold-uptime posture: Theta (and other
-# windowed workloads) read it on WatchActivities to bound the slice to this
-# logical date. Airflow catchup=False stays; historical weeks are Airflow
-# backfill, one Monday at a time.
+# windowed workloads) read these on WatchActivities. Catchup=False stays.
+# Daily Theta backfill stamps WINDOW_DATE (UTC day) so LIGHT work refines the
+# ISO-week artifact; LOGICAL_DATE is the DAG run's time.
 LOGICAL_DATE_POSTURE = "zndx.logical_date"
+WINDOW_DATE_POSTURE = "zndx.window_date"
 
 
 def isoformat_logical_date(dt: Any) -> str:
@@ -57,6 +58,19 @@ def postures_with_logical_date(
     iso = isoformat_logical_date(logical_date)
     if iso:
         out[LOGICAL_DATE_POSTURE] = iso
+    return out
+
+
+def postures_with_window_date(
+    postures: dict[str, str] | None, window_date: Any
+) -> dict[str, str]:
+    """Stamp a UTC calendar day for incremental refinement of a week artifact."""
+    out = {str(k): str(v) for k, v in (postures or {}).items()}
+    raw = str(window_date or "").strip()
+    if "T" in raw:
+        raw = isoformat_logical_date(window_date)[:10]
+    if raw:
+        out[WINDOW_DATE_POSTURE] = raw[:10]
     return out
 
 

@@ -1,8 +1,8 @@
 # Theta historical weeks: Airflow backfill (2026-09-20)
 
-`just theta-backfill` creates an Airflow 3 backfill for `gaius_theta_cycle`
-(`POST /api/v2/backfills`, `max_active_runs=1`). DAG catchup stays false.
-Each Monday run stamps `zndx.logical_date` so Gaius consolidates that week's
-closed ISO slice.
+`just theta-backfill` default is **one UTC day per run** (manual dagRuns with
+`conf.window_date`). Each day refines the same ISO-week `theta_consolidation_runs`
+row. The product is the week consolidation. `--weekly` is `POST /api/v2/backfills`
+(one Monday per week). DAG catchup stays false. `max_active_runs=1`.
 
 Canonical: `gaius/docs/scratch/2026-09-20/150500_theta_airflow_backfill.md`

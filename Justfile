@@ -572,8 +572,8 @@ airflow-ui:
     echo "DAGs:   just airflow-platform-status"
     if [[ "${OPEN:-0}" == "1" ]]; then (xdg-open "$URL" || open "$URL") >/dev/null 2>&1 || true; fi
 
-# Bounded Theta historical windows via Airflow 3 backfill (not DAG catchup).
-# One Monday 06:00 run per closed ISO week; max_active_runs=1. Dry-run first:
+# Theta historical days → week-level artifact (not DAG catchup, not day products).
+# Default: one UTC day per run, LIGHT increment, same ISO-week row. Dry-run first:
 #   just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14 --dry-run
 theta-backfill *ARGS:
     uv run python scripts/theta_backfill.py {{ARGS}}

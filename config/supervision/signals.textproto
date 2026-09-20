@@ -12,8 +12,8 @@
 # Airflow unreachable. Airflow 3 health is /api/v2/monitor/health (not /health).
 # Status-healthy engines can still fail ServerQuery. A Theta miss /
 # not-caught-up (dag.gaius_theta_cycle) is a persistent failure, not briefing.
-# Remediate with Airflow backfill of Monday windows (max_active_runs=1), not
-# DAG catchup. Audit this spec.
+# Remediate with daily Airflow increments that refine the week artifact
+# (max_active_runs=1), not DAG catchup. Audit this spec.
 # gaius/docs/scratch/2026-09-20/142002_nautilus_spec_audit_serverquery.md.
 #
 # Residue worth naming: the hourly settle of the `signal` data product is
@@ -79,7 +79,7 @@ processes { id: "knative-eventing" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "
 
 processes { id: "dag.signals_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "manual" } }
 processes { id: "dag.signals_eventing_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_eventing_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "eventing (knative)" } }
-processes { id: "dag.gaius_theta_cycle" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "gaius_theta_cycle" poll_seconds: 120 via: "engine" } cadence { cron: "0 6 * * 1" net_seconds: 18000 } expectation { category: EXPECTATION_CATEGORY_SLOT horizon_slot: 3 channel: CHANNEL_AGENDA_EVENT run_net_slot: 5 rationale: "Gaius Monday 06:00 consolidates the previous ISO week for that logical date; a miss is a persistent failure. Remediate with Airflow backfill of Monday windows (max_active_runs=1), not DAG catchup" } }
+processes { id: "dag.gaius_theta_cycle" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "gaius_theta_cycle" poll_seconds: 120 via: "engine" } cadence { cron: "0 6 * * 1" net_seconds: 18000 } expectation { category: EXPECTATION_CATEGORY_SLOT horizon_slot: 3 channel: CHANNEL_AGENDA_EVENT run_net_slot: 5 rationale: "Gaius Monday 06:00 consolidates the previous ISO week for that logical date; a miss is a persistent failure. Remediate with daily Airflow increments that refine the same week artifact (max_active_runs=1), not DAG catchup" } }
 # signals_ci / signals_eventing_ci are paused CI gates — not supervised as cadence processes.
 
 # ── pg_cron (signals DB) ───────────────────────────────────────────────────────

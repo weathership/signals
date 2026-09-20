@@ -204,6 +204,8 @@ def test_postures_with_logical_date_stamps_the_window():
     assert out["gaius.endpoint.thinking"] == "hold-uptime"
     assert out[coord_lease.LOGICAL_DATE_POSTURE].startswith("2026-09-14T06:00:00")
     assert coord_lease.postures_with_logical_date({}, None) == {}
+    stamped = coord_lease.postures_with_window_date(out, "2026-09-16")
+    assert stamped[coord_lease.WINDOW_DATE_POSTURE] == "2026-09-16"
 
 
 def test_post_json_declares_and_surfaces_refusals(declare_server):

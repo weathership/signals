@@ -32,6 +32,22 @@ def test_create_backfill_is_one_interval_at_a_time():
     assert body["reprocess_behavior"] == "failed"
 
 
+def test_daily_refine_windows_map_to_week_artifact():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "theta_backfill.py"
+    spec = importlib.util.spec_from_file_location("theta_backfill", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    days = mod.daily_refine_windows("2026-09-14", "2026-09-16", backwards=False)
+    assert [d for d, _ in days] == ["2026-09-14", "2026-09-15", "2026-09-16"]
+    assert {s for _, s in days} == {"2026-W38"}
+    rev = mod.daily_refine_windows("2026-09-14", "2026-09-16", backwards=True)
+    assert rev[0][0] == "2026-09-16"
+
+
 def test_create_backfill_dry_run_hits_dry_run_path():
     captured: dict = {}
     client = AirflowClient.__new__(AirflowClient)

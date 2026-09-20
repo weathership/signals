@@ -43,7 +43,7 @@ just airflow-ui
 # Trigger CI DAG and wait for success
 just airflow-platform-ci
 
-# Theta: bounded historical Mondays (not DAG catchup)
+# Theta: daily LIGHT increments into the week artifact (not DAG catchup)
 just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14 --dry-run
 just theta-backfill --from-date 2026-08-03 --to-date 2026-09-14
 
