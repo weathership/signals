@@ -10,8 +10,10 @@
 #
 # AUDIT 2026-09-20: AgentRTC satrep treated Gaius coordination MISSTICK as
 # Airflow unreachable. Airflow 3 health is /api/v2/monitor/health (not /health).
-# Status-healthy engines can still fail ServerQuery. Audit this spec.
-# gaius/docs/notes/2026-09-20/142002_nautilus_spec_audit_serverquery.md.
+# Status-healthy engines can still fail ServerQuery. A Theta miss /
+# not-caught-up (dag.gaius_theta_cycle) is a persistent failure, not briefing;
+# do not catch up as a job. Audit this spec.
+# gaius/docs/scratch/2026-09-20/142002_nautilus_spec_audit_serverquery.md.
 #
 # Residue worth naming: the hourly settle of the `signal` data product is
 # ORCHESTRATED FROM THE GAIUS ENGINE'S pg_cron (tier-settle-signal @ :20) and
@@ -21,7 +23,7 @@
 # not). Signals' own cron settles gpu_metrics.
 
 project: "signals"
-spec_version: "2026-09-03.1"
+spec_version: "2026-09-20.1"
 engine_build: "trunk"
 engine_grpc: "127.0.0.1:50551"
 
@@ -76,6 +78,7 @@ processes { id: "knative-eventing" kind: PROCESS_KIND_EXTERNAL_SERVICE parent: "
 
 processes { id: "dag.signals_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "manual" } }
 processes { id: "dag.signals_eventing_smoke" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "signals_eventing_smoke" poll_seconds: 120 via: "engine" } attrs { key: "trigger" value: "eventing (knative)" } }
+processes { id: "dag.gaius_theta_cycle" kind: PROCESS_KIND_AIRFLOW_DAG parent: "airflow" restart: RESTART_STRATEGY_NONE observation { source: SOURCE_KIND_AIRFLOW_METADATA locator: "gaius_theta_cycle" poll_seconds: 120 via: "engine" } cadence { cron: "0 6 * * 1" net_seconds: 18000 } expectation { category: EXPECTATION_CATEGORY_SLOT horizon_slot: 3 channel: CHANNEL_AGENDA_EVENT run_net_slot: 5 rationale: "Gaius Monday 06:00 weekly consolidation of the previous ISO week; a miss or not-caught-up is a persistent failure until a successful tick — not briefing, not a catch-up job" } }
 # signals_ci / signals_eventing_ci are paused CI gates — not supervised as cadence processes.
 
 # ── pg_cron (signals DB) ───────────────────────────────────────────────────────
