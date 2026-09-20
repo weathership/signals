@@ -62,6 +62,14 @@ def _product_id_of(product: dict[str, Any]) -> str:
     return str(product.get("id") or product.get("product_id") or "")
 
 
+def _aspect_binding_line(product: dict[str, Any]) -> str:
+    pairs = []
+    for key, val in sorted(product.items()):
+        if str(key).startswith("aspect.") and ".evidence" not in str(key) and ".seal" not in str(key):
+            pairs.append(f"{key[7:]}={val}")
+    return ", ".join(pairs) if pairs else "(none)"
+
+
 def record_event(
     product_id: str,
     *,
@@ -136,6 +144,7 @@ def agent_brief(product: dict[str, Any], event: dict[str, Any]) -> str:
         f"Title: {product.get('title')}\n"
         f"YK leaf: {product.get('leaf')}\n"
         f"Spec: {product.get('spec') or product.get('spec_id') or '(none)'}\n"
+        f"Aspects: {_aspect_binding_line(product)}\n"
         f"Event: {event.get('kind')} ({event.get('type')})\n"
         f"tx: {event.get('tx_id') or event.get('event_id')}\n"
         f"Summary: {event.get('summary') or '(none)'}\n\n"
