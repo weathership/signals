@@ -202,6 +202,32 @@ void BuildFmpEarningsTier0(KuduSchemaBuilder* b) {
   Col(b, "eps_estimated", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
 }
 
+void BuildFmpQuoteTier0(KuduSchemaBuilder* b) {
+  Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
+  Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "symbol", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "name", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "exchange", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "price", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "change", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "change_percent", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "volume", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+  Col(b, "day_low", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "day_high", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+}
+
+void BuildFmpEodTier0(KuduSchemaBuilder* b) {
+  Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
+  Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
+  Col(b, "symbol", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "bar_date", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "open", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "high", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "low", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "close", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "volume", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+}
+
 void BuildCltActivationTier0(KuduSchemaBuilder* b) {
   Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
   Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
@@ -233,6 +259,10 @@ const std::vector<TableSpec>& Specs() {
       {"fmp_filings_tier0", BuildFmpFilingsTier0,
        {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
       {"fmp_earnings_tier0", BuildFmpEarningsTier0,
+       {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
+      {"fmp_quote_tier0", BuildFmpQuoteTier0,
+       {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
+      {"fmp_eod_tier0", BuildFmpEodTier0,
        {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
   };
   return kSpecs;

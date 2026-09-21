@@ -106,7 +106,13 @@ def test_fmp_kudu_is_plain_scalar_ths() -> None:
     )
     shape = (root / "config" / "platform" / "fmp-kudu.sql").read_text(encoding="utf-8")
     assert not any(p.name == "fmp-kudu.sql" for p in SCHEMA_SQL)
-    for name in ("fmp_profile_tier0", "fmp_filings_tier0", "fmp_earnings_tier0"):
+    for name in (
+        "fmp_profile_tier0",
+        "fmp_filings_tier0",
+        "fmp_earnings_tier0",
+        "fmp_quote_tier0",
+        "fmp_eod_tier0",
+    ):
         assert name in cc
         assert name in registry
         assert name in shape

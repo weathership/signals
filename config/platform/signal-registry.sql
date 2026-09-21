@@ -38,6 +38,10 @@ INSERT INTO catalog_tables (db_name, table_name, table_type, parameters) VALUES
    '{"kudu.table_name": "impala::signals_dataproducts.fmp_filings_tier0", "kudu.master_addresses": "tinybox.dev.vista.zndx.org:7051", "signals.tier": "0", "signals.range_unit": "day", "signals.product": "gaius.fmp.warehouse"}'),
   ('signals_dataproducts', 'fmp_earnings_tier0', 'KUDU',
    '{"kudu.table_name": "impala::signals_dataproducts.fmp_earnings_tier0", "kudu.master_addresses": "tinybox.dev.vista.zndx.org:7051", "signals.tier": "0", "signals.range_unit": "day", "signals.product": "gaius.fmp.warehouse"}'),
+  ('signals_dataproducts', 'fmp_quote_tier0', 'KUDU',
+   '{"kudu.table_name": "impala::signals_dataproducts.fmp_quote_tier0", "kudu.master_addresses": "tinybox.dev.vista.zndx.org:7051", "signals.tier": "0", "signals.range_unit": "day", "signals.product": "gaius.fmp.warehouse"}'),
+  ('signals_dataproducts', 'fmp_eod_tier0', 'KUDU',
+   '{"kudu.table_name": "impala::signals_dataproducts.fmp_eod_tier0", "kudu.master_addresses": "tinybox.dev.vista.zndx.org:7051", "signals.tier": "0", "signals.range_unit": "day", "signals.product": "gaius.fmp.warehouse"}'),
   ('signals_dataproducts', 'signal', 'VIEW',
    '{"view.original": "SELECT epoch_hour, ts_ns, series_id, src, gpu, inst, val_i, val_d FROM signals_dataproducts.signal_tier0 UNION ALL SELECT epoch_hour, ts_ns, series_id, src, gpu, inst, val_i, val_d FROM signals_dataproducts.signal_tier1 t1 WHERE t1.epoch_hour NOT IN (SELECT epoch_hour FROM signals_dataproducts.signal_tier0 GROUP BY 1)",
      "view.expanded": "SELECT epoch_hour, ts_ns, series_id, src, gpu, inst, val_i, val_d FROM signals_dataproducts.signal_tier0 UNION ALL SELECT epoch_hour, ts_ns, series_id, src, gpu, inst, val_i, val_d FROM signals_dataproducts.signal_tier1 t1 WHERE t1.epoch_hour NOT IN (SELECT epoch_hour FROM signals_dataproducts.signal_tier0 GROUP BY 1)"}')

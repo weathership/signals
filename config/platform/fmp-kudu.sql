@@ -84,9 +84,65 @@ TBLPROPERTIES (
   'signals.writer' = 'gaius FmpWarehouseFlow (impala_fdw kudu_scan)'
 );
 
+CREATE TABLE IF NOT EXISTS signals_dataproducts.fmp_quote_tier0 (
+  epoch_hour INT,
+  ts_ns BIGINT,
+  symbol STRING,
+  name STRING,
+  exchange STRING,
+  price DOUBLE,
+  change DOUBLE,
+  change_percent DOUBLE,
+  volume BIGINT,
+  day_low DOUBLE,
+  day_high DOUBLE,
+  PRIMARY KEY (epoch_hour, ts_ns, symbol)
+)
+PARTITION BY HASH (symbol) PARTITIONS 2,
+RANGE (epoch_hour) (
+  PARTITION VALUES < 0
+)
+STORED AS KUDU
+TBLPROPERTIES (
+  'kudu.num_tablet_replicas' = '1',
+  'signals.tier' = '0',
+  'signals.range_unit' = 'day',
+  'signals.product' = 'gaius.fmp.warehouse',
+  'signals.writer' = 'gaius FmpWarehouseFlow / collect_fmp (impala_fdw kudu_scan)'
+);
+
+CREATE TABLE IF NOT EXISTS signals_dataproducts.fmp_eod_tier0 (
+  epoch_hour INT,
+  ts_ns BIGINT,
+  symbol STRING,
+  bar_date STRING,
+  open DOUBLE,
+  high DOUBLE,
+  low DOUBLE,
+  close DOUBLE,
+  volume BIGINT,
+  PRIMARY KEY (epoch_hour, ts_ns, symbol)
+)
+PARTITION BY HASH (symbol) PARTITIONS 2,
+RANGE (epoch_hour) (
+  PARTITION VALUES < 0
+)
+STORED AS KUDU
+TBLPROPERTIES (
+  'kudu.num_tablet_replicas' = '1',
+  'signals.tier' = '0',
+  'signals.range_unit' = 'day',
+  'signals.product' = 'gaius.fmp.warehouse',
+  'signals.writer' = 'gaius FmpWarehouseFlow / collect_fmp (impala_fdw kudu_scan)'
+);
+
 CREATE VIEW IF NOT EXISTS signals_dataproducts.fmp_profile AS
 SELECT * FROM signals_dataproducts.fmp_profile_tier0;
 CREATE VIEW IF NOT EXISTS signals_dataproducts.fmp_filings AS
 SELECT * FROM signals_dataproducts.fmp_filings_tier0;
 CREATE VIEW IF NOT EXISTS signals_dataproducts.fmp_earnings AS
 SELECT * FROM signals_dataproducts.fmp_earnings_tier0;
+CREATE VIEW IF NOT EXISTS signals_dataproducts.fmp_quote AS
+SELECT * FROM signals_dataproducts.fmp_quote_tier0;
+CREATE VIEW IF NOT EXISTS signals_dataproducts.fmp_eod AS
+SELECT * FROM signals_dataproducts.fmp_eod_tier0;
