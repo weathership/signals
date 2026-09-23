@@ -2,10 +2,13 @@
 """Bounded Theta backfill: daily LIGHT increments into a week-level artifact.
 
 On-time Monday 06:00 still consolidates the previous ISO week in one run.
-A long miss must not open that whole week (or many weeks) in one LIGHT
-occupancy. Default increment is one UTC day: each run encodes that day's
-thoughts and refines the *same* ``theta_consolidation_runs`` row for the
-containing ISO week. The data product is the week consolidation, not a
+Leave the week in progress to that schedule. A backfill of a missed week
+starts at that week's earliest UTC day and walks toward the present, one
+LIGHT increment at a time. That approximates the whole-week consolidation
+without opening the week as one out-of-band occupancy. Latest-first is
+``--latest-first``. Default increment is one UTC day: each run encodes that
+day's thoughts and refines the *same* ``theta_consolidation_runs`` row for
+the containing ISO week. The data product is the week consolidation, not a
 stack of day slices.
 
 DAG catchup stays false. ``gaius_theta_cycle.max_active_runs=1`` serializes
@@ -46,7 +49,7 @@ def iso_week_of(d: date) -> str:
 
 
 def daily_refine_windows(
-    from_date: str, to_date: str, *, backwards: bool = True
+    from_date: str, to_date: str, *, backwards: bool = False
 ) -> list[tuple[str, str]]:
     """(window_date, slice_id) for each UTC day. slice_id is the week artifact."""
     d0, d1 = _parse_day(from_date), _parse_day(to_date)
@@ -85,7 +88,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=("none", "failed", "completed"),
         help="Airflow reprocess behavior for --weekly (default: failed)",
     )
-    p.add_argument("--forwards", action="store_true", help="oldest interval first (default is latest first)")
+    p.add_argument(
+        "--forwards",
+        action="store_true",
+        help="earliest day first, toward the present (the default)",
+    )
+    p.add_argument(
+        "--latest-first",
+        action="store_true",
+        help="newest day first (does not approximate the week as it would have run)",
+    )
     p.add_argument(
         "--weekly",
         action="store_true",
@@ -96,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.weekly:
         windows = daily_refine_windows(
-            args.from_date, args.to_date, backwards=not args.forwards
+            args.from_date, args.to_date, backwards=bool(args.latest_first)
         )
         if args.dry_run:
             json.dump(
@@ -143,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         to_date=_iso_date(args.to_date),
         reprocess_behavior=args.reprocess,
         max_active_runs=max(1, int(args.max_active_runs)),
-        run_backwards=not args.forwards,
+        run_backwards=bool(args.latest_first),
         dry_run=bool(args.dry_run),
     )
     json.dump(body, sys.stdout, indent=2, default=str)

@@ -46,6 +46,12 @@ def test_daily_refine_windows_map_to_week_artifact():
     assert {s for _, s in days} == {"2026-W38"}
     rev = mod.daily_refine_windows("2026-09-14", "2026-09-16", backwards=True)
     assert rev[0][0] == "2026-09-16"
+    # Default walks the most recent week from its earliest day toward the present.
+    assert [d for d, _ in mod.daily_refine_windows("2026-09-14", "2026-09-16")] == [
+        "2026-09-14",
+        "2026-09-15",
+        "2026-09-16",
+    ]
 
 
 def test_create_backfill_dry_run_hits_dry_run_path():
