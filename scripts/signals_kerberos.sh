@@ -79,8 +79,8 @@ signals_krb_ticket_ok() {
 
 # The Kudu Java client inside catalogd/impalad re-reads this cache when its
 # in-memory TGT is about to expire. It does not log in from the keytab.
-# ticket_lifetime is 24h; a one-shot kinit at process start dies, and after
-# renew_lifetime (7d) the client cannot recover until this file is replaced.
+# ticket_lifetime is 24h. Airflow (gaius_impala_krb_renew) calls this; a
+# resident loop is a second clock.
 signals_impala_kinit() {
   signals_krb_env "${1:-}"
   signals_krb_require_layout "${1:-}" || return 1
