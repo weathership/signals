@@ -74,6 +74,11 @@ state as `placed`.
 
 Ledger file: `build/state/ops-observations.jsonl` (gitignored).
 
+Nautilus is a different machine. It stamps positions and scores Brier per
+`(observer, call site, momentum bucket)` inside `spec_version` +
+`engine_build`. That diagram is
+[Nautilus FSM and the Brier ledger](../appendix/nautilus-fsm-brier.md).
+
 ## Lineage
 
 | Piece | Where |

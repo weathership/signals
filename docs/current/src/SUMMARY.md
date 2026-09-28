@@ -103,3 +103,4 @@
 # Appendix
 
 - [DCGM, the warehouse, and agent exchange](./appendix/dcgm-warehouse-hx.md)
+- [Nautilus FSM and the Brier ledger](./appendix/nautilus-fsm-brier.md)

@@ -25,7 +25,8 @@ and every peer you start is already on the same wire.
 | **Control** | [signals-ui](./architecture/signals-control-plane-ui.md) on `:9889`. |
 
 Nautilus sits beside each engine as a deterministic supervisor
-(`zndx.supervision.v1`). Classification (`sigint`) still lives in this
+(`zndx.supervision.v1`). Its phase gates and Brier ledger are drawn in
+[one diagram](./appendix/nautilus-fsm-brier.md). Classification (`sigint`) still lives in this
 tree: it writes SIGDG tags into the same Atlas record the rest of the
 federation already uses.
 
