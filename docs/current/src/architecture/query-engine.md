@@ -10,7 +10,9 @@ Table metadata lives in a PostgreSQL catalog registry
 master. Impala talks to Kudu (`STORED AS KUDU`) and to Iceberg via the
 Polaris REST catalog. Applications use Postgres foreign tables:
 `kudu_scan` for closed hot-tier shapes, `impala_sql` for Iceberg and
-`UNION ALL` views of hot ∪ warm.
+`UNION ALL` views of hot ∪ warm. The cluster path from DCGM into that
+union, and the agent-exchange join back to those samples, is the
+[appendix diagram](../appendix/dcgm-warehouse-hx.md).
 
 ## Stack
 

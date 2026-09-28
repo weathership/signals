@@ -20,7 +20,7 @@ and every peer you start is already on the same wire.
 | **Wire** | [signals-protocol](https://github.com/zndx/signals-protocol) — `zndx.engine.v1` and `zndx.scheduler.v1`. Each engine registers the shared Engine service beside its native service, so one stub reaches any peer. |
 | **Schedule** | Signals engine on `:50551` (`capability=scheduler`). [YuniKorn](./architecture/yunikorn-queue-management.md) admits Applications; the queue path is the resource class. |
 | **Workflows** | [Airflow](./components/airflow.md) holds coordination Activities (including `agent-rtc`). [Metaflow](./architecture/metaflow-platform.md) is the production flow path: one metadata service, artifacts on RustFS, events through Knative Eventing. |
-| **Storage** | Transparent hierarchical storage: Apache Kudu (hot), Apache Iceberg on RustFS (warm), Impala SQL across both, [impala_fdw](./components/impala_fdw.md) from PostgreSQL. |
+| **Storage** | Transparent hierarchical storage: Apache Kudu (hot), Apache Iceberg on RustFS (warm), Impala SQL across both, [impala_fdw](./components/impala_fdw.md) from PostgreSQL. Cluster DCGM through that warehouse, with agent exchange, is [one diagram](./appendix/dcgm-warehouse-hx.md). |
 | **Governance** | Apache Atlas (AGE on PostgreSQL 16) with an OpenLineage REST API. [Marquez-web](./components/marquez.md) is the lineage UI. Ranger consumes Atlas tags. |
 | **Control** | [signals-ui](./architecture/signals-control-plane-ui.md) on `:9889`. |
 

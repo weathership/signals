@@ -88,5 +88,6 @@ devenv up [-d]
 - [Platform Metaflow](./metaflow-platform.md)
 - [Peer integration](../operations/peer-integration.md) — systemd group + external engines
 - [signals-federation Zarf](../infrastructure/signals-federation-zarf.md)
+- [DCGM, the warehouse, and agent exchange](../appendix/dcgm-warehouse-hx.md) — cluster flow; the live yield is not the store
 - [Development environment](../operations/devenv.md)
 - Sample units: `infra/systemd/` · contract: `config/platform/peer-contract.json`

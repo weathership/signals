@@ -99,3 +99,7 @@
 - [Configuration](./reference/configuration.md)
 - [Research Roadmap](./reference/research-roadmap.md)
 - [Roadmap](./reference/roadmap.md)
+
+# Appendix
+
+- [DCGM, the warehouse, and agent exchange](./appendix/dcgm-warehouse-hx.md)

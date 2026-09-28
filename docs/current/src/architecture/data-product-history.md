@@ -185,4 +185,6 @@ UI: `/history` (nav **History**). `/lineage` redirects here. The page is a
 **reader** of the warehouse, not a catalog editor.
 
 Peers that maintain their own product on this warehouse: [Peer data
-products](../operations/peer-data-products.md).
+products](../operations/peer-data-products.md). Device samples for a
+`tx` join these `hx_*` rows at read time:
+[DCGM, the warehouse, and agent exchange](../appendix/dcgm-warehouse-hx.md).
