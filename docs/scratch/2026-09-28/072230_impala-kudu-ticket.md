@@ -21,3 +21,9 @@ Warehouse ingest resumed (ticks climbing, six GPUs) at 07:16 UTC.
 `signals-impala-krb-renew.service` is running now. `processes.impala-krb-renew`
 picks the same script up on the next signals devenv start. The running daemon
 does not know about that process until then.
+
+The flush string used to stop at `GetPendingErrors()`. A fresh backend now
+appends the row error. An hour outside every range comes back as
+`No tablet covering the requested range partition`. The rebuilt `.so` is what
+Gaius Postgres loads; the postmaster was not restarted, so only new backends
+see it. The voice engine was still pid 1261605.
