@@ -1561,6 +1561,21 @@ in
     };
   };
 
+  # Kudu's Java client re-reads /tmp/krb5cc_impala. The daemons kinit once at
+  # start and do not renew that file; ticket_lifetime is 24h.
+  processes.impala-krb-renew = {
+    exec = ''
+      exec "$PWD/scripts/impala_krb_renew.sh"
+    '';
+    ready = {
+      exec = "test -s /tmp/krb5cc_impala";
+      initial_delay = 2;
+      period = 5;
+      probe_timeout = 5;
+      failure_threshold = 6;
+    };
+  };
+
   # ── Tasks ──────────────────────────────────────────────────────────────────
   tasks = {
     # Kerberos required before data-plane processes (hard fail — part of turn-key up -d)

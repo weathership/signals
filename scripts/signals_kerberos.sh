@@ -77,6 +77,27 @@ signals_krb_ticket_ok() {
   klist -s 2>/dev/null
 }
 
+# The Kudu Java client inside catalogd/impalad re-reads this cache when its
+# in-memory TGT is about to expire. It does not log in from the keytab.
+# ticket_lifetime is 24h; a one-shot kinit at process start dies, and after
+# renew_lifetime (7d) the client cannot recover until this file is replaced.
+signals_impala_kinit() {
+  signals_krb_env "${1:-}"
+  signals_krb_require_layout "${1:-}" || return 1
+  local cc="${SIGNALS_IMPALA_CCACHE:-FILE:/tmp/krb5cc_impala}"
+  local kinit_bin
+  kinit_bin="$(command -v kinit)" || {
+    echo "ERROR: kinit not on PATH" >&2
+    return 1
+  }
+  KRB5CCNAME="$cc" "$kinit_bin" -kt "$SIGNALS_IMPALA_KEYTAB" "$SIGNALS_IMPALA_PRINCIPAL" || {
+    echo "ERROR: kinit failed for $SIGNALS_IMPALA_PRINCIPAL" >&2
+    return 1
+  }
+  echo "kinit ok: $SIGNALS_IMPALA_PRINCIPAL (KRB5CCNAME=$cc)"
+  KRB5CCNAME="$cc" klist 2>/dev/null | head -6 || true
+}
+
 # Full bootstrap: KDC layout + ticket (required before devenv up / just backup)
 signals_krb_bootstrap() {
   local root="${1:-${DEVENV_ROOT:-$PWD}}"
