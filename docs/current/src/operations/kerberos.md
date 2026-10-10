@@ -69,8 +69,10 @@ echo '127.0.0.1 tinybox.dev.vista.zndx.org' | sudo tee -a /etc/hosts
 | `impala/tinybox.dev.vista.zndx.org@DEV.VISTA.ZNDX.ORG` | Service (Impala HS2) | `.devenv/kdc/impala.keytab` |
 | `HTTP/tinybox.dev.vista.zndx.org@DEV.VISTA.ZNDX.ORG` | Service (Atlas/Ranger SPNEGO) | `.devenv/kdc/http.keytab` |
 | `kudu/tinybox.dev.vista.zndx.org@DEV.VISTA.ZNDX.ORG` | Service (Kudu) | `.devenv/kdc/kudu.keytab` |
-| `signals@DEV.VISTA.ZNDX.ORG` | User (PG role + FDW outbound) | Password: `signals` |
+| `signals@DEV.VISTA.ZNDX.ORG` | Service principal for the Signals project (PG role + FDW outbound) | Password: `signals`; `.devenv/kdc/signals.keytab` |
 | `signals/admin@DEV.VISTA.ZNDX.ORG` | Admin (optional) | Password: `signals` |
+| `zndx@DEV.VISTA.ZNDX.ORG` | User principal. Semantica web login; the username is `zndx` | Password: `zndx` |
+| `semantica@DEV.VISTA.ZNDX.ORG` | Service principal for the Semantica warehouse FDW | `.devenv/kdc/semantica.keytab` (randkey) |
 
 ### End-to-end identity (impala_fdw)
 

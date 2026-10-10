@@ -179,3 +179,17 @@ else
     echo "  Expected realm: $REALM  host: $KRB_HOST"
     echo "  If upgrading realm (e.g. VISTA.ZNDX.ORG → DEV.VISTA.ZNDX.ORG), run: devenv tasks run signals:kdc-reset"
 fi
+
+# Idempotent extras. signals@ stays the Signals service principal.
+# zndx@ is the Semantica web login (password = primary). semantica@ is the
+# Semantica warehouse service principal (randkey + keytab, no password).
+kadmin_local() {
+    KRB5_CONFIG="$KDC_DIR/krb5.conf" \
+    KRB5_KDC_PROFILE="$KDC_DIR/kdc.conf" \
+        kadmin.local -r "$REALM" -q "$1"
+}
+kadmin_local "add_principal -pw zndx zndx@$REALM" 2>/dev/null || true
+kadmin_local "add_principal -randkey semantica@$REALM" 2>/dev/null || true
+kadmin_local "ktadd -k $KDC_DIR/semantica.keytab semantica@$REALM"
+echo "  Login:    zndx@$REALM (password: zndx)"
+echo "  Service:  semantica@$REALM → $KDC_DIR/semantica.keytab"
