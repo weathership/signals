@@ -216,6 +216,54 @@ void BuildFmpQuoteTier0(KuduSchemaBuilder* b) {
   Col(b, "day_high", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
 }
 
+/* ---- semantica_*_tier0: Semantica graph, provenance, and chunks.
+ * Current-state rows, hash-partitioned on graph_id. Not a time series, so
+ * there is no epoch_hour range to expire. The FDW cannot DELETE; writers
+ * upsert removed=1 and warehouse.v_* keeps removed=0. The flag is INT8, not
+ * BOOL: kudu_scan cannot push a boolean NOT. Iceberg is the
+ * settle tier and is not created here. ---- */
+void BuildSemanticaNodeTier0(KuduSchemaBuilder* b) {
+  Col(b, "graph_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "node_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "node_type", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "label", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "properties", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "updated_ns", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+  Col(b, "removed", KuduColumnSchema::INT8, false, Enc::RLE);
+}
+
+void BuildSemanticaEdgeTier0(KuduSchemaBuilder* b) {
+  Col(b, "graph_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "edge_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "source_id", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "target_id", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "edge_type", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "weight", KuduColumnSchema::DOUBLE, false, Enc::BIT_SHUFFLE);
+  Col(b, "properties", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "updated_ns", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+  Col(b, "removed", KuduColumnSchema::INT8, false, Enc::RLE);
+}
+
+void BuildSemanticaProvenanceTier0(KuduSchemaBuilder* b) {
+  Col(b, "graph_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "entity_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "entity_type", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "activity_id", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "agent_id", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "source_document", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "payload", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "recorded_ns", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+}
+
+void BuildSemanticaChunkTier0(KuduSchemaBuilder* b) {
+  Col(b, "graph_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "chunk_id", KuduColumnSchema::STRING, true, Enc::DICT_ENCODING);
+  Col(b, "document_id", KuduColumnSchema::STRING, false, Enc::DICT_ENCODING);
+  Col(b, "body", KuduColumnSchema::STRING, false, Enc::PLAIN_ENCODING);
+  Col(b, "updated_ns", KuduColumnSchema::INT64, false, Enc::BIT_SHUFFLE);
+  Col(b, "removed", KuduColumnSchema::INT8, false, Enc::RLE);
+}
+
 void BuildFmpEodTier0(KuduSchemaBuilder* b) {
   Col(b, "epoch_hour", KuduColumnSchema::INT32, true, Enc::RLE);
   Col(b, "ts_ns", KuduColumnSchema::INT64, true, Enc::BIT_SHUFFLE);
@@ -264,6 +312,14 @@ const std::vector<TableSpec>& Specs() {
        {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
       {"fmp_eod_tier0", BuildFmpEodTier0,
        {"epoch_hour", "ts_ns", "symbol"}, {"symbol"}, 2, true},
+      {"semantica_node_tier0", BuildSemanticaNodeTier0,
+       {"graph_id", "node_id"}, {"graph_id"}, 4, false},
+      {"semantica_edge_tier0", BuildSemanticaEdgeTier0,
+       {"graph_id", "edge_id"}, {"graph_id"}, 4, false},
+      {"semantica_provenance_tier0", BuildSemanticaProvenanceTier0,
+       {"graph_id", "entity_id"}, {"graph_id"}, 4, false},
+      {"semantica_chunk_tier0", BuildSemanticaChunkTier0,
+       {"graph_id", "chunk_id"}, {"graph_id"}, 4, false},
   };
   return kSpecs;
 }

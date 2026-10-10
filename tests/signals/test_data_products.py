@@ -121,6 +121,27 @@ def test_fmp_kudu_is_plain_scalar_ths() -> None:
     assert "schema-apply" in shape.lower() or "impyla" in shape.lower()
 
 
+def test_semantica_kudu_is_current_state_not_a_series() -> None:
+    """Semantica heavy tables are C++ Kudu, hashed on graph_id, not HS2 DDL."""
+    root = Path(__file__).resolve().parents[2]
+    cc = (root / "scripts" / "signals_kudu_create.cc").read_text(encoding="utf-8")
+    registry = (root / "config" / "platform" / "signal-registry.sql").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "semantica_node_tier0",
+        "semantica_edge_tier0",
+        "semantica_provenance_tier0",
+        "semantica_chunk_tier0",
+    ):
+        assert name in cc
+        assert name in registry
+    assert '{"graph_id", "node_id"}, {"graph_id"}, 4, false' in cc
+    assert "signals.product\": \"semantica.graph\"" in registry or (
+        '"signals.product": "semantica.graph"' in registry
+    )
+
+
 def test_iceberg_schema_is_sole_sor_not_pglite() -> None:
     root = Path(__file__).resolve().parents[2] / "config" / "platform"
     kudu = (root / "data-products-kudu.sql").read_text(encoding="utf-8")
