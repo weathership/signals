@@ -105,6 +105,7 @@
     "synth": 50351,
     "metabase": 50451,
     "hermes": 50651,
+    "semantica": 50751,
     "service": "zndx.engine.v1.Engine",
     "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto",
     "server_reflection": {
@@ -247,6 +248,24 @@
       "unit": "synth.service",
       "after": [
         "signals-ready.service"
+      ],
+      "architecture_class": "core_federated_engine"
+    },
+    {
+      "id": "semantica",
+      "project_status": "semantica",
+      "grpc_port": 50751,
+      "dashboard_http": "http://127.0.0.1:8070",
+      "license": "MIT",
+      "path_hint": "~/local/src/oss/semantica",
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "Published signals-engine consumer (v0.2.0). Does not vendor signals-protocol.",
+        "Lifecycle is devenv up in the product tree (HTTP :8070, Engine :50751). No systemd sample yet.",
+        "HTTP :8070 because the upstream default :8000 is held by optillm on this lab host.",
+        "Waffle lists it from engine_grpc_lattice via Signals ServerQuery PEERS, then Status.surfaces."
       ],
       "architecture_class": "core_federated_engine"
     },
