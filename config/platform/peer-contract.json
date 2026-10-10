@@ -96,7 +96,8 @@
     "5533": "atelier",
     "5555": "aegir",
     "5566": "synth",
-    "5577": "metabase engine DB (not ASL2 signals)"
+    "5577": "metabase engine DB (not ASL2 signals)",
+    "5588": "semantica admin DB (heavy tables are warehouse Kudu tier0 via impala_fdw)"
   },
   "engine_grpc_lattice": {
     "gaius": 50051,
@@ -255,6 +256,7 @@
       "id": "semantica",
       "project_status": "semantica",
       "grpc_port": 50751,
+      "engine_pg_port": 5588,
       "dashboard_http": "http://127.0.0.1:8070",
       "license": "MIT",
       "path_hint": "~/local/src/oss/semantica",
@@ -265,7 +267,8 @@
         "Published signals-engine consumer (v0.2.0). Does not vendor signals-protocol.",
         "Lifecycle is devenv up in the product tree (HTTP :8070, Engine :50751). No systemd sample yet.",
         "HTTP :8070 because the upstream default :8000 is held by optillm on this lab host.",
-        "Waffle lists it from engine_grpc_lattice via Signals ServerQuery PEERS, then Status.surfaces."
+        "Waffle lists it from engine_grpc_lattice via Signals ServerQuery PEERS, then Status.surfaces.",
+        "Admin Postgres :5588. Heavy node, edge, provenance, and chunk tables are signals_dataproducts.semantica_*_tier0 (Kudu via impala_fdw). Iceberg is the settle tier."
       ],
       "architecture_class": "core_federated_engine"
     },
