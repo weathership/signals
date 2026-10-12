@@ -76,7 +76,7 @@ class PartitionInfo(_message.Message):
     used_capacity: _containers.ScalarMap[str, int]
     total_nodes: int
     preemption_enabled: bool
-    def __init__(self, name: _Optional[str] = ..., state: _Optional[str] = ..., site_id: _Optional[str] = ..., capacity: _Optional[_Mapping[str, int]] = ..., used_capacity: _Optional[_Mapping[str, int]] = ..., total_nodes: _Optional[int] = ..., preemption_enabled: _Optional[bool] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., state: _Optional[str] = ..., site_id: _Optional[str] = ..., capacity: _Optional[_Mapping[str, int]] = ..., used_capacity: _Optional[_Mapping[str, int]] = ..., total_nodes: _Optional[int] = ..., preemption_enabled: bool = ...) -> None: ...
 
 class ListPartitionsResponse(_message.Message):
     __slots__ = ("partitions",)
@@ -153,7 +153,7 @@ class QueueNode(_message.Message):
     preemption_enabled: bool
     properties: _containers.ScalarMap[str, str]
     children: _containers.RepeatedCompositeFieldContainer[QueueNode]
-    def __init__(self, name: _Optional[str] = ..., status: _Optional[str] = ..., is_leaf: _Optional[bool] = ..., is_managed: _Optional[bool] = ..., parent: _Optional[str] = ..., max: _Optional[_Union[ResourceMap, _Mapping]] = ..., guaranteed: _Optional[_Union[ResourceMap, _Mapping]] = ..., allocated: _Optional[_Union[ResourceMap, _Mapping]] = ..., pending: _Optional[_Union[ResourceMap, _Mapping]] = ..., headroom: _Optional[_Union[ResourceMap, _Mapping]] = ..., abs_used_capacity: _Optional[_Mapping[str, float]] = ..., max_running_apps: _Optional[int] = ..., running_apps: _Optional[int] = ..., sorting_policy: _Optional[str] = ..., preemption_enabled: _Optional[bool] = ..., properties: _Optional[_Mapping[str, str]] = ..., children: _Optional[_Iterable[_Union[QueueNode, _Mapping]]] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., status: _Optional[str] = ..., is_leaf: bool = ..., is_managed: bool = ..., parent: _Optional[str] = ..., max: _Optional[_Union[ResourceMap, _Mapping]] = ..., guaranteed: _Optional[_Union[ResourceMap, _Mapping]] = ..., allocated: _Optional[_Union[ResourceMap, _Mapping]] = ..., pending: _Optional[_Union[ResourceMap, _Mapping]] = ..., headroom: _Optional[_Union[ResourceMap, _Mapping]] = ..., abs_used_capacity: _Optional[_Mapping[str, float]] = ..., max_running_apps: _Optional[int] = ..., running_apps: _Optional[int] = ..., sorting_policy: _Optional[str] = ..., preemption_enabled: bool = ..., properties: _Optional[_Mapping[str, str]] = ..., children: _Optional[_Iterable[_Union[QueueNode, _Mapping]]] = ...) -> None: ...
 
 class GetQueueTreeResponse(_message.Message):
     __slots__ = ("partition", "root")
@@ -171,7 +171,7 @@ class GetQueueRequest(_message.Message):
     partition: str
     queue: str
     include_subtree: bool
-    def __init__(self, partition: _Optional[str] = ..., queue: _Optional[str] = ..., include_subtree: _Optional[bool] = ...) -> None: ...
+    def __init__(self, partition: _Optional[str] = ..., queue: _Optional[str] = ..., include_subtree: bool = ...) -> None: ...
 
 class GetQueueResponse(_message.Message):
     __slots__ = ("partition", "queue")
@@ -233,7 +233,7 @@ class NodeInfo(_message.Message):
     allocated: ResourceMap
     available: ResourceMap
     schedulable: bool
-    def __init__(self, node_id: _Optional[str] = ..., host_name: _Optional[str] = ..., rack_name: _Optional[str] = ..., capacity: _Optional[_Union[ResourceMap, _Mapping]] = ..., allocated: _Optional[_Union[ResourceMap, _Mapping]] = ..., available: _Optional[_Union[ResourceMap, _Mapping]] = ..., schedulable: _Optional[bool] = ...) -> None: ...
+    def __init__(self, node_id: _Optional[str] = ..., host_name: _Optional[str] = ..., rack_name: _Optional[str] = ..., capacity: _Optional[_Union[ResourceMap, _Mapping]] = ..., allocated: _Optional[_Union[ResourceMap, _Mapping]] = ..., available: _Optional[_Union[ResourceMap, _Mapping]] = ..., schedulable: bool = ...) -> None: ...
 
 class ListNodesResponse(_message.Message):
     __slots__ = ("nodes",)
@@ -292,7 +292,7 @@ class ValidateConfigResponse(_message.Message):
     ok: bool
     message: str
     errors: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ..., errors: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., message: _Optional[str] = ..., errors: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class HealthRequest(_message.Message):
     __slots__ = ()
@@ -308,7 +308,7 @@ class HealthCheck(_message.Message):
     succeeded: bool
     description: str
     diagnosis: str
-    def __init__(self, name: _Optional[str] = ..., succeeded: _Optional[bool] = ..., description: _Optional[str] = ..., diagnosis: _Optional[str] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., succeeded: bool = ..., description: _Optional[str] = ..., diagnosis: _Optional[str] = ...) -> None: ...
 
 class HealthResponse(_message.Message):
     __slots__ = ("healthy", "backend", "checks")
@@ -318,7 +318,7 @@ class HealthResponse(_message.Message):
     healthy: bool
     backend: str
     checks: _containers.RepeatedCompositeFieldContainer[HealthCheck]
-    def __init__(self, healthy: _Optional[bool] = ..., backend: _Optional[str] = ..., checks: _Optional[_Iterable[_Union[HealthCheck, _Mapping]]] = ...) -> None: ...
+    def __init__(self, healthy: bool = ..., backend: _Optional[str] = ..., checks: _Optional[_Iterable[_Union[HealthCheck, _Mapping]]] = ...) -> None: ...
 
 class GetDashboardRequest(_message.Message):
     __slots__ = ("partition",)
@@ -400,7 +400,7 @@ class GetDashboardResponse(_message.Message):
     healthy: bool
     partition: str
     partitions: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, summary: _Optional[_Union[SchedulerSummary, _Mapping]] = ..., application_status: _Optional[_Iterable[_Union[StatusSlice, _Mapping]]] = ..., task_status: _Optional[_Iterable[_Union[StatusSlice, _Mapping]]] = ..., application_history: _Optional[_Iterable[_Union[HistoryPoint, _Mapping]]] = ..., task_history: _Optional[_Iterable[_Union[HistoryPoint, _Mapping]]] = ..., node_utilizations: _Optional[_Iterable[_Union[ResourceUtilization, _Mapping]]] = ..., healthy: _Optional[bool] = ..., partition: _Optional[str] = ..., partitions: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(self, summary: _Optional[_Union[SchedulerSummary, _Mapping]] = ..., application_status: _Optional[_Iterable[_Union[StatusSlice, _Mapping]]] = ..., task_status: _Optional[_Iterable[_Union[StatusSlice, _Mapping]]] = ..., application_history: _Optional[_Iterable[_Union[HistoryPoint, _Mapping]]] = ..., task_history: _Optional[_Iterable[_Union[HistoryPoint, _Mapping]]] = ..., node_utilizations: _Optional[_Iterable[_Union[ResourceUtilization, _Mapping]]] = ..., healthy: bool = ..., partition: _Optional[str] = ..., partitions: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SyncProjectionRequest(_message.Message):
     __slots__ = ("partition",)
@@ -480,7 +480,7 @@ class WriteScratchConfigRequest(_message.Message):
     REBUILD_NOTES_FIELD_NUMBER: _ClassVar[int]
     document: PolicyDocument
     rebuild_notes: bool
-    def __init__(self, document: _Optional[_Union[PolicyDocument, _Mapping]] = ..., rebuild_notes: _Optional[bool] = ...) -> None: ...
+    def __init__(self, document: _Optional[_Union[PolicyDocument, _Mapping]] = ..., rebuild_notes: bool = ...) -> None: ...
 
 class WriteScratchConfigResponse(_message.Message):
     __slots__ = ("ok", "message")
@@ -488,13 +488,13 @@ class WriteScratchConfigResponse(_message.Message):
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     ok: bool
     message: str
-    def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., message: _Optional[str] = ...) -> None: ...
 
 class DiffConfigRequest(_message.Message):
     __slots__ = ("include_live",)
     INCLUDE_LIVE_FIELD_NUMBER: _ClassVar[int]
     include_live: bool
-    def __init__(self, include_live: _Optional[bool] = ...) -> None: ...
+    def __init__(self, include_live: bool = ...) -> None: ...
 
 class DiffConfigResponse(_message.Message):
     __slots__ = ("unified_diff", "live_diff")
@@ -510,7 +510,7 @@ class PromoteScratchRequest(_message.Message):
     ARCHIVE_STAMP_FIELD_NUMBER: _ClassVar[int]
     dry_run: bool
     archive_stamp: str
-    def __init__(self, dry_run: _Optional[bool] = ..., archive_stamp: _Optional[str] = ...) -> None: ...
+    def __init__(self, dry_run: bool = ..., archive_stamp: _Optional[str] = ...) -> None: ...
 
 class PromoteScratchResponse(_message.Message):
     __slots__ = ("ok", "message", "archive_id", "applied", "validation")
@@ -524,7 +524,7 @@ class PromoteScratchResponse(_message.Message):
     archive_id: str
     applied: bool
     validation: ValidateConfigResponse
-    def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ..., archive_id: _Optional[str] = ..., applied: _Optional[bool] = ..., validation: _Optional[_Union[ValidateConfigResponse, _Mapping]] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., message: _Optional[str] = ..., archive_id: _Optional[str] = ..., applied: bool = ..., validation: _Optional[_Union[ValidateConfigResponse, _Mapping]] = ...) -> None: ...
 
 class ListArchivesRequest(_message.Message):
     __slots__ = ()
@@ -558,7 +558,7 @@ class RestoreArchiveToScratchResponse(_message.Message):
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     ok: bool
     message: str
-    def __init__(self, ok: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., message: _Optional[str] = ...) -> None: ...
 
 class WorkloadIntent(_message.Message):
     __slots__ = ("wrk", "queue", "applications", "capabilities", "requirements", "resource_class", "floor", "priority", "owner")
@@ -624,7 +624,7 @@ class QueueShareResponse(_message.Message):
     request_id: str
     state: QueueShareState
     error: str
-    def __init__(self, accepted: _Optional[bool] = ..., request_id: _Optional[str] = ..., state: _Optional[_Union[QueueShareState, str]] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, accepted: bool = ..., request_id: _Optional[str] = ..., state: _Optional[_Union[QueueShareState, str]] = ..., error: _Optional[str] = ...) -> None: ...
 
 class ListQueueShareRequestsRequest(_message.Message):
     __slots__ = ("peer", "queue", "since_ns", "limit")
@@ -717,7 +717,7 @@ class ActivityResponse(_message.Message):
     accepted: bool
     activity: _engine_pb2.Activity
     error: str
-    def __init__(self, accepted: _Optional[bool] = ..., activity: _Optional[_Union[_engine_pb2.Activity, _Mapping]] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, accepted: bool = ..., activity: _Optional[_Union[_engine_pb2.Activity, _Mapping]] = ..., error: _Optional[str] = ...) -> None: ...
 
 class ListActivitiesRequest(_message.Message):
     __slots__ = ("peer", "kind", "active_only", "since_ns", "limit")
@@ -731,7 +731,7 @@ class ListActivitiesRequest(_message.Message):
     active_only: bool
     since_ns: int
     limit: int
-    def __init__(self, peer: _Optional[str] = ..., kind: _Optional[str] = ..., active_only: _Optional[bool] = ..., since_ns: _Optional[int] = ..., limit: _Optional[int] = ...) -> None: ...
+    def __init__(self, peer: _Optional[str] = ..., kind: _Optional[str] = ..., active_only: bool = ..., since_ns: _Optional[int] = ..., limit: _Optional[int] = ...) -> None: ...
 
 class ListActivitiesResponse(_message.Message):
     __slots__ = ("activities", "observed_ns")
@@ -765,7 +765,7 @@ class SyncWorkloadsRequest(_message.Message):
     workloads: _containers.RepeatedCompositeFieldContainer[_engine_pb2.ScheduleHint]
     replace: bool
     engine_build: str
-    def __init__(self, peer: _Optional[str] = ..., workloads: _Optional[_Iterable[_Union[_engine_pb2.ScheduleHint, _Mapping]]] = ..., replace: _Optional[bool] = ..., engine_build: _Optional[str] = ...) -> None: ...
+    def __init__(self, peer: _Optional[str] = ..., workloads: _Optional[_Iterable[_Union[_engine_pb2.ScheduleHint, _Mapping]]] = ..., replace: bool = ..., engine_build: _Optional[str] = ...) -> None: ...
 
 class WorkloadRecord(_message.Message):
     __slots__ = ("workload", "peer", "dag_id", "synced_ns", "state", "error")
@@ -791,7 +791,7 @@ class SyncWorkloadsResponse(_message.Message):
     accepted: bool
     records: _containers.RepeatedCompositeFieldContainer[WorkloadRecord]
     error: str
-    def __init__(self, accepted: _Optional[bool] = ..., records: _Optional[_Iterable[_Union[WorkloadRecord, _Mapping]]] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, accepted: bool = ..., records: _Optional[_Iterable[_Union[WorkloadRecord, _Mapping]]] = ..., error: _Optional[str] = ...) -> None: ...
 
 class ListWorkloadsRequest(_message.Message):
     __slots__ = ("peer",)

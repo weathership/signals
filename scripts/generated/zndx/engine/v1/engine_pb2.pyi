@@ -50,6 +50,7 @@ class ServerQueryKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SERVER_QUERY_KIND_AGENDA: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_SEARCH: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_AGENTS: _ClassVar[ServerQueryKind]
+    SERVER_QUERY_KIND_FMP: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_RESOURCES: _ClassVar[ServerQueryKind]
     SERVER_QUERY_KIND_ASPECTS: _ClassVar[ServerQueryKind]
 
@@ -141,6 +142,7 @@ SERVER_QUERY_KIND_THOUGHTS: ServerQueryKind
 SERVER_QUERY_KIND_AGENDA: ServerQueryKind
 SERVER_QUERY_KIND_SEARCH: ServerQueryKind
 SERVER_QUERY_KIND_AGENTS: ServerQueryKind
+SERVER_QUERY_KIND_FMP: ServerQueryKind
 SERVER_QUERY_KIND_RESOURCES: ServerQueryKind
 SERVER_QUERY_KIND_ASPECTS: ServerQueryKind
 ACTIVITY_STATE_UNSPECIFIED: ActivityState
@@ -326,6 +328,52 @@ class CompleteResponse(_message.Message):
     profile: OperatingProfile
     def __init__(self, text: _Optional[str] = ..., model: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., reasoning_content: _Optional[str] = ..., finish_reason: _Optional[str] = ..., tool_calls: _Optional[_Iterable[_Union[ToolCall, _Mapping]]] = ..., reasoning: _Optional[_Iterable[_Union[ReasoningLayer, _Mapping]]] = ..., fulfilled_by: _Optional[str] = ..., profile: _Optional[_Union[OperatingProfile, _Mapping]] = ...) -> None: ...
 
+class DecisionQuestion(_message.Message):
+    __slots__ = ("id", "type", "instructions", "criteria_json")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
+    CRITERIA_JSON_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    type: str
+    instructions: str
+    criteria_json: str
+    def __init__(self, id: _Optional[str] = ..., type: _Optional[str] = ..., instructions: _Optional[str] = ..., criteria_json: _Optional[str] = ...) -> None: ...
+
+class DecideRequest(_message.Message):
+    __slots__ = ("capability", "state_json", "questions", "instructions", "cache_salt")
+    CAPABILITY_FIELD_NUMBER: _ClassVar[int]
+    STATE_JSON_FIELD_NUMBER: _ClassVar[int]
+    QUESTIONS_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
+    CACHE_SALT_FIELD_NUMBER: _ClassVar[int]
+    capability: str
+    state_json: str
+    questions: _containers.RepeatedCompositeFieldContainer[DecisionQuestion]
+    instructions: str
+    cache_salt: str
+    def __init__(self, capability: _Optional[str] = ..., state_json: _Optional[str] = ..., questions: _Optional[_Iterable[_Union[DecisionQuestion, _Mapping]]] = ..., instructions: _Optional[str] = ..., cache_salt: _Optional[str] = ...) -> None: ...
+
+class DecideResponse(_message.Message):
+    __slots__ = ("id", "model", "answers_json", "diagnostics_json", "input_tokens", "output_tokens", "latency_ms", "fulfilled_by")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    ANSWERS_JSON_FIELD_NUMBER: _ClassVar[int]
+    DIAGNOSTICS_JSON_FIELD_NUMBER: _ClassVar[int]
+    INPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    LATENCY_MS_FIELD_NUMBER: _ClassVar[int]
+    FULFILLED_BY_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    model: str
+    answers_json: str
+    diagnostics_json: str
+    input_tokens: int
+    output_tokens: int
+    latency_ms: float
+    fulfilled_by: str
+    def __init__(self, id: _Optional[str] = ..., model: _Optional[str] = ..., answers_json: _Optional[str] = ..., diagnostics_json: _Optional[str] = ..., input_tokens: _Optional[int] = ..., output_tokens: _Optional[int] = ..., latency_ms: _Optional[float] = ..., fulfilled_by: _Optional[str] = ...) -> None: ...
+
 class StatusRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
@@ -342,7 +390,7 @@ class Endpoint(_message.Message):
     healthy: bool
     gpu_ids: _containers.RepeatedScalarFieldContainer[int]
     detail: str
-    def __init__(self, capability: _Optional[str] = ..., model: _Optional[str] = ..., healthy: _Optional[bool] = ..., gpu_ids: _Optional[_Iterable[int]] = ..., detail: _Optional[str] = ...) -> None: ...
+    def __init__(self, capability: _Optional[str] = ..., model: _Optional[str] = ..., healthy: bool = ..., gpu_ids: _Optional[_Iterable[int]] = ..., detail: _Optional[str] = ...) -> None: ...
 
 class StatusResponse(_message.Message):
     __slots__ = ("project", "endpoints", "total_gpus", "surfaces")
@@ -364,7 +412,7 @@ class Surface(_message.Message):
     kind: str
     url: str
     healthy: bool
-    def __init__(self, kind: _Optional[str] = ..., url: _Optional[str] = ..., healthy: _Optional[bool] = ...) -> None: ...
+    def __init__(self, kind: _Optional[str] = ..., url: _Optional[str] = ..., healthy: bool = ...) -> None: ...
 
 class YieldRequest(_message.Message):
     __slots__ = ("workload_id", "reason", "sentinel_id", "detail")
@@ -388,7 +436,7 @@ class YieldResponse(_message.Message):
     process_ended: bool
     restore_started: bool
     message: str
-    def __init__(self, ok: _Optional[bool] = ..., process_ended: _Optional[bool] = ..., restore_started: _Optional[bool] = ..., message: _Optional[str] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., process_ended: bool = ..., restore_started: bool = ..., message: _Optional[str] = ...) -> None: ...
 
 class GitRemote(_message.Message):
     __slots__ = ("name", "url")
@@ -445,7 +493,7 @@ class ScheduleHint(_message.Message):
     description: str
     runner: str
     after_mode: str
-    def __init__(self, id: _Optional[str] = ..., cron: _Optional[str] = ..., airflow_dag_id: _Optional[str] = ..., source: _Optional[str] = ..., enabled: _Optional[bool] = ..., kind: _Optional[str] = ..., claims: _Optional[_Iterable[_Union[ActivityClaim, _Mapping]]] = ..., precludes: _Optional[_Iterable[str]] = ..., postures: _Optional[_Mapping[str, str]] = ..., horizon_s: _Optional[int] = ..., after: _Optional[_Iterable[str]] = ..., timezone: _Optional[str] = ..., description: _Optional[str] = ..., runner: _Optional[str] = ..., after_mode: _Optional[str] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., cron: _Optional[str] = ..., airflow_dag_id: _Optional[str] = ..., source: _Optional[str] = ..., enabled: bool = ..., kind: _Optional[str] = ..., claims: _Optional[_Iterable[_Union[ActivityClaim, _Mapping]]] = ..., precludes: _Optional[_Iterable[str]] = ..., postures: _Optional[_Mapping[str, str]] = ..., horizon_s: _Optional[int] = ..., after: _Optional[_Iterable[str]] = ..., timezone: _Optional[str] = ..., description: _Optional[str] = ..., runner: _Optional[str] = ..., after_mode: _Optional[str] = ...) -> None: ...
 
 class WikiNote(_message.Message):
     __slots__ = ("id", "title", "body", "links", "origin_project")
@@ -473,7 +521,7 @@ class SubmodulePosture(_message.Message):
     pinned_sha: str
     checked_out_sha: str
     dirty: bool
-    def __init__(self, path: _Optional[str] = ..., name: _Optional[str] = ..., pinned_sha: _Optional[str] = ..., checked_out_sha: _Optional[str] = ..., dirty: _Optional[bool] = ...) -> None: ...
+    def __init__(self, path: _Optional[str] = ..., name: _Optional[str] = ..., pinned_sha: _Optional[str] = ..., checked_out_sha: _Optional[str] = ..., dirty: bool = ...) -> None: ...
 
 class MigrationPosture(_message.Message):
     __slots__ = ("source", "current", "unapplied")
@@ -509,7 +557,7 @@ class SourcePosture(_message.Message):
     behind: int
     submodules: _containers.RepeatedCompositeFieldContainer[SubmodulePosture]
     migrations: _containers.RepeatedCompositeFieldContainer[MigrationPosture]
-    def __init__(self, project: _Optional[str] = ..., checkout: _Optional[str] = ..., branch: _Optional[str] = ..., head: _Optional[str] = ..., running_sha: _Optional[str] = ..., dirty: _Optional[bool] = ..., upstream: _Optional[str] = ..., ahead: _Optional[int] = ..., behind: _Optional[int] = ..., submodules: _Optional[_Iterable[_Union[SubmodulePosture, _Mapping]]] = ..., migrations: _Optional[_Iterable[_Union[MigrationPosture, _Mapping]]] = ...) -> None: ...
+    def __init__(self, project: _Optional[str] = ..., checkout: _Optional[str] = ..., branch: _Optional[str] = ..., head: _Optional[str] = ..., running_sha: _Optional[str] = ..., dirty: bool = ..., upstream: _Optional[str] = ..., ahead: _Optional[int] = ..., behind: _Optional[int] = ..., submodules: _Optional[_Iterable[_Union[SubmodulePosture, _Mapping]]] = ..., migrations: _Optional[_Iterable[_Union[MigrationPosture, _Mapping]]] = ...) -> None: ...
 
 class ServerQueryRequest(_message.Message):
     __slots__ = ("kind", "ttl", "nonce", "origin_project", "note_id", "limit", "since_ms", "stream", "query")
@@ -534,7 +582,7 @@ class ServerQueryRequest(_message.Message):
     def __init__(self, kind: _Optional[_Union[ServerQueryKind, str]] = ..., ttl: _Optional[int] = ..., nonce: _Optional[str] = ..., origin_project: _Optional[str] = ..., note_id: _Optional[str] = ..., limit: _Optional[int] = ..., since_ms: _Optional[int] = ..., stream: _Optional[str] = ..., query: _Optional[str] = ...) -> None: ...
 
 class ServerQueryResponse(_message.Message):
-    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products", "cognition", "contributions", "activities", "thoughts_hint", "agenda_hint", "search_hint", "agents", "resources_hint", "aspect_catalog", "product_specs")
+    __slots__ = ("project", "remotes", "head", "peers", "schedules", "note", "surfaces", "queues", "workloads", "posture", "products", "cognition", "contributions", "activities", "thoughts_hint", "agenda_hint", "search_hint", "agents", "fmp_hint", "resources_hint", "aspect_catalog", "product_specs")
     PROJECT_FIELD_NUMBER: _ClassVar[int]
     REMOTES_FIELD_NUMBER: _ClassVar[int]
     HEAD_FIELD_NUMBER: _ClassVar[int]
@@ -553,6 +601,7 @@ class ServerQueryResponse(_message.Message):
     AGENDA_HINT_FIELD_NUMBER: _ClassVar[int]
     SEARCH_HINT_FIELD_NUMBER: _ClassVar[int]
     AGENTS_FIELD_NUMBER: _ClassVar[int]
+    FMP_HINT_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_HINT_FIELD_NUMBER: _ClassVar[int]
     ASPECT_CATALOG_FIELD_NUMBER: _ClassVar[int]
     PRODUCT_SPECS_FIELD_NUMBER: _ClassVar[int]
@@ -574,10 +623,11 @@ class ServerQueryResponse(_message.Message):
     agenda_hint: AgendaHint
     search_hint: SearchHint
     agents: _containers.RepeatedCompositeFieldContainer[AgentHint]
+    fmp_hint: FmpHint
     resources_hint: ResourcesHint
     aspect_catalog: _containers.RepeatedCompositeFieldContainer[AspectSpec]
     product_specs: _containers.RepeatedCompositeFieldContainer[ProductSpec]
-    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ..., cognition: _Optional[_Union[CognitionHint, _Mapping]] = ..., contributions: _Optional[_Union[ContributionsHint, _Mapping]] = ..., activities: _Optional[_Iterable[_Union[Activity, _Mapping]]] = ..., thoughts_hint: _Optional[_Union[ThoughtsHint, _Mapping]] = ..., agenda_hint: _Optional[_Union[AgendaHint, _Mapping]] = ..., search_hint: _Optional[_Union[SearchHint, _Mapping]] = ..., agents: _Optional[_Iterable[_Union[AgentHint, _Mapping]]] = ..., resources_hint: _Optional[_Union[ResourcesHint, _Mapping]] = ..., aspect_catalog: _Optional[_Iterable[_Union[AspectSpec, _Mapping]]] = ..., product_specs: _Optional[_Iterable[_Union[ProductSpec, _Mapping]]] = ...) -> None: ...
+    def __init__(self, project: _Optional[str] = ..., remotes: _Optional[_Iterable[_Union[GitRemote, _Mapping]]] = ..., head: _Optional[str] = ..., peers: _Optional[_Iterable[_Union[PeerHint, _Mapping]]] = ..., schedules: _Optional[_Iterable[_Union[ScheduleHint, _Mapping]]] = ..., note: _Optional[_Union[WikiNote, _Mapping]] = ..., surfaces: _Optional[_Iterable[_Union[Surface, _Mapping]]] = ..., queues: _Optional[_Iterable[_Union[QueueHint, _Mapping]]] = ..., workloads: _Optional[_Iterable[_Union[WorkloadOffer, _Mapping]]] = ..., posture: _Optional[_Union[SourcePosture, _Mapping]] = ..., products: _Optional[_Iterable[_Union[ProductHint, _Mapping]]] = ..., cognition: _Optional[_Union[CognitionHint, _Mapping]] = ..., contributions: _Optional[_Union[ContributionsHint, _Mapping]] = ..., activities: _Optional[_Iterable[_Union[Activity, _Mapping]]] = ..., thoughts_hint: _Optional[_Union[ThoughtsHint, _Mapping]] = ..., agenda_hint: _Optional[_Union[AgendaHint, _Mapping]] = ..., search_hint: _Optional[_Union[SearchHint, _Mapping]] = ..., agents: _Optional[_Iterable[_Union[AgentHint, _Mapping]]] = ..., fmp_hint: _Optional[_Union[FmpHint, _Mapping]] = ..., resources_hint: _Optional[_Union[ResourcesHint, _Mapping]] = ..., aspect_catalog: _Optional[_Iterable[_Union[AspectSpec, _Mapping]]] = ..., product_specs: _Optional[_Iterable[_Union[ProductSpec, _Mapping]]] = ...) -> None: ...
 
 class AgentHint(_message.Message):
     __slots__ = ("agent_id", "project", "name", "version", "transport", "model_capabilities", "billing")
@@ -625,6 +675,40 @@ class SearchHint(_message.Message):
     note: str
     def __init__(self, project: _Optional[str] = ..., query: _Optional[str] = ..., stream: _Optional[str] = ..., hits: _Optional[_Iterable[_Union[SearchHit, _Mapping]]] = ..., note: _Optional[str] = ...) -> None: ...
 
+class FmpHit(_message.Message):
+    __slots__ = ("symbol", "title", "snippet", "url", "exchange", "as_of", "source")
+    SYMBOL_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    SNIPPET_FIELD_NUMBER: _ClassVar[int]
+    URL_FIELD_NUMBER: _ClassVar[int]
+    EXCHANGE_FIELD_NUMBER: _ClassVar[int]
+    AS_OF_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    symbol: str
+    title: str
+    snippet: str
+    url: str
+    exchange: str
+    as_of: str
+    source: str
+    def __init__(self, symbol: _Optional[str] = ..., title: _Optional[str] = ..., snippet: _Optional[str] = ..., url: _Optional[str] = ..., exchange: _Optional[str] = ..., as_of: _Optional[str] = ..., source: _Optional[str] = ...) -> None: ...
+
+class FmpHint(_message.Message):
+    __slots__ = ("project", "query", "stream", "hits", "note", "spoken")
+    PROJECT_FIELD_NUMBER: _ClassVar[int]
+    QUERY_FIELD_NUMBER: _ClassVar[int]
+    STREAM_FIELD_NUMBER: _ClassVar[int]
+    HITS_FIELD_NUMBER: _ClassVar[int]
+    NOTE_FIELD_NUMBER: _ClassVar[int]
+    SPOKEN_FIELD_NUMBER: _ClassVar[int]
+    project: str
+    query: str
+    stream: str
+    hits: _containers.RepeatedCompositeFieldContainer[FmpHit]
+    note: str
+    spoken: str
+    def __init__(self, project: _Optional[str] = ..., query: _Optional[str] = ..., stream: _Optional[str] = ..., hits: _Optional[_Iterable[_Union[FmpHit, _Mapping]]] = ..., note: _Optional[str] = ..., spoken: _Optional[str] = ...) -> None: ...
+
 class AgendaHintItem(_message.Message):
     __slots__ = ("id", "starts_ms", "ends_ms", "kind", "intent", "title", "summary", "tags", "pinned", "open_checks", "with_whom", "body", "created_ms", "day", "origin_project", "session_prompt", "session_materials", "origin_agent", "attachments", "attachments_allowed")
     ID_FIELD_NUMBER: _ClassVar[int]
@@ -667,7 +751,7 @@ class AgendaHintItem(_message.Message):
     origin_agent: str
     attachments: _containers.RepeatedCompositeFieldContainer[Attachment]
     attachments_allowed: bool
-    def __init__(self, id: _Optional[str] = ..., starts_ms: _Optional[int] = ..., ends_ms: _Optional[int] = ..., kind: _Optional[str] = ..., intent: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., pinned: _Optional[bool] = ..., open_checks: _Optional[int] = ..., with_whom: _Optional[str] = ..., body: _Optional[str] = ..., created_ms: _Optional[int] = ..., day: _Optional[str] = ..., origin_project: _Optional[str] = ..., session_prompt: _Optional[str] = ..., session_materials: _Optional[str] = ..., origin_agent: _Optional[str] = ..., attachments: _Optional[_Iterable[_Union[Attachment, _Mapping]]] = ..., attachments_allowed: _Optional[bool] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., starts_ms: _Optional[int] = ..., ends_ms: _Optional[int] = ..., kind: _Optional[str] = ..., intent: _Optional[str] = ..., title: _Optional[str] = ..., summary: _Optional[str] = ..., tags: _Optional[_Iterable[str]] = ..., pinned: bool = ..., open_checks: _Optional[int] = ..., with_whom: _Optional[str] = ..., body: _Optional[str] = ..., created_ms: _Optional[int] = ..., day: _Optional[str] = ..., origin_project: _Optional[str] = ..., session_prompt: _Optional[str] = ..., session_materials: _Optional[str] = ..., origin_agent: _Optional[str] = ..., attachments: _Optional[_Iterable[_Union[Attachment, _Mapping]]] = ..., attachments_allowed: bool = ...) -> None: ...
 
 class AgendaHint(_message.Message):
     __slots__ = ("project", "brief", "spoken", "brief_at_ms", "brief_id", "timezone", "today", "items", "item", "total_in_window", "note")
@@ -713,7 +797,7 @@ class PutAgendaItemResponse(_message.Message):
     ok: bool
     item: AgendaHintItem
     note: str
-    def __init__(self, ok: _Optional[bool] = ..., item: _Optional[_Union[AgendaHintItem, _Mapping]] = ..., note: _Optional[str] = ...) -> None: ...
+    def __init__(self, ok: bool = ..., item: _Optional[_Union[AgendaHintItem, _Mapping]] = ..., note: _Optional[str] = ...) -> None: ...
 
 class ResourceObject(_message.Message):
     __slots__ = ("name", "text", "uri")
@@ -902,7 +986,7 @@ class CognitionHint(_message.Message):
     range_end_ms: int
     buckets: _containers.RepeatedCompositeFieldContainer[CognitionActivityBucket]
     streams: _containers.RepeatedCompositeFieldContainer[CognitionStreamHint]
-    def __init__(self, project: _Optional[str] = ..., unit: _Optional[str] = ..., running: _Optional[bool] = ..., thoughts: _Optional[int] = ..., cycles: _Optional[int] = ..., last_cycle_ms: _Optional[int] = ..., interval: _Optional[str] = ..., range_start_ms: _Optional[int] = ..., range_end_ms: _Optional[int] = ..., buckets: _Optional[_Iterable[_Union[CognitionActivityBucket, _Mapping]]] = ..., streams: _Optional[_Iterable[_Union[CognitionStreamHint, _Mapping]]] = ...) -> None: ...
+    def __init__(self, project: _Optional[str] = ..., unit: _Optional[str] = ..., running: bool = ..., thoughts: _Optional[int] = ..., cycles: _Optional[int] = ..., last_cycle_ms: _Optional[int] = ..., interval: _Optional[str] = ..., range_start_ms: _Optional[int] = ..., range_end_ms: _Optional[int] = ..., buckets: _Optional[_Iterable[_Union[CognitionActivityBucket, _Mapping]]] = ..., streams: _Optional[_Iterable[_Union[CognitionStreamHint, _Mapping]]] = ...) -> None: ...
 
 class ContributionItem(_message.Message):
     __slots__ = ("group", "id", "system", "total", "series")
@@ -978,7 +1062,7 @@ class PropertyShape(_message.Message):
     severity: ShaclSeverity
     message: str
     deactivated: bool
-    def __init__(self, id: _Optional[str] = ..., path: _Optional[_Union[PropertyPath, _Mapping]] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., min_count: _Optional[int] = ..., max_count: _Optional[int] = ..., datatype: _Optional[str] = ..., node_kind: _Optional[_Union[ShaclNodeKind, str]] = ..., pattern: _Optional[str] = ..., flags: _Optional[str] = ..., has_value: _Optional[str] = ..., min_length: _Optional[int] = ..., max_length: _Optional[int] = ..., node: _Optional[str] = ..., severity: _Optional[_Union[ShaclSeverity, str]] = ..., message: _Optional[str] = ..., deactivated: _Optional[bool] = ..., **kwargs) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., path: _Optional[_Union[PropertyPath, _Mapping]] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., min_count: _Optional[int] = ..., max_count: _Optional[int] = ..., datatype: _Optional[str] = ..., node_kind: _Optional[_Union[ShaclNodeKind, str]] = ..., pattern: _Optional[str] = ..., flags: _Optional[str] = ..., has_value: _Optional[str] = ..., min_length: _Optional[int] = ..., max_length: _Optional[int] = ..., node: _Optional[str] = ..., severity: _Optional[_Union[ShaclSeverity, str]] = ..., message: _Optional[str] = ..., deactivated: bool = ..., **kwargs) -> None: ...
 
 class NodeShape(_message.Message):
     __slots__ = ("id", "target_class", "target_node", "closed", "ignored_properties", "property", "xone", "severity", "message", "deactivated")
@@ -1005,7 +1089,7 @@ class NodeShape(_message.Message):
     severity: ShaclSeverity
     message: str
     deactivated: bool
-    def __init__(self, id: _Optional[str] = ..., target_class: _Optional[_Iterable[str]] = ..., target_node: _Optional[_Iterable[str]] = ..., closed: _Optional[bool] = ..., ignored_properties: _Optional[_Iterable[str]] = ..., property: _Optional[_Iterable[_Union[PropertyShape, _Mapping]]] = ..., xone: _Optional[_Iterable[str]] = ..., severity: _Optional[_Union[ShaclSeverity, str]] = ..., message: _Optional[str] = ..., deactivated: _Optional[bool] = ..., **kwargs) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., target_class: _Optional[_Iterable[str]] = ..., target_node: _Optional[_Iterable[str]] = ..., closed: bool = ..., ignored_properties: _Optional[_Iterable[str]] = ..., property: _Optional[_Iterable[_Union[PropertyShape, _Mapping]]] = ..., xone: _Optional[_Iterable[str]] = ..., severity: _Optional[_Union[ShaclSeverity, str]] = ..., message: _Optional[str] = ..., deactivated: bool = ..., **kwargs) -> None: ...
 
 class AspectSpec(_message.Message):
     __slots__ = ("shape", "title", "intent")
@@ -1049,7 +1133,7 @@ class ValidationReport(_message.Message):
     RESULT_FIELD_NUMBER: _ClassVar[int]
     conforms: bool
     result: _containers.RepeatedCompositeFieldContainer[ValidationResult]
-    def __init__(self, conforms: _Optional[bool] = ..., result: _Optional[_Iterable[_Union[ValidationResult, _Mapping]]] = ...) -> None: ...
+    def __init__(self, conforms: bool = ..., result: _Optional[_Iterable[_Union[ValidationResult, _Mapping]]] = ...) -> None: ...
 
 class AspectBinding(_message.Message):
     __slots__ = ("aspect_id", "conforms", "claim_status", "report", "evidence_uri", "seal")
@@ -1065,7 +1149,7 @@ class AspectBinding(_message.Message):
     report: ValidationReport
     evidence_uri: str
     seal: str
-    def __init__(self, aspect_id: _Optional[str] = ..., conforms: _Optional[bool] = ..., claim_status: _Optional[str] = ..., report: _Optional[_Union[ValidationReport, _Mapping]] = ..., evidence_uri: _Optional[str] = ..., seal: _Optional[str] = ...) -> None: ...
+    def __init__(self, aspect_id: _Optional[str] = ..., conforms: bool = ..., claim_status: _Optional[str] = ..., report: _Optional[_Union[ValidationReport, _Mapping]] = ..., evidence_uri: _Optional[str] = ..., seal: _Optional[str] = ...) -> None: ...
 
 class ProductHint(_message.Message):
     __slots__ = ("product_id", "peer", "title", "kind", "leaf", "table_identifier", "data_uri", "flow", "step", "agent_focus", "history", "spec_id", "aspects")
@@ -1151,7 +1235,7 @@ class OperatingProfile(_message.Message):
     thinking: bool
     reasoning_effort: str
     note: str
-    def __init__(self, capability: _Optional[str] = ..., thinking: _Optional[bool] = ..., reasoning_effort: _Optional[str] = ..., note: _Optional[str] = ...) -> None: ...
+    def __init__(self, capability: _Optional[str] = ..., thinking: bool = ..., reasoning_effort: _Optional[str] = ..., note: _Optional[str] = ...) -> None: ...
 
 class WorkloadOffer(_message.Message):
     __slots__ = ("peer", "model", "capabilities", "requirements", "resource_class", "queue", "methods", "profiles")
@@ -1209,7 +1293,7 @@ class LineageResponse(_message.Message):
     ERROR_FIELD_NUMBER: _ClassVar[int]
     accepted: bool
     error: str
-    def __init__(self, accepted: _Optional[bool] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, accepted: bool = ..., error: _Optional[str] = ...) -> None: ...
 
 class WatchWorkloadRequest(_message.Message):
     __slots__ = ()
@@ -1269,4 +1353,4 @@ class AnnounceAck(_message.Message):
     accepted: bool
     ttl_seconds: int
     error: str
-    def __init__(self, accepted: _Optional[bool] = ..., ttl_seconds: _Optional[int] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, accepted: bool = ..., ttl_seconds: _Optional[int] = ..., error: _Optional[str] = ...) -> None: ...

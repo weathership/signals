@@ -247,6 +247,14 @@ uv run python -m tests.workload.lifecycle --phase all --rows 1000 --partitions 1
 - `.github/workflows/catalog-ci.yml` — Tier 0 runs Impala FE `ConfigLoaderTest` under Maven/Java 21 on `ubuntu-latest`; Tier 1 runs `devenv up --detach`, `signals:catalog-init`, the lifecycle workload, and the `@data-lifecycle and @ci` BDD scenarios on a **self-hosted** runner. Triggered by changes under `components/impala/fe/.../{catalog,service}/`, `config/{impala,hms,polaris}/`, `tests/workload/`, `features/platform/data_lifecycle*`.
 - `.github/workflows/docs.yml` — builds the mdbook (mdBook + D2 + preprocessors) and deploys to GitHub Pages.
 
+## Submodule pins
+
+Commit and push a submodule before changing the parent gitlink.
+`components/signals-protocol` pins `trunk` of `zndx/signals-protocol`. When
+that trunk moves, update this gitlink, run `just gen-zndx-engine-py`, and
+push. Do not leave the checkout ahead of the pin. JVM `hs_err_pid` logs and
+`components/signals-ui/build/` stay untracked.
+
 ### ASF Components (submodules in `components/`)
 
 All tracked on **`rch/devenv`** branch from `rch` GitHub forks (shared devenv/Nix line for non-signals consumers too):

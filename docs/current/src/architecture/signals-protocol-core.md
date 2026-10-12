@@ -12,8 +12,9 @@ are the documented extension point.
 
 Wire contracts live in
 [`components/signals-protocol`](https://github.com/zndx/signals-protocol)
-(`trunk`). Changes land in that repository first (additive within a
-version), then propagate by submodule bump.
+(`trunk`). Changes land on that trunk first (additive within a version).
+Every peer that pins the submodule then bumps to that same SHA, regenerates
+its bindings, and pushes in the same slice. A side branch is not a pin.
 
 ## How the federation contract evolves
 
