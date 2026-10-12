@@ -64,8 +64,24 @@ log = logging.getLogger("signals.engine.activities")
 # retires its own intents. The arbiter judges each assertion against the
 # physical capacity; a REJECTED configuration is surfaced on Activity.note so
 # peers and the Backlog can see the workload runs without its floor.
-PRIORITY_BY_KIND: dict[str, int] = {"interactive_session": 100}
+PRIORITY_BY_KIND: dict[str, int] = {"interactive_session": 100, "decisions": 200}
 DEFAULT_SHARE_PRIORITY = 50
+# Kind `decisions` is the federation handover for the whole box. Signals
+# writes the posture and the queue configuration; peers read the activity.
+# Heavy stays with the declarer's thinking process. Light is both d3-flash
+# replicas. Those two leaves are not precluded — the declarer admits them.
+DECISIONS_KIND = "decisions"
+POSTURE_FEDERATION_GPU = "federation.gpu"
+POSTURE_YIELD = "yield"
+DECISIONS_CLAIMS: tuple[dict[str, Any], ...] = (
+    {"leaf": "root.internal.inference.heavy", "gpu": 4},
+    {"leaf": "root.internal.inference.light", "gpu": 2},
+)
+DECISIONS_PRECLUDES: tuple[str, ...] = (
+    "root.internal.inference.agent-rtc",
+    "root.internal.inference.medium",
+    "root.internal.inference.extract",
+)
 GURU_DECLAREHTTP = "#CO.0000000A.DECLAREHTTP"
 
 # Generic coordination DAG; kinds with their own resource shape get their own
@@ -157,6 +173,33 @@ def run_id_for(activity_id: str) -> str:
 
 def dag_id_for(kind: str) -> str:
     return DAG_FOR_KIND.get(kind, DAG_ID)
+
+
+def indicate_decisions(
+    kind: str,
+    claims: list[dict[str, Any]],
+    precludes: list[str],
+    postures: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[str], dict[str, str]]:
+    """Kind ``decisions`` means the declarer takes every GPU.
+
+    Signals is the one that says so. The posture ``federation.gpu=yield``
+    is what peers act on. Claims are the heavy and light leaves (4 + 2).
+    Other GPU leaves are precluded. A caller-supplied claim list for this
+    kind is replaced: the capability, not the caller, sizes the box.
+    """
+    if (kind or "").strip() != DECISIONS_KIND:
+        return claims, precludes, postures
+    owned = {str(c["leaf"]) for c in DECISIONS_CLAIMS}
+    merged: list[str] = []
+    for leaf in list(precludes) + list(DECISIONS_PRECLUDES):
+        leaf = str(leaf).strip()
+        if not leaf or leaf in owned or leaf in merged:
+            continue
+        merged.append(leaf)
+    out_postures = {str(k): str(v) for k, v in postures.items()}
+    out_postures[POSTURE_FEDERATION_GPU] = POSTURE_YIELD
+    return [dict(c) for c in DECISIONS_CLAIMS], merged, out_postures
 
 
 # ── lease ────────────────────────────────────────────────────────────────────
@@ -714,7 +757,13 @@ class ActivityService:
             )
         aid = activity_id_for(req.peer, req.request_id)
         dag_id = dag_id_for(req.kind)
-        self._check_claims(aid, [{"leaf": c.leaf, "gpu": int(c.gpu)} for c in req.claims])
+        claims, precludes, postures = indicate_decisions(
+            req.kind,
+            [{"leaf": c.leaf, "gpu": int(c.gpu)} for c in req.claims],
+            list(req.precludes),
+            dict(req.postures),
+        )
+        self._check_claims(aid, claims)
         existing = self.leases.read(aid)
         if existing is not None:
             # Idempotent retry: the lease exists → the run exists (or Airflow
@@ -735,9 +784,9 @@ class ActivityService:
             state=engine_pb2.ACTIVITY_QUEUED,
             declared_ns=now,
             horizon_ns=int(req.horizon_ns),
-            claims=[{"leaf": c.leaf, "gpu": int(c.gpu)} for c in req.claims],
-            precludes=list(req.precludes),
-            postures=dict(req.postures),
+            claims=claims,
+            precludes=precludes,
+            postures=postures,
             reason=req.reason,
         )
         # Lease first: the sensor must find it the instant the run starts.
@@ -798,6 +847,11 @@ class ActivityService:
             for c in (claims or [])
             if isinstance(c, dict)
         ]
+        norm_precludes = [str(p) for p in (precludes or [])]
+        norm_postures = {str(k): str(v) for k, v in (postures or {}).items()}
+        norm_claims, norm_precludes, norm_postures = indicate_decisions(
+            kind, norm_claims, norm_precludes, norm_postures
+        )
         aid = scheduled_activity_id_for(peer, dag_id, run_id, task_id)
         existing = self.leases.read(aid)
         if existing is None:
@@ -815,8 +869,8 @@ class ActivityService:
                 declared_ns=now,
                 horizon_ns=now + int(horizon_s * 1_000_000_000),
                 claims=norm_claims,
-                precludes=[str(p) for p in (precludes or [])],
-                postures={str(k): str(v) for k, v in (postures or {}).items()},
+                precludes=norm_precludes,
+                postures=norm_postures,
                 reason=reason,
             )
             self.leases.write(rec.lease(heartbeat_ns=now, ttl_s=self.leases.ttl_s))

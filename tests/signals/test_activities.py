@@ -183,6 +183,51 @@ def test_generic_kind_uses_coord_activity_without_pool(leases):
     assert not [c for c in fake.calls if c[0] == "ensure_pool"]
 
 
+def test_decisions_kind_is_the_whole_box_handover(leases):
+    """Kind decisions replaces the caller's claims with heavy 4 + light 2.
+
+    Signals stamps federation.gpu=yield. Light and heavy are claims, so a
+    caller that precluded them is ignored. Other GPU leaves are precluded.
+    """
+    fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
+    svc = _svc(fake, clock, leases)
+    req = scheduler_pb2.DeclareActivityRequest(
+        peer="gaius",
+        request_id="dec-1",
+        kind="decisions",
+        owner="gaius-decisions-probe",
+        horizon_ns=2_000 * NS,
+        reason="bulk classifications",
+    )
+    req.claims.add(leaf="root.internal.inference.light", gpu=1)
+    req.precludes.append("root.internal.inference.light")
+    req.precludes.append("root.internal.inference.heavy")
+    a = svc.declare(req)
+    proto = a.to_proto()
+    assert {c.leaf: c.gpu for c in proto.claims} == {
+        "root.internal.inference.heavy": 4,
+        "root.internal.inference.light": 2,
+    }
+    assert proto.postures["federation.gpu"] == "yield"
+    precluded = list(proto.precludes)
+    assert precluded == [
+        "root.internal.inference.agent-rtc",
+        "root.internal.inference.medium",
+        "root.internal.inference.extract",
+    ]
+    conf = fake.runs[a.run_id]["conf"]
+    assert conf["postures"]["federation.gpu"] == "yield"
+    assert conf["claims"] == [
+        {"leaf": "root.internal.inference.heavy", "gpu": 4},
+        {"leaf": "root.internal.inference.light", "gpu": 2},
+    ]
+    assert "root.internal.inference.light" not in conf["precludes"]
+    assert act.PRIORITY_BY_KIND["decisions"] == 200
+    lease = leases.read(a.activity_id)
+    assert lease["postures"]["federation.gpu"] == "yield"
+    assert lease["kind"] == "decisions"
+
+
 def test_declare_refuses_unknown_peer_and_past_horizon(leases):
     fake, clock = FakeAirflow(), Clock(1_000 * NS)
     svc = _svc(fake, clock, leases)
