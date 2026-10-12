@@ -175,6 +175,27 @@ def test_list_active_only_skips_ended_lease_fetches(leases):
     assert not any(c[0] == "list_runs" or (c[0] == "list_dag_runs") for c in fake.calls)
 
 
+def test_kind_scoped_list_skips_ended_history(leases):
+    """A kind poll with active_only false is still a liveness read.
+
+    The decisions handover lists kind=decisions inside a 15 s RPC. Fetching
+    every ended lease makes that poll miss the live activity.
+    """
+    fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
+    svc = _svc(fake, clock, leases)
+    old = svc.declare(_declare_req(request_id="old"))
+    svc.release("hermes", old.activity_id, "done")
+    fake.finish(old.run_id)
+    clock.ns = 1_000 * NS + 601 * NS
+    new = svc.declare(_declare_req(request_id="new"))
+    fake.calls.clear()
+    recs = svc.list(peer="hermes", kind="interactive_session", active_only=False)
+    assert [r.activity_id for r in recs] == [new.activity_id]
+    fetched = [c[1] for c in fake.calls if c[0] == "get_run"]
+    assert old.run_id not in fetched
+    assert new.run_id in fetched
+
+
 def test_generic_kind_uses_coord_activity_without_pool(leases):
     fake, clock = FakeAirflow(paused=False), Clock(1_000 * NS)
     svc = _svc(fake, clock, leases)

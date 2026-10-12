@@ -719,11 +719,13 @@ class ActivityService:
         limit: int = 0,
     ) -> list[ActivityRecord]:
         # active_only is Connect's stale-release: in-force leases have no
-        # ended_ns so they stay in the recent set. Walking every historical
-        # schedule-declared lease serializes GET /dagRuns per file and blows
-        # the peer's 15 s gRPC deadline.
+        # ended_ns so they stay in the recent set. A kind-scoped read is the
+        # same liveness check (the decisions handover polls kind=decisions
+        # inside a 15 s RPC). Walking every historical schedule-declared
+        # lease serializes GET /dagRuns per file and blows that deadline;
+        # the caller then reports the live activity as absent.
         out = []
-        for r in self._records(recent_only=bool(active_only)):
+        for r in self._records(recent_only=bool(active_only or kind)):
             if peer and r.peer != peer:
                 continue
             if kind and r.kind != kind:
