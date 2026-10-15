@@ -280,7 +280,7 @@
       "project_status": "optagent",
       "grpc_port": 50851,
       "pg_port": 5599,
-      "dashboard_http": "http://127.0.0.1:9892",
+      "dashboard_http": "http://tinybox.dev.vista.zndx.org:9892",
       "license": "Apache-2.0",
       "path_hint": "~/local/src/zndx/optagent",
       "unit": "optagent.service",
