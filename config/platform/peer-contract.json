@@ -97,7 +97,8 @@
     "5555": "aegir",
     "5566": "synth",
     "5577": "metabase engine DB (not ASL2 signals)",
-    "5588": "semantica admin DB (heavy tables are warehouse Kudu tier0 via impala_fdw)"
+    "5588": "semantica admin DB (heavy tables are warehouse Kudu tier0 via impala_fdw)",
+    "5599": "optagent"
   },
   "engine_grpc_lattice": {
     "gaius": 50051,
@@ -107,6 +108,7 @@
     "metabase": 50451,
     "hermes": 50651,
     "semantica": 50751,
+    "optagent": 50851,
     "service": "zndx.engine.v1.Engine",
     "proto": "components/signals-protocol/proto/zndx/engine/v1/engine.proto",
     "server_reflection": {
@@ -269,6 +271,27 @@
         "HTTP :8070 because the upstream default :8000 is held by optillm on this lab host.",
         "Waffle lists it from engine_grpc_lattice via Signals ServerQuery PEERS, then Status.surfaces.",
         "Admin Postgres :5588. Heavy node, edge, provenance, and chunk tables are signals_dataproducts.semantica_*_tier0 (Kudu via impala_fdw). Iceberg is the settle tier."
+      ],
+      "architecture_class": "core_federated_engine"
+    },
+    {
+      "id": "optagent",
+      "capability_hint": "signals-snapshot",
+      "project_status": "optagent",
+      "grpc_port": 50851,
+      "pg_port": 5599,
+      "dashboard_http": "http://127.0.0.1:9892",
+      "license": "Apache-2.0",
+      "path_hint": "~/local/src/zndx/optagent",
+      "unit": "optagent.service",
+      "after": [
+        "signals-ready.service"
+      ],
+      "notes": [
+        "Product UI :9892. Engine :50851 with server reflection. Postgres :5599.",
+        "Unit Exec*: optagent scripts/systemd_{start,stop}.sh. PartOf/WantedBy signals.target.",
+        "Does not bind signals :5455 or RustFS :9010. Sample mode reads a signals-snapshot pointer.",
+        "Status.endpoints is empty: this engine does not host a model."
       ],
       "architecture_class": "core_federated_engine"
     },
