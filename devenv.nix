@@ -1524,6 +1524,28 @@ in
       KRB_ARGS=( --principal="impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG}" --keytab_file="$IMPALA_KEYTAB" )
       echo "Impala Daemon Kerberos required (HS2 → $HOST_ARG:21050 principal=impala/$KRB_HOST@''${KRB5_REALM:-DEV.VISTA.ZNDX.ORG})"
 
+      # IcebergMetaProvider connects once, inside Frontend init. A refused
+      # Polaris (connection refused on :8181) is logged and the provider is
+      # dropped for the life of this process, so every tier1 table — including
+      # signal_tier1 behind the signal view — stays unresolved
+      # (#COG.00000031.NOWHFDW) until the next start.
+      echo "Waiting for Polaris before Impala Frontend init..."
+      polaris_ready=0
+      for i in $(seq 1 60); do
+        if curl -sf -o /dev/null http://127.0.0.1:8182/q/health/ready; then
+          polaris_ready=1
+          break
+        fi
+        sleep 1
+      done
+      if [ "$polaris_ready" != 1 ]; then
+        echo "ERROR: Polaris not ready on :8182 after 60s."
+        echo "  Impala would drop the Iceberg catalog for the life of this process."
+        echo "  Guru: #COG.00000031.NOWHFDW"
+        echo "  Try: devenv processes restart polaris, then restart impala-impalad"
+        exit 1
+      fi
+
       echo "Starting Impala Daemon on hs2://$HOST_ARG:21050..."
       ${impalaRunFn}
       impala_run "$IMPALA_HOME/be/build/latest/service/impalad" \
@@ -1549,6 +1571,8 @@ in
     process-compose = {
       depends_on = {
         impala-catalogd = { condition = "process_healthy"; };
+        # Frontend init talks to Polaris once. Starting beside it drops Iceberg.
+        polaris = { condition = "process_healthy"; };
       };
       readiness_probe = {
         exec.command = "curl -sf -o /dev/null http://127.0.0.1:25000/";
