@@ -138,6 +138,15 @@
       "kind": "warehouse",
       "leaf": "root.platform",
       "agent_focus": "Typed FMP catalog rows on signals_dataproducts.fmp_*_tier0 (profile, filings, earnings) projected as Postgres warehouse.v_fmp_* for Metabase. Quality = flatten contracts (symbol required, market_cap DOUBLE). Lineage = FmpCall tool name + scheduled_tasks id. Delta = new as_of vs prior ts_ns. Nominal = ProjectWarehouse fields_projected > 0 on the Metabase peer (not Gaius :3100 meta.*)."
+    },
+    {
+      "id": "optagent.tracing.enriched",
+      "peer": "optagent",
+      "title": "Enriched agent traces",
+      "kind": "trace",
+      "leaf": "root.platform",
+      "spec_id": "signals.spec.warehouse_product",
+      "agent_focus": "Iteration 1 is the baseline enriched-trace projection on s3://signals-dataproducts/optagent/tracing/enriched/1. Quality is readable admitted passages and the short links they carry. Lineage is the source snapshot id, aperture tau, and the TypeSafe model when one was called. Delta for the first tx is that there is no prior product version. Later iterations keep this object and may add factor fields. A missing factor is not a score. Overwatch sessions are part of the observation. Nominal means the object matches the projection."
     }
   ]
 }
