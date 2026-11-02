@@ -32,6 +32,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from signals.chromium_hold import CHROMIUM_156_GURU, refuse_chromium_156
+
 __all__ = [
     "chromium_executable",
     "launch_chromium",
@@ -139,7 +141,18 @@ def launch_chromium(
     slow = os.environ.get("SIGNALS_BROWSER_SLOW_MO_MS", "").strip()
     if slow.isdigit():
         launch_kwargs["slow_mo"] = int(slow)
-    if exe:
-        launch_kwargs["executable_path"] = exe
+    target = exe
+    if not target:
+        bundled = getattr(getattr(playwright, "chromium", None), "executable_path", None)
+        if bundled and Path(str(bundled)).is_file():
+            target = str(bundled)
+    if not target:
+        raise RuntimeError(
+            f"{CHROMIUM_156_GURU} refusing to launch Chromium: no binary was "
+            "available to version-check, so an install could fetch Chromium 156.\n"
+            "  Set SIGNALS_CHROMIUM_PATH to a Chromium whose major version is not 156."
+        )
+    refuse_chromium_156(target)
+    launch_kwargs["executable_path"] = target
 
     return playwright.chromium.launch(**launch_kwargs)
